@@ -1,0 +1,8 @@
+{
+  "name": "pinflow-vercel-notion-example",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "npx serve public"
+  }
+}

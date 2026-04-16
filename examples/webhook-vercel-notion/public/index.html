@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pinflow — Vercel + Notion Example</title>
+  <style>
+    body { font-family: system-ui; max-width: 600px; margin: 60px auto; padding: 0 24px; }
+    h1 { font-size: 1.5rem; }
+    p { color: #64748b; line-height: 1.6; margin-top: 8px; }
+    code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+    button { margin-top: 24px; padding: 12px 24px; background: #000; color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Vercel + Notion Example</h1>
+  <p>
+    When a reviewer taps "Send to builder", each comment is written as a page
+    in a Notion database via a Vercel serverless function.
+  </p>
+  <button data-testid="cta">Annotate me</button>
+
+  <script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="notion-demo"></script>
+  <script>
+    window.Pinflow.init({
+      project: 'notion-demo',
+      onSubmit: async (payload) => {
+        await fetch('/api/feedback', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      },
+    });
+  </script>
+</body>
+</html>

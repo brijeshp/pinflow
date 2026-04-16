@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pinflow — Slack Webhook</title>
+  <style>
+    body { font-family: system-ui; max-width: 600px; margin: 60px auto; padding: 0 24px; }
+    h1 { font-size: 1.5rem; }
+    p { color: #64748b; line-height: 1.6; margin-top: 8px; }
+    code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+    button { margin-top: 24px; padding: 12px 24px; background: #4a154b; color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Slack Webhook Example</h1>
+  <p>
+    Comments are sent to a Slack channel via incoming webhook when the reviewer
+    taps "Send to builder". Replace <code>SLACK_WEBHOOK_URL</code> below.
+  </p>
+  <button data-testid="cta">Click me to test annotation</button>
+
+  <script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="slack-demo"></script>
+  <script>
+    const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL';
+
+    window.Pinflow.init({
+      project: 'slack-demo',
+      onSubmit: async (payload) => {
+        const blocks = payload.comments.map((c) => ({
+          type: 'section',
+          text: {
+            type: 'mrkdwn',
+            text: `*${c.anchor.textFingerprint || 'element'}* (${c.route})\n> ${c.text}`,
+          },
+        }));
+        await fetch(SLACK_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            text: `Pinflow feedback from ${payload.reviewer}`,
+            blocks: [
+              { type: 'header', text: { type: 'plain_text', text: `Feedback from ${payload.reviewer}` } },
+              ...blocks,
+            ],
+          }),
+        });
+      },
+    });
+  </script>
+</body>
+</html>

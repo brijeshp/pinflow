@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pinflow — Discord Webhook</title>
+  <style>
+    body { font-family: system-ui; max-width: 600px; margin: 60px auto; padding: 0 24px; }
+    h1 { font-size: 1.5rem; }
+    p { color: #64748b; line-height: 1.6; margin-top: 8px; }
+    code { background: #f1f5f9; padding: 2px 6px; border-radius: 4px; font-size: 0.9em; }
+    button { margin-top: 24px; padding: 12px 24px; background: #5865f2; color: #fff; border: 0; border-radius: 8px; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <h1>Discord Webhook Example</h1>
+  <p>
+    When a reviewer taps "Send to builder", comments are posted to a Discord channel
+    via webhook. Replace <code>DISCORD_WEBHOOK_URL</code> below with your own.
+  </p>
+  <button data-testid="cta">Click me to test annotation</button>
+
+  <script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="discord-demo"></script>
+  <script>
+    const DISCORD_WEBHOOK_URL = 'https://discord.com/api/webhooks/YOUR_ID/YOUR_TOKEN';
+
+    window.Pinflow.init({
+      project: 'discord-demo',
+      onSubmit: async (payload) => {
+        const lines = payload.comments.map(
+          (c) => `**${c.anchor.textFingerprint || 'element'}** (${c.route})\n> ${c.text}`
+        );
+        const content = `**Pinflow feedback from ${payload.reviewer}**\n${lines.join('\n\n')}`;
+        await fetch(DISCORD_WEBHOOK_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content }),
+        });
+      },
+    });
+  </script>
+</body>
+</html>
