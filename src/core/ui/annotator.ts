@@ -11,6 +11,7 @@ import {
   upsertComment,
 } from '../storage';
 import type { Comment, Mode, PinflowConfig, ReviewerStore } from '../types';
+import { routeKey } from '../route-key';
 import { createUIRoot, flipPosition, type UIRoot } from './dom';
 
 interface AnnotatorDeps {
@@ -50,6 +51,10 @@ export class Annotator {
   }
 
   refreshRoute(): void {
+    if (this.activeInput) {
+      this.activeInput.wrap.remove();
+      this.activeInput = null;
+    }
     this.renderPins();
   }
 
@@ -187,7 +192,7 @@ export class Annotator {
     e.preventDefault();
     e.stopPropagation();
     const anchor = buildAnchor(target, e.clientX, e.clientY);
-    const route = window.location.pathname + window.location.search;
+    const route = routeKey();
     const now = new Date().toISOString();
     const comment: Comment = {
       id: createId(),
@@ -206,7 +211,7 @@ export class Annotator {
   };
 
   private visibleComments(): Array<Comment & { reviewer?: string }> {
-    const route = window.location.pathname + window.location.search;
+    const route = routeKey();
     if (this.deps.mode === 'builder') {
       const stores = loadAllStores(this.deps.storage, this.deps.config.project);
       return stores.flatMap((s) =>

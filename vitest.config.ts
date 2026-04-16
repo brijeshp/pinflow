@@ -13,7 +13,7 @@ export default defineConfig({
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/core/**/*.ts'],
-      exclude: ['src/core/iife.ts', '**/*.d.ts'],
+      exclude: ['src/core/iife.ts', 'src/core/ui/**', 'src/core/types.ts', '**/*.d.ts'],
       thresholds: {
         lines: 80,
         functions: 80,

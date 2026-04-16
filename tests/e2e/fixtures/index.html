@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Pinflow E2E Fixture</title>
+  <style>
+    body { font-family: system-ui; margin: 0; padding: 40px; }
+    main { max-width: 800px; margin: 0 auto; }
+    h1 { font-size: 2rem; }
+    button.cta { padding: 12px 24px; background: #2563eb; color: #fff; border: 0; border-radius: 8px; cursor: pointer; font-size: 16px; }
+    .section { padding: 40px 0; }
+    nav a { margin-right: 16px; color: #2563eb; cursor: pointer; }
+  </style>
+</head>
+<body>
+  <main>
+    <nav>
+      <a href="/" data-link>Home</a>
+      <a href="/pricing" data-link>Pricing</a>
+    </nav>
+    <div id="app">
+      <div class="section" data-page="home">
+        <h1>Welcome to TestApp</h1>
+        <p>This is a prototype for e2e testing.</p>
+        <button class="cta" data-testid="primary-cta">Get started for free</button>
+      </div>
+    </div>
+  </main>
+  <script>
+    // Minimal SPA router for the fixture
+    const pages = {
+      '/': `
+        <div class="section" data-page="home">
+          <h1>Welcome to TestApp</h1>
+          <p>This is a prototype for e2e testing.</p>
+          <button class="cta" data-testid="primary-cta">Get started for free</button>
+        </div>`,
+      '/pricing': `
+        <div class="section" data-page="pricing">
+          <h1>Pricing</h1>
+          <p>Choose a plan that works for you.</p>
+          <button class="cta" data-testid="pricing-cta">Buy now</button>
+        </div>`,
+    };
+    function navigate(path) {
+      history.pushState({}, '', path);
+      document.getElementById('app').innerHTML = pages[path] || pages['/'];
+    }
+    window.addEventListener('popstate', () => navigate(location.pathname));
+    document.querySelectorAll('[data-link]').forEach(a => {
+      a.addEventListener('click', e => { e.preventDefault(); navigate(a.getAttribute('href')); });
+    });
+  </script>
+  <script src="/dist/pinflow.iife.js" data-project="e2e-test"></script>
+</body>
+</html>
