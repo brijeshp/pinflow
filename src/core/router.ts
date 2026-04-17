@@ -1,18 +1,18 @@
-type Listener = (route: string) => void;
-
 export interface RouteWatcher {
   stop(): void;
-  current(): string;
 }
 
-function currentRoute(): string {
+function current(): string {
   return window.location.pathname + window.location.search;
 }
 
-export function watchRoute(onChange: Listener): RouteWatcher {
-  let route = currentRoute();
-  const emit = () => {
-    const next = currentRoute();
+// Patches history.push/replaceState so SPA nav fires `onChange`, then
+// restores the originals on `stop()`. `queueMicrotask` lets the nav
+// complete before we re-read `location`.
+export function watchRoute(onChange: (route: string) => void): RouteWatcher {
+  let route = current();
+  const emit = (): void => {
+    const next = current();
     if (next !== route) {
       route = next;
       onChange(route);
@@ -21,18 +21,16 @@ export function watchRoute(onChange: Listener): RouteWatcher {
 
   const origPush = history.pushState;
   const origReplace = history.replaceState;
-
-  history.pushState = function (this: History, ...args: Parameters<typeof origPush>) {
+  history.pushState = function (this: History, ...args: Parameters<History['pushState']>) {
     const r = origPush.apply(this, args);
     queueMicrotask(emit);
     return r;
   };
-  history.replaceState = function (this: History, ...args: Parameters<typeof origReplace>) {
+  history.replaceState = function (this: History, ...args: Parameters<History['replaceState']>) {
     const r = origReplace.apply(this, args);
     queueMicrotask(emit);
     return r;
   };
-
   window.addEventListener('popstate', emit);
   window.addEventListener('hashchange', emit);
 
@@ -43,7 +41,6 @@ export function watchRoute(onChange: Listener): RouteWatcher {
       window.removeEventListener('popstate', emit);
       window.removeEventListener('hashchange', emit);
     },
-    current: () => route,
   };
 }
 

@@ -40,6 +40,9 @@ for (const target of [globalThis, typeof window !== 'undefined' ? window : undef
   });
 }
 
+// React 18+ reads this as a global to silence act(...) warnings in tests.
+(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
 // Provide CSS.escape if the DOM env omits it.
 const g = globalThis as { CSS?: { escape?: (s: string) => string } };
 if (typeof g.CSS === 'undefined') {

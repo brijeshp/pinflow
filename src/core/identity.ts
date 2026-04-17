@@ -1,4 +1,6 @@
-const NAME_KEY_PREFIX = 'pinflow:reviewer';
+// Namespaced under `pinflow:r:` to avoid colliding with the comments store
+// prefix (`pinflow:c:`) used in storage.ts.
+const NAME_KEY_PREFIX = 'pinflow:r';
 
 export interface IdentityDeps {
   url?: string;

@@ -12,14 +12,14 @@ describe('identity', () => {
   });
 
   it('URL wins over storage', () => {
-    localStorage.setItem('pinflow:reviewer:p', 'Old');
+    localStorage.setItem('pinflow:r:p', 'Old');
     const name = resolveReviewer({ url: 'http://x/?reviewer=New', storage: localStorage, project: 'p' });
     expect(name).toBe('New');
-    expect(localStorage.getItem('pinflow:reviewer:p')).toBe('New');
+    expect(localStorage.getItem('pinflow:r:p')).toBe('New');
   });
 
   it('storage wins when URL absent', () => {
-    localStorage.setItem('pinflow:reviewer:p', 'Mike');
+    localStorage.setItem('pinflow:r:p', 'Mike');
     expect(resolveReviewer({ url: 'http://x/', storage: localStorage, project: 'p' })).toBe('Mike');
   });
 
@@ -27,7 +27,7 @@ describe('identity', () => {
     const prompt = vi.fn().mockReturnValue('Jen');
     const name = resolveReviewer({ url: 'http://x/', storage: localStorage, project: 'p', prompt });
     expect(name).toBe('Jen');
-    expect(localStorage.getItem('pinflow:reviewer:p')).toBe('Jen');
+    expect(localStorage.getItem('pinflow:r:p')).toBe('Jen');
   });
 
   it('returns null when prompt cancelled and nothing cached', () => {

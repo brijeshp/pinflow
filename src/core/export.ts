@@ -5,6 +5,13 @@ export interface ExportMeta {
   project: string;
 }
 
+export interface ExportOptions {
+  // Called per-comment to decide if the anchor still resolves. Comments for
+  // which this returns true are pulled into the "Orphaned comments" section
+  // (spec §5.2, §7.2). Default: all comments considered live.
+  isOrphaned?: (comment: Comment) => boolean;
+}
+
 function tagFromCss(css: string): string {
   const last = css.split('>').pop()?.trim() ?? '';
   const tag = last.split(/[.:#[]/)[0];
@@ -55,23 +62,35 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
   ].join('\n');
 }
 
+function orphanBlock(comment: Comment & { reviewer?: string }, index: number): string {
+  const heading = comment.reviewer
+    ? `### Comment ${index} — ${comment.reviewer}, ${comment.createdAt}`
+    : `### Comment ${index} — ${comment.createdAt}`;
+  return [
+    heading,
+    `**Last known element:** ${elementLabel(comment)}`,
+    `**Last known selector:** \`${comment.anchor.selectors.css}\``,
+    `**Route:** ${comment.route}`,
+    '',
+    `> ${comment.text.replace(/\r?\n/g, '\n> ')}`,
+  ].join('\n');
+}
+
 interface RouteGroup {
   route: string;
   comments: Array<Comment & { reviewer?: string }>;
 }
 
-function groupByRoute(
-  comments: Array<Comment & { reviewer?: string }>,
-): RouteGroup[] {
+function groupByRoute(comments: Array<Comment & { reviewer?: string }>): RouteGroup[] {
   const map = new Map<string, RouteGroup>();
   for (const c of comments) {
     const g = map.get(c.route) ?? { route: c.route, comments: [] };
     g.comments.push(c);
     map.set(c.route, g);
   }
-  const groups = Array.from(map.values());
-  groups.sort((a, b) => b.comments.length - a.comments.length || a.route.localeCompare(b.route));
-  return groups;
+  return Array.from(map.values()).sort(
+    (a, b) => b.comments.length - a.comments.length || a.route.localeCompare(b.route),
+  );
 }
 
 function routesCovered(groups: RouteGroup[]): string {
@@ -82,28 +101,62 @@ function routesCovered(groups: RouteGroup[]): string {
     .join(', ');
 }
 
-export function exportReviewer(store: ReviewerStore, meta: ExportMeta): string {
-  const comments = store.comments;
-  const groups = groupByRoute(comments);
+function partitionOrphans<T extends Comment>(
+  comments: T[],
+  isOrphaned?: (c: Comment) => boolean,
+): { live: T[]; orphaned: T[] } {
+  if (!isOrphaned) return { live: comments, orphaned: [] };
+  const live: T[] = [];
+  const orphaned: T[] = [];
+  for (const c of comments) (isOrphaned(c) ? orphaned : live).push(c);
+  return { live, orphaned };
+}
+
+function orphanSection(orphaned: Array<Comment & { reviewer?: string }>): string {
+  if (orphaned.length === 0) return '';
+  const blocks = orphaned.map((c, i) => orphanBlock(c, i + 1)).join('\n\n---\n\n');
+  return [
+    '## Orphaned comments',
+    '',
+    'The following comments were left on elements that no longer exist in the current DOM. They are preserved here for context.',
+    '',
+    blocks,
+  ].join('\n');
+}
+
+function bodyFromGroups(groups: RouteGroup[], withReviewer: boolean): string {
+  return groups
+    .map((g) => {
+      const blocks = g.comments.map((c, i) =>
+        commentBlock(c, i + 1, withReviewer ? c.reviewer : undefined),
+      );
+      return [`## Route: ${g.route}`, '', blocks.join('\n\n---\n\n')].join('\n');
+    })
+    .join('\n\n---\n\n');
+}
+
+export function exportReviewer(
+  store: ReviewerStore,
+  meta: ExportMeta,
+  options: ExportOptions = {},
+): string {
+  const { live, orphaned } = partitionOrphans(store.comments, options.isOrphaned);
+  const groups = groupByRoute(live);
   const header = [
     `# Feedback for ${meta.project} — from ${store.reviewer}`,
     '',
     `Generated: ${meta.generatedAt}`,
     `Reviewer: ${store.reviewer}`,
-    `Total comments: ${comments.length}`,
+    `Total comments: ${store.comments.length}`,
     `Routes covered: ${routesCovered(groups)}`,
     '',
     '---',
   ].join('\n');
 
-  const body = groups
-    .map((g) => {
-      const blocks = g.comments.map((c, i) => commentBlock(c, i + 1));
-      return [`## Route: ${g.route}`, '', blocks.join('\n\n---\n\n')].join('\n');
-    })
-    .join('\n\n---\n\n');
-
-  return [header, body].filter(Boolean).join('\n\n') + '\n';
+  const parts = [header, bodyFromGroups(groups, false)];
+  const orphan = orphanSection(orphaned);
+  if (orphan) parts.push('---', orphan);
+  return parts.filter(Boolean).join('\n\n') + '\n';
 }
 
 function summarize(
@@ -131,22 +184,26 @@ function summarize(
   ].join('\n');
 }
 
-export function exportBuilder(stores: ReviewerStore[], meta: ExportMeta): string {
+export function exportBuilder(
+  stores: ReviewerStore[],
+  meta: ExportMeta,
+  options: ExportOptions = {},
+): string {
   const reviewers = stores.map((s) => s.reviewer);
   const allComments: Array<Comment & { reviewer: string }> = stores.flatMap((s) =>
     s.comments.map((c) => ({ ...c, reviewer: s.reviewer })),
   );
+  const { live, orphaned } = partitionOrphans(allComments, options.isOrphaned);
   const byReviewer = new Map<string, number>();
-  for (const c of allComments) byReviewer.set(c.reviewer, (byReviewer.get(c.reviewer) ?? 0) + 1);
+  for (const c of live) byReviewer.set(c.reviewer, (byReviewer.get(c.reviewer) ?? 0) + 1);
 
-  const groups = groupByRoute(allComments);
-  const totalComments = allComments.length;
+  const groups = groupByRoute(live);
 
   const header = [
     `# Feedback for ${meta.project}`,
     '',
     `Generated: ${meta.generatedAt}`,
-    `Reviewers: ${reviewers.join(', ')} (${reviewers.length} total, ${totalComments} comments)`,
+    `Reviewers: ${reviewers.join(', ')} (${reviewers.length} total, ${allComments.length} comments)`,
     `Routes covered: ${routesCovered(groups)}`,
     '',
     '---',
@@ -156,14 +213,10 @@ export function exportBuilder(stores: ReviewerStore[], meta: ExportMeta): string
     '---',
   ].join('\n');
 
-  const body = groups
-    .map((g) => {
-      const blocks = g.comments.map((c, i) => commentBlock(c, i + 1, c.reviewer));
-      return [`## Route: ${g.route}`, '', blocks.join('\n\n---\n\n')].join('\n');
-    })
-    .join('\n\n---\n\n');
-
-  return [header, body].filter(Boolean).join('\n\n') + '\n';
+  const parts = [header, bodyFromGroups(groups, true)];
+  const orphan = orphanSection(orphaned);
+  if (orphan) parts.push('---', orphan);
+  return parts.filter(Boolean).join('\n\n') + '\n';
 }
 
 export function exportFilename(

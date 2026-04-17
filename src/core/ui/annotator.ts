@@ -2,25 +2,28 @@ import { anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
 import { copyToClipboard, downloadMarkdown } from '../download';
 import { exportBuilder, exportFilename, exportReviewer } from '../export';
 import { createId } from '../id';
+import { now } from '../time';
+import { routeKey } from '../route-key';
 import {
   deleteComment as deleteCommentFromStore,
   emptyStore,
   loadAllStores,
   loadStore,
   saveStore,
+  storageKey,
   upsertComment,
 } from '../storage';
 import type { Comment, Mode, PinflowConfig, ReviewerStore } from '../types';
-import { routeKey } from '../route-key';
 import { createUIRoot, flipPosition, type UIRoot } from './dom';
 
 interface AnnotatorDeps {
   config: Required<Pick<PinflowConfig, 'project'>> & PinflowConfig;
   reviewer: string;
   mode: Mode;
-  onRouteChange?: (route: string) => void;
   storage: Storage;
 }
+
+type PositionCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 
 export class Annotator {
   private readonly ui: UIRoot;
@@ -31,6 +34,7 @@ export class Annotator {
   private activeInput: { wrap: HTMLDivElement; commentId: string } | null = null;
   private controlEl!: HTMLButtonElement;
   private panelEl: HTMLDivElement | null = null;
+  private reflowFrame = 0;
 
   constructor(deps: AnnotatorDeps) {
     this.deps = deps;
@@ -47,23 +51,35 @@ export class Annotator {
   destroy(): void {
     window.removeEventListener('resize', this.onReflow);
     window.removeEventListener('scroll', this.onReflow);
+    if (this.annotating) this.exitAnnotateMode();
+    if (this.reflowFrame) cancelAnimationFrame(this.reflowFrame);
     this.ui.destroy();
   }
 
   refreshRoute(): void {
-    if (this.activeInput) {
-      this.activeInput.wrap.remove();
-      this.activeInput = null;
-    }
+    this.closeActiveInput();
     this.renderPins();
   }
 
+  // Scroll/resize only moves existing pins — it never adds or removes them.
+  // Re-creating DOM on every scroll frame caused jank; instead, rAF-throttle
+  // and just translate existing pin elements.
   private onReflow = (): void => {
-    this.renderPins(true);
+    if (this.reflowFrame) return;
+    this.reflowFrame = requestAnimationFrame(() => {
+      this.reflowFrame = 0;
+      this.repositionPins();
+      if (this.panelEl) this.positionPanel();
+      if (this.activeInput) this.positionInputNearPin(this.activeInput.wrap, this.activeInput.commentId);
+    });
   };
 
   private persist(): void {
     saveStore(this.deps.storage, this.store);
+  }
+
+  private position(): PositionCorner {
+    return (this.deps.config.position as PositionCorner) ?? 'bottom-right';
   }
 
   private renderControl(): void {
@@ -72,10 +88,9 @@ export class Annotator {
     btn.className = 'control';
     btn.type = 'button';
     btn.dataset['active'] = 'false';
-    const pos = this.deps.config.position ?? 'bottom-right';
-    const [v, h] = pos.split('-');
-    btn.style.setProperty(v as 'bottom' | 'top', '16px');
-    btn.style.setProperty(h as 'left' | 'right', '16px');
+    const [v, h] = this.position().split('-') as ['bottom' | 'top', 'left' | 'right'];
+    btn.style.setProperty(v, '16px');
+    btn.style.setProperty(h, '16px');
     btn.textContent = this.controlLabel();
     btn.addEventListener('click', () => this.togglePanel());
     this.ui.root.appendChild(btn);
@@ -90,8 +105,7 @@ export class Annotator {
 
   private togglePanel(): void {
     if (this.panelEl) {
-      this.panelEl.remove();
-      this.panelEl = null;
+      this.closePanel();
       return;
     }
     this.panelEl =
@@ -100,6 +114,13 @@ export class Annotator {
     this.positionPanel();
   }
 
+  private closePanel(): void {
+    this.panelEl?.remove();
+    this.panelEl = null;
+  }
+
+  // Anchor panel to the control and flip away from the nearest viewport edge
+  // based on which corner the control sits in.
   private positionPanel(): void {
     if (!this.panelEl) return;
     const rect = this.controlEl.getBoundingClientRect();
@@ -108,8 +129,11 @@ export class Annotator {
       height: this.panelEl.offsetHeight || 180,
     };
     const vp = { width: window.innerWidth, height: window.innerHeight };
-    const anchor = { left: rect.left, top: rect.top - size.height - 8 };
-    const pos = flipPosition(anchor, size, vp);
+    const [v, h] = this.position().split('-') as ['bottom' | 'top', 'left' | 'right'];
+    // Start anchored at the control; pick the edge that has room.
+    const anchorLeft = h === 'left' ? rect.left : rect.right - size.width;
+    const anchorTop = v === 'bottom' ? rect.top - size.height - 8 : rect.bottom + 8;
+    const pos = flipPosition({ left: anchorLeft, top: anchorTop }, size, vp, 0);
     this.panelEl.style.left = `${pos.left}px`;
     this.panelEl.style.top = `${pos.top}px`;
   }
@@ -118,19 +142,26 @@ export class Annotator {
     const panel = document.createElement('div');
     panel.className = 'panel';
     const count = this.store.comments.length;
-    panel.innerHTML = `
-      <h3>You have ${count} comment${count === 1 ? '' : 's'}</h3>
-      <p>Click the button below, then tap any element on the page to pin a comment.</p>
-      <div class="row">
-        <button type="button" class="primary" data-act="annotate">${this.annotating ? 'Stop' : 'Add comment'}</button>
-        <button type="button" data-act="export">Export & share</button>
-      </div>
-    `;
+    const h3 = document.createElement('h3');
+    h3.textContent = `You have ${count} comment${count === 1 ? '' : 's'}`;
+    const p = document.createElement('p');
+    p.textContent = 'Click the button below, then tap any element on the page to pin a comment.';
+    const row = document.createElement('div');
+    row.className = 'row';
+    const annotateBtn = this.makeButton(
+      this.annotating ? 'Stop' : 'Add comment',
+      'annotate',
+      'primary',
+    );
+    const exportBtn = this.makeButton('Export & share', 'export');
+    row.append(annotateBtn, exportBtn);
+    panel.append(h3, p, row);
     if (this.deps.config.onSubmit) {
-      panel.insertAdjacentHTML(
-        'beforeend',
-        '<div class="row" style="margin-top:8px"><button type="button" data-act="submit">Send to builder</button></div>',
-      );
+      const row2 = document.createElement('div');
+      row2.className = 'row';
+      row2.style.marginTop = '8px';
+      row2.appendChild(this.makeButton('Send to builder', 'submit'));
+      panel.appendChild(row2);
     }
     panel.addEventListener('click', (e) => {
       const act = (e.target as HTMLElement).closest('button')?.dataset['act'];
@@ -141,27 +172,41 @@ export class Annotator {
     return panel;
   }
 
+  // Built imperatively to keep reviewer names out of innerHTML.
   private renderBuilderPanel(): HTMLDivElement {
     const drawer = document.createElement('div');
     drawer.className = 'drawer';
     const stores = loadAllStores(this.deps.storage, this.deps.config.project);
-    const reviewers = stores.map((s) => ({
-      name: s.reviewer,
-      count: s.comments.length,
-    }));
-    drawer.innerHTML = `
-      <h3>Builder mode</h3>
-      ${reviewers
-        .map(
-          (r) =>
-            `<label><input type="checkbox" data-reviewer="${r.name}" checked> ${r.name} (${r.count})</label>`,
-        )
-        .join('')}
-      <div class="bar">
-        <button type="button" data-act="export">Export all</button>
-        <button type="button" class="danger" data-act="clear">Clear all</button>
-      </div>
-    `;
+
+    const h3 = document.createElement('h3');
+    h3.textContent = 'Builder mode';
+    drawer.appendChild(h3);
+
+    if (stores.length === 0) {
+      const empty = document.createElement('p');
+      empty.textContent = 'No comments yet.';
+      empty.style.opacity = '0.7';
+      drawer.appendChild(empty);
+    } else {
+      for (const s of stores) {
+        const label = document.createElement('label');
+        const cb = document.createElement('input');
+        cb.type = 'checkbox';
+        cb.checked = true;
+        cb.dataset['reviewer'] = s.reviewer;
+        label.appendChild(cb);
+        label.appendChild(document.createTextNode(` ${s.reviewer} (${s.comments.length})`));
+        drawer.appendChild(label);
+      }
+    }
+
+    const bar = document.createElement('div');
+    bar.className = 'bar';
+    bar.appendChild(this.makeButton('Export all', 'export'));
+    const clear = this.makeButton('Clear all', 'clear', 'danger');
+    bar.appendChild(clear);
+    drawer.appendChild(bar);
+
     drawer.addEventListener('click', (e) => {
       const act = (e.target as HTMLElement).closest('button')?.dataset['act'];
       if (act === 'export') this.handleBuilderExport();
@@ -170,43 +215,64 @@ export class Annotator {
     return drawer;
   }
 
-  private toggleAnnotateMode(): void {
-    this.annotating = !this.annotating;
-    this.controlEl.dataset['active'] = String(this.annotating);
-    if (this.annotating) {
-      document.addEventListener('click', this.onDocumentClick, true);
-      document.body.style.cursor = 'crosshair';
-    } else {
-      document.removeEventListener('click', this.onDocumentClick, true);
-      document.body.style.cursor = '';
-    }
-    if (this.panelEl) {
-      this.panelEl.remove();
-      this.panelEl = null;
-    }
+  private makeButton(
+    label: string,
+    act: string,
+    variant?: 'primary' | 'danger',
+  ): HTMLButtonElement {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.dataset['act'] = act;
+    if (variant) b.className = variant;
+    b.textContent = label;
+    return b;
   }
+
+  private toggleAnnotateMode(): void {
+    if (this.annotating) this.exitAnnotateMode();
+    else this.enterAnnotateMode();
+  }
+
+  private enterAnnotateMode(): void {
+    this.annotating = true;
+    this.controlEl.dataset['active'] = 'true';
+    document.addEventListener('click', this.onDocumentClick, true);
+    document.addEventListener('keydown', this.onKeyDown);
+    document.body.style.cursor = 'crosshair';
+    this.closePanel();
+  }
+
+  private exitAnnotateMode(): void {
+    this.annotating = false;
+    if (this.controlEl) this.controlEl.dataset['active'] = 'false';
+    document.removeEventListener('click', this.onDocumentClick, true);
+    document.removeEventListener('keydown', this.onKeyDown);
+    document.body.style.cursor = '';
+  }
+
+  private onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') this.exitAnnotateMode();
+  };
 
   private onDocumentClick = (e: MouseEvent): void => {
     const target = e.target as Element | null;
     if (!target || this.ui.host.contains(target)) return;
     e.preventDefault();
     e.stopPropagation();
-    const anchor = buildAnchor(target, e.clientX, e.clientY);
-    const route = routeKey();
-    const now = new Date().toISOString();
+    const t = now();
     const comment: Comment = {
       id: createId(),
-      createdAt: now,
-      updatedAt: now,
-      route,
+      createdAt: t,
+      updatedAt: t,
+      route: routeKey(),
       fullUrl: window.location.href,
       text: '',
-      anchor,
+      anchor: buildAnchor(target, e.clientX, e.clientY),
     };
     this.store = upsertComment(this.store, comment);
     this.persist();
     this.renderPins();
-    this.toggleAnnotateMode();
+    this.exitAnnotateMode();
     this.openInput(comment.id);
   };
 
@@ -221,36 +287,56 @@ export class Annotator {
     return this.store.comments.filter((c) => c.route === route);
   }
 
-  private renderPins(quiet = false): void {
+  private renderPins(): void {
     for (const el of this.pins.values()) el.remove();
     this.pins.clear();
     const comments = this.visibleComments();
     comments.forEach((c, i) => {
       const target = resolveAnchor(c.anchor);
-      if (!target) return;
-      const screen = anchorToScreen(target, c.anchor.positionPercent);
       const pin = document.createElement('div');
       pin.className = 'pin';
       pin.textContent = String(i + 1);
-      pin.style.left = `${screen.left}px`;
-      pin.style.top = `${screen.top}px`;
+      if (!target) pin.dataset['orphaned'] = 'true';
       if (c.reviewer) pin.title = c.reviewer;
       pin.addEventListener('click', (e) => {
         e.stopPropagation();
         if (this.deps.mode === 'builder') return;
         this.openInput(c.id);
       });
+      this.placePin(pin, c, target);
       this.ui.root.appendChild(pin);
       this.pins.set(c.id, pin);
     });
-    if (!quiet && this.controlEl) this.controlEl.textContent = this.controlLabel();
+    if (this.controlEl) this.controlEl.textContent = this.controlLabel();
+  }
+
+  private placePin(pin: HTMLDivElement, comment: Comment, target: Element | null): void {
+    if (!target) {
+      // Orphaned pin: park at last-known percentage within the viewport.
+      const { positionPercent: p } = comment.anchor;
+      pin.style.left = `${(window.innerWidth * p.x) / 100}px`;
+      pin.style.top = `${(window.innerHeight * p.y) / 100}px`;
+      return;
+    }
+    const { left, top } = anchorToScreen(target, comment.anchor.positionPercent);
+    pin.style.left = `${left}px`;
+    pin.style.top = `${top}px`;
+  }
+
+  // Cheap path used on scroll/resize: just reposition existing pins, skipping
+  // the querySelector + element-create cost of a full renderPins().
+  private repositionPins(): void {
+    const byId = new Map(this.visibleComments().map((c) => [c.id, c]));
+    for (const [id, pin] of this.pins) {
+      const c = byId.get(id);
+      if (c) this.placePin(pin, c, resolveAnchor(c.anchor));
+    }
   }
 
   private openInput(commentId: string): void {
-    if (this.activeInput) this.activeInput.wrap.remove();
+    this.closeActiveInput();
     const comment = this.store.comments.find((c) => c.id === commentId);
     if (!comment) return;
-    const pin = this.pins.get(commentId);
     const wrap = document.createElement('div');
     wrap.className = 'input';
     const ta = document.createElement('textarea');
@@ -259,26 +345,23 @@ export class Annotator {
     ta.rows = 3;
     const actions = document.createElement('div');
     actions.className = 'actions';
-    actions.innerHTML = '<span>Auto-saves</span><button type="button" class="delete">Delete</button>';
-    wrap.appendChild(ta);
-    wrap.appendChild(actions);
+    const hint = document.createElement('span');
+    hint.textContent = 'Auto-saves';
+    const del = document.createElement('button');
+    del.type = 'button';
+    del.className = 'delete';
+    del.textContent = 'Delete';
+    actions.append(hint, del);
+    wrap.append(ta, actions);
     this.ui.root.appendChild(wrap);
-    if (pin) {
-      const pr = pin.getBoundingClientRect();
-      const pos = flipPosition(
-        { left: pr.right, top: pr.top },
-        { width: 280, height: 120 },
-        { width: window.innerWidth, height: window.innerHeight },
-      );
-      wrap.style.left = `${pos.left}px`;
-      wrap.style.top = `${pos.top}px`;
-    }
+    this.positionInputNearPin(wrap, commentId);
+
     let debounce: number | undefined;
-    const save = () => {
+    const save = (): void => {
       this.store = upsertComment(this.store, {
         ...comment,
         text: ta.value,
-        updatedAt: new Date().toISOString(),
+        updatedAt: now(),
       });
       this.persist();
     };
@@ -287,44 +370,97 @@ export class Annotator {
       debounce = window.setTimeout(save, 2000);
     });
     ta.addEventListener('blur', save);
-    actions.querySelector('.delete')?.addEventListener('click', () => {
+    del.addEventListener('click', () => {
       this.store = deleteCommentFromStore(this.store, commentId);
       this.persist();
-      wrap.remove();
-      this.activeInput = null;
+      this.closeActiveInput();
       this.renderPins();
     });
     ta.focus();
     this.activeInput = { wrap, commentId };
   }
 
+  private positionInputNearPin(wrap: HTMLDivElement, commentId: string): void {
+    const pin = this.pins.get(commentId);
+    if (!pin) return;
+    const pr = pin.getBoundingClientRect();
+    const pos = flipPosition(
+      { left: pr.right, top: pr.top },
+      { width: wrap.offsetWidth || 280, height: wrap.offsetHeight || 120 },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    wrap.style.left = `${pos.left}px`;
+    wrap.style.top = `${pos.top}px`;
+  }
+
+  private closeActiveInput(): void {
+    this.activeInput?.wrap.remove();
+    this.activeInput = null;
+  }
+
+  // Only classify comments on the current route — we can't tell if a comment
+  // on another route would resolve without navigating there, so those stay
+  // "live" conservatively (spec §5.2 intent: orphaned = element missing now).
+  private isOrphaned = (c: Comment): boolean => {
+    if (c.route !== routeKey()) return false;
+    return resolveAnchor(c.anchor) === null;
+  };
+
   private async handleReviewerExport(): Promise<void> {
-    const meta = { generatedAt: new Date().toISOString(), project: this.deps.config.project };
-    const md = exportReviewer(this.store, meta);
-    const filename = exportFilename('reviewer', this.deps.config.project, this.store.reviewer, meta.generatedAt);
+    const meta = { generatedAt: now(), project: this.deps.config.project };
+    const md = exportReviewer(this.store, meta, { isOrphaned: this.isOrphaned });
+    const filename = exportFilename(
+      'reviewer',
+      this.deps.config.project,
+      this.store.reviewer,
+      meta.generatedAt,
+    );
     downloadMarkdown(md, filename);
-    await copyToClipboard(md);
+    const copied = await copyToClipboard(md);
+    this.showConfirmation(copied);
   }
 
   private async handleBuilderExport(): Promise<void> {
     const stores = loadAllStores(this.deps.storage, this.deps.config.project);
-    const meta = { generatedAt: new Date().toISOString(), project: this.deps.config.project };
-    const md = exportBuilder(stores, meta);
+    const meta = { generatedAt: now(), project: this.deps.config.project };
+    const md = exportBuilder(stores, meta, { isOrphaned: this.isOrphaned });
     const filename = exportFilename('builder', this.deps.config.project, null, meta.generatedAt);
     downloadMarkdown(md, filename);
     await copyToClipboard(md);
   }
 
+  // Spec §5.6: after reviewer export, show a small confirmation panel
+  // suggesting any share channel, rather than closing silently.
+  private showConfirmation(copied: boolean): void {
+    this.closePanel();
+    const panel = document.createElement('div');
+    panel.className = 'panel';
+    const h3 = document.createElement('h3');
+    h3.textContent = 'Saved to your downloads';
+    const p = document.createElement('p');
+    p.textContent = copied
+      ? 'Copied to clipboard too. Share however you like — email, Slack, paste into a chat.'
+      : 'Share however you like — email, Slack, paste into a chat.';
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.appendChild(this.makeButton('Done', 'done'));
+    panel.append(h3, p, row);
+    panel.addEventListener('click', (e) => {
+      const act = (e.target as HTMLElement).closest('button')?.dataset['act'];
+      if (act === 'done') this.closePanel();
+    });
+    this.panelEl = panel;
+    this.ui.root.appendChild(panel);
+    this.positionPanel();
+  }
+
   private handleBuilderClear(): void {
     if (!window.confirm('Clear all comments for this project from this browser?')) return;
     for (const s of loadAllStores(this.deps.storage, this.deps.config.project)) {
-      this.deps.storage.removeItem(`pinflow:${this.deps.config.project}:${s.reviewer}`);
+      this.deps.storage.removeItem(storageKey(this.deps.config.project, s.reviewer));
     }
     this.renderPins();
-    if (this.panelEl) {
-      this.panelEl.remove();
-      this.panelEl = null;
-    }
+    this.closePanel();
   }
 
   private async handleOnSubmit(): Promise<void> {

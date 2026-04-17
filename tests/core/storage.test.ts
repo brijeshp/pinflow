@@ -33,7 +33,14 @@ describe('storage', () => {
   beforeEach(() => localStorage.clear());
 
   it('keys namespace by project + reviewer', () => {
-    expect(storageKey('p', 'sarah')).toBe('pinflow:p:sarah');
+    expect(storageKey('p', 'sarah')).toBe('pinflow:c:p:sarah');
+  });
+
+  it('does not mistake identity key for a reviewer store', () => {
+    // identity.ts uses `pinflow:r:<project>` — previously the store prefix
+    // `pinflow:<project>:` would swallow an identity key when project === 'r'.
+    localStorage.setItem('pinflow:r:anything', 'Sarah');
+    expect(listReviewers(localStorage, 'r')).toEqual([]);
   });
 
   it('saves and loads a store', () => {
@@ -44,13 +51,13 @@ describe('storage', () => {
 
   it('returns null for missing/malformed', () => {
     expect(loadStore(localStorage, 'p', 'nope')).toBeNull();
-    localStorage.setItem('pinflow:p:bad', 'not json');
+    localStorage.setItem('pinflow:c:p:bad', 'not json');
     expect(loadStore(localStorage, 'p', 'bad')).toBeNull();
   });
 
   it('ignores wrong schema version', () => {
     localStorage.setItem(
-      'pinflow:p:sarah',
+      'pinflow:c:p:sarah',
       JSON.stringify({ schemaVersion: 999, reviewer: 'sarah', project: 'p', comments: [] }),
     );
     expect(loadStore(localStorage, 'p', 'sarah')).toBeNull();

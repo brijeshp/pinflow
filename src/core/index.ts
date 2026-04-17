@@ -12,23 +12,22 @@ export type {
   PositionPercent,
   ReviewerStore,
   SelectorCandidates,
-  Theme,
   Viewport,
 } from './types';
 
 export const version = '0.0.0';
 
-interface Handle {
+export interface Handle {
   destroy(): void;
 }
 
-let current: (Handle & { annotator: Annotator; stopRoute: () => void }) | null = null;
+let current: Handle | null = null;
 
 export function init(config: PinflowConfig): Handle {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return { destroy() {} };
   }
-  if (current) current.destroy();
+  current?.destroy();
 
   const storage = window.localStorage;
   const mode: Mode = config.mode ?? modeFromUrl(window.location.href) ?? 'reviewer';
@@ -42,28 +41,20 @@ export function init(config: PinflowConfig): Handle {
     }) ??
     (mode === 'builder' ? '__builder__' : null);
 
-  if (!reviewer) {
-    return { destroy() {} };
-  }
+  if (!reviewer) return { destroy() {} };
 
-  const annotator = new Annotator({
-    config,
-    reviewer,
-    mode,
-    storage,
-  });
+  const annotator = new Annotator({ config, reviewer, mode, storage });
   const watcher = watchRoute(() => annotator.refreshRoute());
 
-  current = {
-    annotator,
-    stopRoute: () => watcher.stop(),
+  const handle: Handle = {
     destroy() {
       watcher.stop();
       annotator.destroy();
-      if (current === this) current = null;
+      if (current === handle) current = null;
     },
   };
-  return current;
+  current = handle;
+  return handle;
 }
 
 export function destroy(): void {

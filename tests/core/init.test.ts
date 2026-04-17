@@ -8,7 +8,7 @@ describe('init / destroy', () => {
 
   it('returns a handle with destroy', async () => {
     const { init } = await import('../../src/core/index');
-    localStorage.setItem('pinflow:reviewer:test', 'Tester');
+    localStorage.setItem('pinflow:r:test', 'Tester');
     const handle = init({ project: 'test' });
     expect(handle).toHaveProperty('destroy');
     expect(typeof handle.destroy).toBe('function');
@@ -17,7 +17,7 @@ describe('init / destroy', () => {
 
   it('re-init destroys previous instance', async () => {
     const { init } = await import('../../src/core/index');
-    localStorage.setItem('pinflow:reviewer:test', 'Tester');
+    localStorage.setItem('pinflow:r:test', 'Tester');
     const h1 = init({ project: 'test' });
     const spy = vi.spyOn(h1, 'destroy');
     init({ project: 'test' });
@@ -26,7 +26,7 @@ describe('init / destroy', () => {
 
   it('destroy is safe to call multiple times', async () => {
     const { init } = await import('../../src/core/index');
-    localStorage.setItem('pinflow:reviewer:test', 'Tester');
+    localStorage.setItem('pinflow:r:test', 'Tester');
     const handle = init({ project: 'test' });
     handle.destroy();
     expect(() => handle.destroy()).not.toThrow();

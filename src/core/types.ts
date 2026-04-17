@@ -1,5 +1,4 @@
 export type Mode = 'reviewer' | 'builder';
-export type Theme = 'light' | 'dark' | 'auto';
 export type Position = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 
 export interface SelectorCandidates {
@@ -48,7 +47,6 @@ export interface PinflowConfig {
   reviewer?: string;
   mode?: Mode;
   onSubmit?: (payload: ReviewerStore) => void | Promise<void>;
-  theme?: Theme;
   position?: Position;
   hidden?: boolean;
 }

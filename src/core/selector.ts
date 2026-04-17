@@ -1,22 +1,21 @@
 import type { SelectorCandidates } from './types';
 
-const AUTO_ID_PATTERNS = [
-  /^__/,
-  /^:r[0-9a-z]+:/i, // React useId
-  /^radix-/,
-  /^headlessui-/,
-  /^mantine-/,
-  /^[a-z0-9]{6,}$/, // likely hashed
-];
+// Auto-generated / framework-internal IDs that we refuse to anchor on, since
+// they change on every render. Covered: React useId (`:r1:`), Radix, Headless
+// UI, Mantine, anything underscore-prefixed, and likely-hashed shortish IDs.
+const AUTO_ID_RE = /^(__|:r[0-9a-z]+:|radix-|headlessui-|mantine-|[a-z0-9]{6,}$)/i;
 
-function isAutoId(id: string): boolean {
-  return AUTO_ID_PATTERNS.some((p) => p.test(id));
-}
+// Utility / state classes we skip when building a CSS segment. These change
+// frequently and would make selectors brittle.
+const SKIP_CLASS_RE = /^(hover|focus|active|is-|has-|[a-z]+-[0-9]+|[a-z0-9]{6,})$/;
+
+// Cap on how many elements we walk in the fingerprint fallback — DOMs can be
+// huge and this is the last-ditch path.
+const FINGERPRINT_WALK_LIMIT = 2000;
 
 export function getStableId(el: Element): string | null {
   const id = el.id;
-  if (!id) return null;
-  if (isAutoId(id)) return null;
+  if (!id || AUTO_ID_RE.test(id)) return null;
   return id;
 }
 
@@ -29,7 +28,7 @@ function nthOfType(el: Element): number {
   const parent = el.parentElement;
   if (!parent) return 1;
   let n = 1;
-  for (const sibling of Array.from(parent.children)) {
+  for (const sibling of parent.children) {
     if (sibling === el) return n;
     if (sibling.tagName === el.tagName) n++;
   }
@@ -39,19 +38,17 @@ function nthOfType(el: Element): number {
 function cssSegment(el: Element): string {
   const tag = el.tagName.toLowerCase();
   const classes = Array.from(el.classList)
-    .filter((c) => !/^(hover|focus|active|is-|has-|[a-z]+-[0-9]+|[a-z0-9]{6,})$/.test(c))
+    .filter((c) => !SKIP_CLASS_RE.test(c))
     .slice(0, 2)
     .map((c) => `.${CSS.escape(c)}`)
     .join('');
-  const index = nthOfType(el);
-  return `${tag}${classes}:nth-of-type(${index})`;
+  return `${tag}${classes}:nth-of-type(${nthOfType(el)})`;
 }
 
 export function getCssPath(el: Element, maxDepth = 6): string {
   const parts: string[] = [];
   let current: Element | null = el;
-  let depth = 0;
-  while (current && current.tagName !== 'HTML' && depth < maxDepth) {
+  for (let i = 0; current && current.tagName !== 'HTML' && i < maxDepth; i++) {
     const stableId = getStableId(current);
     if (stableId) {
       parts.unshift(`#${CSS.escape(stableId)}`);
@@ -59,7 +56,6 @@ export function getCssPath(el: Element, maxDepth = 6): string {
     }
     parts.unshift(cssSegment(current));
     current = current.parentElement;
-    depth++;
   }
   return parts.join(' > ');
 }
@@ -81,8 +77,7 @@ export function getXPath(el: Element): string {
 }
 
 export function getTextFingerprint(el: Element): string {
-  const text = (el.textContent ?? '').replace(/\s+/g, ' ').trim();
-  return text.slice(0, 80);
+  return (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
 }
 
 export function buildSelectors(el: Element): SelectorCandidates {
@@ -128,9 +123,12 @@ export function findByCandidates(
     /* xpath not supported or malformed */
   }
   if (fingerprint) {
-    const all = root.querySelectorAll('*');
-    for (const el of Array.from(all)) {
-      if (getTextFingerprint(el) === fingerprint) return el;
+    const walker = document.createTreeWalker(root as Node, NodeFilter.SHOW_ELEMENT);
+    let count = 0;
+    let node = walker.nextNode();
+    while (node && count++ < FINGERPRINT_WALK_LIMIT) {
+      if (getTextFingerprint(node as Element) === fingerprint) return node as Element;
+      node = walker.nextNode();
     }
   }
   return null;

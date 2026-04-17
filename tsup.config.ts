@@ -12,6 +12,9 @@ export default defineConfig([
     sourcemap: true,
     clean: true,
     treeshake: true,
+    // One file per entry — avoids emitting shared `chunk-*.js` files that
+    // would show up alongside the published package on unpkg/jsdelivr.
+    splitting: false,
     target: 'es2020',
     outDir: 'dist',
   },

@@ -1,14 +1,18 @@
+import { now } from './time';
 import type { Comment, ReviewerStore } from './types';
 
 const SCHEMA_VERSION = 1;
-const KEY_PREFIX = 'pinflow';
+// `c` = comments store; kept short to save bundle bytes and to avoid
+// colliding with other pinflow:* keys (e.g. the identity key in identity.ts,
+// which lives under `pinflow:r:<project>`).
+const KEY_PREFIX = 'pinflow:c:';
 
 interface PersistedStore extends ReviewerStore {
   schemaVersion: number;
 }
 
 export function storageKey(project: string, reviewer: string): string {
-  return `${KEY_PREFIX}:${project}:${reviewer}`;
+  return `${KEY_PREFIX}${project}:${reviewer}`;
 }
 
 export function loadStore(
@@ -38,7 +42,7 @@ export function saveStore(storage: Storage, store: ReviewerStore): void {
 }
 
 export function listReviewers(storage: Storage, project: string): string[] {
-  const prefix = `${KEY_PREFIX}:${project}:`;
+  const prefix = `${KEY_PREFIX}${project}:`;
   const out: string[] = [];
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
@@ -57,7 +61,7 @@ export function emptyStore(project: string, reviewer: string): ReviewerStore {
   return {
     reviewer,
     project,
-    createdAt: new Date().toISOString(),
+    createdAt: now(),
     comments: [],
   };
 }
