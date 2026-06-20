@@ -25,6 +25,20 @@ export interface Anchor {
   viewport: Viewport;
 }
 
+export type Modality = 'text' | 'voice';
+
+export interface VoiceMeta {
+  durationMs: number;
+  /** 0..1, clamped on read; the provider value is treated as untrusted. */
+  confidence?: number;
+  /** true when the reviewer hand-corrected the transcript. */
+  edited?: boolean;
+  /** true when only interim results were salvaged (network dropped before finalize). */
+  interim?: boolean;
+  /** provenance, e.g. `deepgram:nova-3` — matters for the paid compiler + quality debugging. */
+  engine?: string;
+}
+
 export interface Comment {
   id: string;
   createdAt: string;
@@ -33,6 +47,15 @@ export interface Comment {
   fullUrl: string;
   text: string;
   anchor: Anchor;
+  /** Required. v1 stores are migrated to `'text'`; the default is applied at creation too. */
+  modality: Modality;
+  /** Present iff `modality === 'voice'`. */
+  voice?: VoiceMeta;
+}
+
+/** Narrows a comment to its voice form, guaranteeing `voice` metadata is present. */
+export function isVoiceComment(c: Comment): c is Comment & { modality: 'voice'; voice: VoiceMeta } {
+  return c.modality === 'voice' && c.voice !== undefined;
 }
 
 export interface ReviewerStore {
@@ -42,6 +65,38 @@ export interface ReviewerStore {
   comments: Comment[];
 }
 
+/** How the reviewer activates the annotation layer. */
+export interface ActivationConfig {
+  /**
+   * `toggle` (default) = the visible v1 control button.
+   * `stealth` = no chrome; long-press (touch) or Alt+click (desktop) only.
+   * `both` = control button AND the stealth gesture.
+   */
+  mode?: 'toggle' | 'stealth' | 'both';
+  /** Long-press duration in ms before a touch gesture activates. Default 500. */
+  longPressMs?: number;
+}
+
+/**
+ * Opt-in voice annotation. Presence enables voice; absence keeps pure v1 behavior
+ * with no network. The library never holds a Deepgram API key — see `tokenEndpoint`.
+ */
+export interface VoiceConfig {
+  /** Preferred: endpoint that mints a short-lived grant-token JWT (`GrantTokenResponse`). */
+  tokenEndpoint?: string;
+  /**
+   * LOCAL DEV ONLY. An opaque, short-lived Deepgram grant-token JWT — NEVER a raw API key.
+   * Exposed to every visitor; pinflow throws at init if this is set on a non-local origin.
+   */
+  devOnlyToken?: string;
+}
+
+/** Wire shape returned by a token-mint endpoint (snake_case mirrors Deepgram). */
+export interface GrantTokenResponse {
+  access_token: string;
+  expires_in: number;
+}
+
 export interface PinflowConfig {
   project: string;
   reviewer?: string;
@@ -49,4 +104,8 @@ export interface PinflowConfig {
   onSubmit?: (payload: ReviewerStore) => void | Promise<void>;
   position?: Position;
   hidden?: boolean;
+  /** Activation strategy. Defaults to `{ mode: 'toggle' }` for v1 back-compat. */
+  activation?: ActivationConfig;
+  /** Opt-in voice annotation config. Omit for pure pin/text behavior. */
+  voice?: VoiceConfig;
 }

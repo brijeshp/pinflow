@@ -13,8 +13,12 @@ import {
   storageKey,
   upsertComment,
 } from '../storage';
-import type { Comment, Mode, PinflowConfig, ReviewerStore } from '../types';
+import type { ActivationConfig, Comment, Mode, PinflowConfig, ReviewerStore } from '../types';
+import { GestureController } from '../gesture/controller';
 import { createUIRoot, flipPosition, type UIRoot } from './dom';
+
+const DEFAULT_LONG_PRESS_MS = 500;
+const MOVE_THRESHOLD_PX = 10;
 
 interface AnnotatorDeps {
   config: Required<Pick<PinflowConfig, 'project'>> & PinflowConfig;
@@ -35,6 +39,7 @@ export class Annotator {
   private controlEl!: HTMLButtonElement;
   private panelEl: HTMLDivElement | null = null;
   private reflowFrame = 0;
+  private gesture: GestureController | null = null;
 
   constructor(deps: AnnotatorDeps) {
     this.deps = deps;
@@ -44,6 +49,7 @@ export class Annotator {
       emptyStore(deps.config.project, deps.reviewer);
     this.renderControl();
     this.renderPins();
+    this.startGesture();
     window.addEventListener('resize', this.onReflow);
     window.addEventListener('scroll', this.onReflow, { passive: true });
   }
@@ -51,9 +57,27 @@ export class Annotator {
   destroy(): void {
     window.removeEventListener('resize', this.onReflow);
     window.removeEventListener('scroll', this.onReflow);
+    this.gesture?.stop();
     if (this.annotating) this.exitAnnotateMode();
     if (this.reflowFrame) cancelAnimationFrame(this.reflowFrame);
     this.ui.destroy();
+  }
+
+  private activationMode(): NonNullable<ActivationConfig['mode']> {
+    return this.deps.config.activation?.mode ?? 'toggle';
+  }
+
+  // Stealth/both modes add a capture-phase long-press (touch) + Alt+click
+  // (desktop) gesture that drops a comment without the visible control button.
+  private startGesture(): void {
+    if (this.activationMode() === 'toggle') return;
+    this.gesture = new GestureController({
+      mode: this.activationMode(),
+      longPressMs: this.deps.config.activation?.longPressMs ?? DEFAULT_LONG_PRESS_MS,
+      moveThresholdPx: MOVE_THRESHOLD_PX,
+      onActivate: (x, y, target) => this.placeCommentAt(x, y, target),
+    });
+    this.gesture.start();
   }
 
   refreshRoute(): void {
@@ -70,7 +94,8 @@ export class Annotator {
       this.reflowFrame = 0;
       this.repositionPins();
       if (this.panelEl) this.positionPanel();
-      if (this.activeInput) this.positionInputNearPin(this.activeInput.wrap, this.activeInput.commentId);
+      if (this.activeInput)
+        this.positionInputNearPin(this.activeInput.wrap, this.activeInput.commentId);
     });
   };
 
@@ -84,6 +109,8 @@ export class Annotator {
 
   private renderControl(): void {
     if (this.deps.config.hidden) return;
+    // Stealth activation is invisible — no control button.
+    if (this.activationMode() === 'stealth') return;
     const btn = document.createElement('button');
     btn.className = 'control';
     btn.type = 'button';
@@ -259,6 +286,14 @@ export class Annotator {
     if (!target || this.ui.host.contains(target)) return;
     e.preventDefault();
     e.stopPropagation();
+    this.exitAnnotateMode();
+    this.placeCommentAt(e.clientX, e.clientY, target);
+  };
+
+  // Shared by the toggle click path and the stealth gesture: build an anchored
+  // comment at a screen point, persist it, and open its input.
+  private placeCommentAt(clientX: number, clientY: number, target: Element): void {
+    if (this.ui.host.contains(target)) return; // never annotate our own UI
     const t = now();
     const comment: Comment = {
       id: createId(),
@@ -267,14 +302,14 @@ export class Annotator {
       route: routeKey(),
       fullUrl: window.location.href,
       text: '',
-      anchor: buildAnchor(target, e.clientX, e.clientY),
+      modality: 'text',
+      anchor: buildAnchor(target, clientX, clientY),
     };
     this.store = upsertComment(this.store, comment);
     this.persist();
     this.renderPins();
-    this.exitAnnotateMode();
     this.openInput(comment.id);
-  };
+  }
 
   private visibleComments(): Array<Comment & { reviewer?: string }> {
     const route = routeKey();

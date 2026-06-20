@@ -7,6 +7,7 @@ function makeComment(partial: Partial<Comment> & Pick<Comment, 'id' | 'route' | 
     createdAt: '2026-04-15T14:24:00Z',
     updatedAt: '2026-04-15T14:24:00Z',
     fullUrl: `http://x${partial.route}`,
+    modality: 'text',
     anchor: {
       selectors: {
         testid: 'primary-cta',
@@ -35,7 +36,12 @@ const sarah: ReviewerStore = {
       createdAt: '2026-04-15T14:31:00Z',
       updatedAt: '2026-04-15T14:31:00Z',
       anchor: {
-        selectors: { testid: null, id: null, css: 'main > header > h1', xpath: '/html/body/main/header/h1' },
+        selectors: {
+          testid: null,
+          id: null,
+          css: 'main > header > h1',
+          xpath: '/html/body/main/header/h1',
+        },
         textFingerprint: 'Welcome to Sensavera',
         positionPercent: { x: 12, y: 50 },
         viewport: { width: 1440, height: 900 },
@@ -58,7 +64,9 @@ describe('exportReviewer', () => {
     expect(md).toContain('Routes covered: /, /pricing');
     expect(md).toContain('## Route: /');
     expect(md).toContain('### Comment 1 — 2026-04-15T14:24:00Z');
-    expect(md).toContain('**Element:** `<button data-testid="primary-cta">` ("Get started for free")');
+    expect(md).toContain(
+      '**Element:** `<button data-testid="primary-cta">` ("Get started for free")',
+    );
     expect(md).toContain('- testid: `primary-cta`');
     expect(md).toContain('**Position:** 47% from left, 38% from top of element');
     expect(md).toContain('**Viewport at time of comment:** 390×844 (mobile)');
@@ -72,9 +80,7 @@ describe('exportBuilder', () => {
     reviewer: 'Mike',
     project: 'my-prototype',
     createdAt: '2026-04-15T14:20:00Z',
-    comments: [
-      makeComment({ id: 'cmt_m1', route: '/signup', text: 'Form has too many fields.' }),
-    ],
+    comments: [makeComment({ id: 'cmt_m1', route: '/signup', text: 'Form has too many fields.' })],
   };
 
   it('matches spec §7.2 structure', () => {

@@ -4,16 +4,22 @@ import type { Mode, PinflowConfig } from './types';
 import { Annotator } from './ui/annotator';
 
 export type {
+  ActivationConfig,
   Anchor,
   Comment,
+  GrantTokenResponse,
   Mode,
+  Modality,
   PinflowConfig,
   Position,
   PositionPercent,
   ReviewerStore,
   SelectorCandidates,
   Viewport,
+  VoiceConfig,
+  VoiceMeta,
 } from './types';
+export { isVoiceComment } from './types';
 
 export const version = '0.0.0';
 

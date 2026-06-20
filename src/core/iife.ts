@@ -1,4 +1,5 @@
 import { init, version } from './index';
+import type { PinflowConfig } from './types';
 
 export { init, version };
 export * from './types';
@@ -11,10 +12,15 @@ if (typeof document !== 'undefined') {
   const script = document.currentScript as HTMLScriptElement | null;
   const project = script?.dataset.project;
   if (project) {
-    if (document.body) {
-      init({ project });
-    } else {
-      document.addEventListener('DOMContentLoaded', () => init({ project }), { once: true });
+    const config: PinflowConfig = { project };
+    const activation = script?.dataset.activation;
+    if (activation === 'stealth' || activation === 'both') {
+      config.activation = { mode: activation };
     }
+    const start = (): void => {
+      init(config);
+    };
+    if (document.body) start();
+    else document.addEventListener('DOMContentLoaded', start, { once: true });
   }
 }

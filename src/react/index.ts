@@ -18,7 +18,15 @@ export function Annotator(props: AnnotatorProps): null {
       handleRef.current?.destroy();
       handleRef.current = null;
     };
-  }, [props.project, props.mode, props.reviewer]);
+    // Re-init only on stable PRIMITIVE keys — inline `activation`/`voice` objects
+    // are new references each render, so callers should memoize those props.
+  }, [
+    props.project,
+    props.mode,
+    props.reviewer,
+    props.activation?.mode,
+    props.voice?.tokenEndpoint,
+  ]);
 
   return null;
 }
