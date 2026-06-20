@@ -49,6 +49,11 @@
       "import": "./dist/vue.js",
       "require": "./dist/vue.cjs"
     },
+    "./voice": {
+      "types": "./dist/voice.d.ts",
+      "import": "./dist/voice.js",
+      "require": "./dist/voice.cjs"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -119,6 +124,12 @@
       "name": "core (ESM, gz)",
       "path": "dist/index.js",
       "limit": "30 KB",
+      "gzip": true
+    },
+    {
+      "name": "voice (ESM, gz)",
+      "path": "dist/voice.js",
+      "limit": "14 KB",
       "gzip": true
     }
   ],

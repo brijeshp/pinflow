@@ -13,8 +13,18 @@ import {
   storageKey,
   upsertComment,
 } from '../storage';
-import type { ActivationConfig, Comment, Mode, PinflowConfig, ReviewerStore } from '../types';
+import type {
+  ActivationConfig,
+  Anchor,
+  Comment,
+  Mode,
+  PinflowConfig,
+  ReviewerStore,
+  VoiceMeta,
+} from '../types';
 import { GestureController } from '../gesture/controller';
+import type { Logger, VoiceHost, VoiceModule, VoiceSession } from '../voice-contract';
+import { loadVoice as defaultLoadVoice } from '../voice-loader';
 import { createUIRoot, flipPosition, type UIRoot } from './dom';
 
 const DEFAULT_LONG_PRESS_MS = 500;
@@ -25,6 +35,13 @@ interface AnnotatorDeps {
   reviewer: string;
   mode: Mode;
   storage: Storage;
+  /** Injectable for tests; defaults to the real lazy `import('pinflow/voice')`. */
+  loadVoice?: () => Promise<VoiceModule>;
+}
+
+interface ActiveVoice {
+  mount: HTMLDivElement;
+  session: VoiceSession | null;
 }
 
 type PositionCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
@@ -40,6 +57,14 @@ export class Annotator {
   private panelEl: HTMLDivElement | null = null;
   private reflowFrame = 0;
   private gesture: GestureController | null = null;
+  // Bumped on every teardown (destroy/route change) so in-flight async voice
+  // work resolving into a stale world can detect it and self-cancel.
+  private generation = 0;
+  private activeVoice: ActiveVoice | null = null;
+  private readonly voiceLogger: Logger = {
+    warn: (m, d) => console.warn(`[pinflow] ${m}`, d),
+    error: (m, d) => console.error(`[pinflow] ${m}`, d),
+  };
 
   constructor(deps: AnnotatorDeps) {
     this.deps = deps;
@@ -55,12 +80,24 @@ export class Annotator {
   }
 
   destroy(): void {
+    this.generation += 1;
     window.removeEventListener('resize', this.onReflow);
     window.removeEventListener('scroll', this.onReflow);
     this.gesture?.stop();
+    this.teardownVoice();
     if (this.annotating) this.exitAnnotateMode();
     if (this.reflowFrame) cancelAnimationFrame(this.reflowFrame);
     this.ui.destroy();
+  }
+
+  // Release any in-flight voice session and remove its dot. dispose() best-effort
+  // persists already-committed transcript text (see session.ts).
+  private teardownVoice(): void {
+    const v = this.activeVoice;
+    if (!v) return;
+    this.activeVoice = null;
+    v.session?.dispose();
+    v.mount.remove();
   }
 
   private activationMode(): NonNullable<ActivationConfig['mode']> {
@@ -81,6 +118,15 @@ export class Annotator {
   }
 
   refreshRoute(): void {
+    this.generation += 1;
+    // A recording in progress finalizes and persists to its FROZEN route (the
+    // host captured the route at dot creation), then the dot is removed.
+    const v = this.activeVoice;
+    if (v) {
+      this.activeVoice = null;
+      const mount = v.mount;
+      void Promise.resolve(v.session?.stop()).finally(() => mount.remove());
+    }
     this.closeActiveInput();
     this.renderPins();
   }
@@ -290,10 +336,21 @@ export class Annotator {
     this.placeCommentAt(e.clientX, e.clientY, target);
   };
 
-  // Shared by the toggle click path and the stealth gesture: build an anchored
-  // comment at a screen point, persist it, and open its input.
+  // Shared by the toggle click path and the stealth gesture: drop an anchored
+  // note at a screen point. Voice-configured → a streaming voice dot; otherwise
+  // the classic text input.
   private placeCommentAt(clientX: number, clientY: number, target: Element): void {
     if (this.ui.host.contains(target)) return; // never annotate our own UI
+    const anchor = buildAnchor(target, clientX, clientY);
+    if (this.deps.config.voice) {
+      if (this.activeVoice) return; // one recording at a time
+      this.startVoiceDot(anchor, clientX, clientY);
+      return;
+    }
+    this.commitTextComment(anchor, '', true);
+  }
+
+  private commitTextComment(anchor: Anchor, text: string, openForEdit: boolean): void {
     const t = now();
     const comment: Comment = {
       id: createId(),
@@ -301,14 +358,104 @@ export class Annotator {
       updatedAt: t,
       route: routeKey(),
       fullUrl: window.location.href,
-      text: '',
+      text,
       modality: 'text',
-      anchor: buildAnchor(target, clientX, clientY),
+      anchor,
     };
     this.store = upsertComment(this.store, comment);
     this.persist();
     this.renderPins();
-    this.openInput(comment.id);
+    if (openForEdit) this.openInput(comment.id);
+  }
+
+  private loadVoiceModule(): Promise<VoiceModule> {
+    return (this.deps.loadVoice ?? defaultLoadVoice)();
+  }
+
+  // Drop a voice dot, lazily load the voice module, and start a session — with
+  // generation guards so an import/start resolving after teardown self-cancels
+  // and releases whatever it produced.
+  private startVoiceDot(anchor: Anchor, clientX: number, clientY: number): void {
+    const mount = document.createElement('div');
+    mount.style.cssText = 'position:fixed;';
+    const pos = flipPosition(
+      { left: clientX, top: clientY },
+      { width: 280, height: 140 },
+      { width: window.innerWidth, height: window.innerHeight },
+    );
+    mount.style.left = `${pos.left}px`;
+    mount.style.top = `${pos.top}px`;
+    this.ui.root.appendChild(mount);
+
+    const active: ActiveVoice = { mount, session: null };
+    this.activeVoice = active;
+    const myGen = this.generation;
+    const route = routeKey();
+    const host = this.buildVoiceHost(mount, anchor, route, active);
+
+    this.loadVoiceModule()
+      .then((mod) => {
+        if (myGen !== this.generation) {
+          mount.remove();
+          return;
+        }
+        return mod.start(host).then((session) => {
+          if (myGen !== this.generation) {
+            session.dispose();
+            mount.remove();
+            return;
+          }
+          active.session = session;
+        });
+      })
+      .catch((err) => {
+        this.voiceLogger.warn('voice module failed to load', err);
+        if (myGen === this.generation) host.degradeToText();
+      });
+  }
+
+  private buildVoiceHost(
+    mount: HTMLDivElement,
+    anchor: Anchor,
+    route: string,
+    active: ActiveVoice,
+  ): VoiceHost {
+    const commitVoice = (text: string, voice: VoiceMeta): void => {
+      if (this.activeVoice === active) this.activeVoice = null;
+      const t = now();
+      const comment: Comment = {
+        id: createId(),
+        createdAt: t,
+        updatedAt: t,
+        route,
+        fullUrl: window.location.href,
+        text,
+        modality: 'voice',
+        voice,
+        anchor,
+      };
+      this.store = upsertComment(this.store, comment);
+      this.persist();
+      mount.remove();
+      this.renderPins();
+    };
+    return {
+      config: this.deps.config.voice ?? {},
+      mount,
+      anchor,
+      route,
+      commit: ({ text, voice }) => commitVoice(text, voice),
+      discard: () => {
+        if (this.activeVoice === active) this.activeVoice = null;
+        mount.remove();
+      },
+      degradeToText: (prefill) => {
+        if (this.activeVoice === active) this.activeVoice = null;
+        mount.remove();
+        this.commitTextComment(anchor, prefill ?? '', true);
+      },
+      logger: this.voiceLogger,
+    };
   }
 
   private visibleComments(): Array<Comment & { reviewer?: string }> {
