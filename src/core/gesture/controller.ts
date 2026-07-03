@@ -5,8 +5,6 @@ export interface GestureControllerOptions {
   longPressMs: number;
   moveThresholdPx: number;
   onActivate: (x: number, y: number, target: Element) => void;
-  /** Injectable for tests; defaults to the global document. */
-  doc?: Document;
 }
 
 interface Press {
@@ -33,7 +31,6 @@ const SWALLOW_WINDOW_MS = 700;
  */
 export class GestureController {
   private readonly _opts: GestureControllerOptions;
-  private readonly _doc: Document;
   private _press: Press | null = null;
   private _timer: ReturnType<typeof setTimeout> | undefined;
   private _swallowTimer: ReturnType<typeof setTimeout> | undefined;
@@ -42,17 +39,16 @@ export class GestureController {
 
   constructor(opts: GestureControllerOptions) {
     this._opts = opts;
-    this._doc = opts.doc ?? document;
   }
 
   start(): void {
     if (this._running || this._opts.mode === 'toggle') return;
     this._running = true;
-    this._doc.addEventListener('pointerdown', this._onPointerDown, true);
-    this._doc.addEventListener('pointerup', this._onPointerUp, true);
-    this._doc.addEventListener('pointercancel', this._onPointerCancel, true);
-    this._doc.addEventListener('click', this._onClick, true);
-    this._doc.addEventListener('contextmenu', this._onContextMenu, true);
+    document.addEventListener('pointerdown', this._onPointerDown, true);
+    document.addEventListener('pointerup', this._onPointerUp, true);
+    document.addEventListener('pointercancel', this._onPointerCancel, true);
+    document.addEventListener('click', this._onClick, true);
+    document.addEventListener('contextmenu', this._onContextMenu, true);
   }
 
   stop(): void {
@@ -61,18 +57,18 @@ export class GestureController {
     this._cancelPress();
     this._swallowNextClick = false;
     clearTimeout(this._swallowTimer);
-    this._doc.removeEventListener('pointerdown', this._onPointerDown, true);
-    this._doc.removeEventListener('pointerup', this._onPointerUp, true);
-    this._doc.removeEventListener('pointercancel', this._onPointerCancel, true);
-    this._doc.removeEventListener('click', this._onClick, true);
-    this._doc.removeEventListener('contextmenu', this._onContextMenu, true);
+    document.removeEventListener('pointerdown', this._onPointerDown, true);
+    document.removeEventListener('pointerup', this._onPointerUp, true);
+    document.removeEventListener('pointercancel', this._onPointerCancel, true);
+    document.removeEventListener('click', this._onClick, true);
+    document.removeEventListener('contextmenu', this._onContextMenu, true);
   }
 
   private _cancelPress(): void {
     clearTimeout(this._timer);
     this._timer = undefined;
     this._press = null;
-    this._doc.removeEventListener('pointermove', this._onPointerMove, true);
+    document.removeEventListener('pointermove', this._onPointerMove, true);
   }
 
   private _armSwallow(): void {
@@ -110,7 +106,7 @@ export class GestureController {
     // in flight — stealth mode must not run a capture-phase move handler on
     // every host scroll/drag frame (P2.4).
     this._press = { pointerId: pe.pointerId, x: pe.clientX, y: pe.clientY, target };
-    this._doc.addEventListener('pointermove', this._onPointerMove, true);
+    document.addEventListener('pointermove', this._onPointerMove, true);
     clearTimeout(this._timer);
     this._timer = setTimeout(() => {
       if (!this._press) return;

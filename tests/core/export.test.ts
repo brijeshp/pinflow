@@ -53,10 +53,11 @@ const sarah: ReviewerStore = {
 
 describe('exportReviewer', () => {
   it('matches spec §7.1 structure', () => {
-    const md = exportReviewer(sarah, {
-      generatedAt: '2026-04-15T14:45:00Z',
-      project: 'my-prototype',
-    });
+    const md = exportReviewer(
+      sarah,
+      { generatedAt: '2026-04-15T14:45:00Z', project: 'my-prototype' },
+      () => false,
+    );
     expect(md).toContain('# Feedback for my-prototype — from Sarah');
     expect(md).toContain('Generated: 2026-04-15T14:45:00Z');
     expect(md).toContain('Reviewer: Sarah');
@@ -84,10 +85,11 @@ describe('exportBuilder', () => {
   };
 
   it('matches spec §7.2 structure', () => {
-    const md = exportBuilder([sarah, mike], {
-      generatedAt: '2026-04-15T14:45:00Z',
-      project: 'my-prototype',
-    });
+    const md = exportBuilder(
+      [sarah, mike],
+      { generatedAt: '2026-04-15T14:45:00Z', project: 'my-prototype' },
+      () => false,
+    );
     expect(md).toContain('# Feedback for my-prototype');
     expect(md).toContain('Reviewers: Sarah, Mike (2 total, 4 comments)');
     expect(md).toContain('## Summary');
@@ -98,10 +100,11 @@ describe('exportBuilder', () => {
   });
 
   it('routes ordered by comment count descending', () => {
-    const md = exportBuilder([sarah, mike], {
-      generatedAt: '2026-04-15T14:45:00Z',
-      project: 'my-prototype',
-    });
+    const md = exportBuilder(
+      [sarah, mike],
+      { generatedAt: '2026-04-15T14:45:00Z', project: 'my-prototype' },
+      () => false,
+    );
     const routeOrder = [...md.matchAll(/## Route: (\S+)/g)].map((m) => m[1]);
     expect(routeOrder[0]).toBe('/'); // 2 comments
   });
@@ -109,12 +112,12 @@ describe('exportBuilder', () => {
 
 describe('exportFilename', () => {
   it('reviewer variant', () => {
-    expect(exportFilename('reviewer', 'p', 'Sarah', '2026-04-15T14:45:00Z')).toBe(
+    expect(exportFilename('p', 'Sarah', '2026-04-15T14:45:00Z')).toBe(
       'pinflow-feedback-Sarah-p-2026-04-15T14-45-00Z.md',
     );
   });
   it('builder variant', () => {
-    expect(exportFilename('builder', 'p', null, '2026-04-15T14:45:00Z')).toBe(
+    expect(exportFilename('p', null, '2026-04-15T14:45:00Z')).toBe(
       'pinflow-feedback-p-aggregate-2026-04-15T14-45-00Z.md',
     );
   });

@@ -2,17 +2,13 @@ export interface RouteWatcher {
   stop(): void;
 }
 
-function current(): string {
-  return window.location.pathname + window.location.search;
-}
-
 // Patches history.push/replaceState so SPA nav fires `onChange`, then
 // restores the originals on `stop()`. `queueMicrotask` lets the nav
 // complete before we re-read `location`.
 export function watchRoute(onChange: (route: string) => void): RouteWatcher {
-  let route = current();
+  let route = routeOf();
   const emit = (): void => {
-    const next = current();
+    const next = routeOf();
     if (next !== route) {
       route = next;
       onChange(route);

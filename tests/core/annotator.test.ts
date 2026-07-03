@@ -127,6 +127,61 @@ describe('Annotator debounced save lifecycle (P0.5)', () => {
   });
 });
 
+describe('Annotator voice edited flag (P3.3)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    vi.useRealTimers();
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  function makeVoiceComment(text: string): Comment {
+    return {
+      ...makeComment(text),
+      modality: 'voice',
+      voice: { durationMs: 1200, engine: 'deepgram:nova-3' },
+    };
+  }
+
+  function editFirstPin(newText: string): void {
+    vi.useFakeTimers();
+    annotator = makeAnnotator();
+    const ta = openFirstPinInput();
+    ta.value = newText;
+    ta.dispatchEvent(new Event('input'));
+    vi.advanceTimersByTime(2500); // fire the debounced save
+  }
+
+  it('marks voice meta edited:true when the transcript text is changed', () => {
+    seedStore(makeVoiceComment('original transcript'));
+    editFirstPin('hand-corrected transcript');
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments[0]?.voice).toMatchObject({
+      edited: true,
+      durationMs: 1200,
+      engine: 'deepgram:nova-3',
+    });
+  });
+
+  it('does not mark edited when the text is saved unchanged', () => {
+    seedStore(makeVoiceComment('original transcript'));
+    editFirstPin('original transcript');
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments[0]?.voice?.edited).toBeUndefined();
+  });
+
+  it('editing a text comment never grows voice meta', () => {
+    seedStore(makeComment('plain text'));
+    editFirstPin('edited text');
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments[0]?.text).toBe('edited text');
+    expect(store?.comments[0]?.voice).toBeUndefined();
+  });
+});
+
 describe('Annotator voice host generation guards (P0.6)', () => {
   let annotator: Annotator | null = null;
 

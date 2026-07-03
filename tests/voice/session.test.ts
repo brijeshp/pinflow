@@ -42,13 +42,16 @@ function makeHost(): VoiceHost & {
 
 interface FakeStream extends TranscriptionStream {
   emitInterim(t: string): void;
-  emitFinal(t: string): void;
+  emitFinal(t: string, confidence?: number): void;
   finalized: boolean;
   closed: boolean;
 }
 
 function makeProvider(): { provider: TranscriptionProvider; stream: () => FakeStream } {
-  let captured: { onInterim: (t: string) => void; onFinal: (t: string) => void } | null = null;
+  let captured: {
+    onInterim: (t: string) => void;
+    onFinal: (t: string, confidence?: number) => void;
+  } | null = null;
   let theStream: FakeStream | null = null;
   const provider: TranscriptionProvider = {
     engine: 'fake:test',
@@ -61,7 +64,7 @@ function makeProvider(): { provider: TranscriptionProvider; stream: () => FakeSt
           theStream!.closed = true;
         },
         emitInterim: (t) => captured!.onInterim(t),
-        emitFinal: (t) => captured!.onFinal(t),
+        emitFinal: (t, confidence) => captured!.onFinal(t, confidence),
         finalized: false,
         closed: false,
       };
@@ -163,6 +166,27 @@ describe('startSession', () => {
     await session.stop();
     expect(capture.stopped).toBeGreaterThanOrEqual(1);
     expect(host.committed.length + host.discarded).toBe(1); // settled exactly once
+  });
+
+  it('persists the MINIMUM confidence across finals (pessimistic aggregate)', async () => {
+    const host = makeHost();
+    const { provider, stream } = makeProvider();
+    const session = await startSession(host, { ...baseDeps(), provider });
+    stream().emitFinal('hello', 0.9);
+    stream().emitFinal('there', 0.4);
+    stream().emitFinal('world', 0.8);
+    await session.stop();
+    expect(host.committed[0]?.voice).toMatchObject({ confidence: 0.4 });
+  });
+
+  it('omits confidence entirely when no final carried one', async () => {
+    const host = makeHost();
+    const { provider, stream } = makeProvider();
+    const session = await startSession(host, { ...baseDeps(), provider });
+    stream().emitFinal('hello');
+    await session.stop();
+    const voice = host.committed[0]?.voice as Record<string, unknown>;
+    expect('confidence' in voice).toBe(false);
   });
 
   it('dispose() releases the mic and best-effort persists committed text as interim', async () => {

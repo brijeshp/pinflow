@@ -20,7 +20,6 @@ export type {
   VoiceConfig,
   VoiceMeta,
 } from './types';
-export { isVoiceComment } from './types';
 
 // Injected by tsup `define` at build time (src/globals.d.ts); the `typeof`
 // guard keeps vitest — which runs source without the define — working.

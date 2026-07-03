@@ -5,12 +5,10 @@ export interface ExportMeta {
   project: string;
 }
 
-export interface ExportOptions {
-  // Called per-comment to decide if the anchor still resolves. Comments for
-  // which this returns true are pulled into the "Orphaned comments" section
-  // (spec §5.2, §7.2). Default: all comments considered live.
-  isOrphaned?: (comment: Comment) => boolean;
-}
+// Called per-comment to decide if the anchor still resolves. Comments for
+// which this returns true are pulled into the "Orphaned comments" section
+// (spec §5.2, §7.2).
+export type IsOrphaned = (comment: Comment) => boolean;
 
 function tagFromCss(css: string): string {
   const last = css.split('>').pop()?.trim() ?? '';
@@ -45,10 +43,12 @@ function viewportLabel(comment: Comment): string {
   return `${width}×${height} (${kind})`;
 }
 
+function commentHeading(index: number, createdAt: string, reviewer?: string): string {
+  return `### Comment ${index} — ${reviewer ? `${reviewer}, ` : ''}${createdAt}`;
+}
+
 function commentBlock(comment: Comment, index: number, reviewer?: string): string {
-  const heading = reviewer
-    ? `### Comment ${index} — ${reviewer}, ${comment.createdAt}`
-    : `### Comment ${index} — ${comment.createdAt}`;
+  const heading = commentHeading(index, comment.createdAt, reviewer);
   const pos = comment.anchor.positionPercent;
   return [
     heading,
@@ -63,11 +63,8 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
 }
 
 function orphanBlock(comment: Comment & { reviewer?: string }, index: number): string {
-  const heading = comment.reviewer
-    ? `### Comment ${index} — ${comment.reviewer}, ${comment.createdAt}`
-    : `### Comment ${index} — ${comment.createdAt}`;
   return [
-    heading,
+    commentHeading(index, comment.createdAt, comment.reviewer),
     `**Last known element:** ${elementLabel(comment)}`,
     `**Last known selector:** \`${comment.anchor.selectors.css}\``,
     `**Route:** ${comment.route}`,
@@ -103,9 +100,8 @@ function routesCovered(groups: RouteGroup[]): string {
 
 function partitionOrphans<T extends Comment>(
   comments: T[],
-  isOrphaned?: (c: Comment) => boolean,
+  isOrphaned: IsOrphaned,
 ): { live: T[]; orphaned: T[] } {
-  if (!isOrphaned) return { live: comments, orphaned: [] };
   const live: T[] = [];
   const orphaned: T[] = [];
   for (const c of comments) (isOrphaned(c) ? orphaned : live).push(c);
@@ -138,9 +134,9 @@ function bodyFromGroups(groups: RouteGroup[], withReviewer: boolean): string {
 export function exportReviewer(
   store: ReviewerStore,
   meta: ExportMeta,
-  options: ExportOptions = {},
+  isOrphaned: IsOrphaned,
 ): string {
-  const { live, orphaned } = partitionOrphans(store.comments, options.isOrphaned);
+  const { live, orphaned } = partitionOrphans(store.comments, isOrphaned);
   const groups = groupByRoute(live);
   const header = [
     `# Feedback for ${meta.project} — from ${store.reviewer}`,
@@ -185,13 +181,13 @@ function summarize(
 export function exportBuilder(
   stores: ReviewerStore[],
   meta: ExportMeta,
-  options: ExportOptions = {},
+  isOrphaned: IsOrphaned,
 ): string {
   const reviewers = stores.map((s) => s.reviewer);
   const allComments: Array<Comment & { reviewer: string }> = stores.flatMap((s) =>
     s.comments.map((c) => ({ ...c, reviewer: s.reviewer })),
   );
-  const { live, orphaned } = partitionOrphans(allComments, options.isOrphaned);
+  const { live, orphaned } = partitionOrphans(allComments, isOrphaned);
   const byReviewer = new Map<string, number>();
   for (const c of live) byReviewer.set(c.reviewer, (byReviewer.get(c.reviewer) ?? 0) + 1);
 
@@ -217,14 +213,14 @@ export function exportBuilder(
   return parts.filter(Boolean).join('\n\n') + '\n';
 }
 
+// `reviewer` doubles as the kind switch: null means the builder aggregate.
 export function exportFilename(
-  kind: 'reviewer' | 'builder',
   project: string,
   reviewer: string | null,
   timestamp: string,
 ): string {
   const ts = timestamp.replace(/[:.]/g, '-');
-  return kind === 'reviewer' && reviewer
+  return reviewer
     ? `pinflow-feedback-${reviewer}-${project}-${ts}.md`
     : `pinflow-feedback-${project}-aggregate-${ts}.md`;
 }

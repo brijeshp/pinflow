@@ -5,12 +5,12 @@ import { createId } from '../id';
 import { now } from '../time';
 import { routeKey } from '../route-key';
 import {
+  clearProject,
   deleteComment as deleteCommentFromStore,
   emptyStore,
   loadAllStores,
   loadStore,
   saveStore,
-  storageKey,
   upsertComment,
 } from '../storage';
 import type {
@@ -25,7 +25,7 @@ import type {
 import { GestureController } from '../gesture/controller';
 import type { Logger, VoiceHost, VoiceModule, VoiceSession } from '../voice-contract';
 import { loadVoice as defaultLoadVoice } from '../voice-loader';
-import { createUIRoot, flipPosition, type UIRoot } from './dom';
+import { createUIRoot, el, flipPosition, place, type UIRoot } from './dom';
 
 const DEFAULT_LONG_PRESS_MS = 500;
 const MOVE_THRESHOLD_PX = 10;
@@ -184,14 +184,12 @@ export class Annotator {
     if (this._deps.config.hidden) return;
     // Stealth activation is invisible — no control button.
     if (this._activationMode() === 'stealth') return;
-    const btn = document.createElement('button');
-    btn.className = 'control';
+    const btn = el('button', 'control', this._controlLabel());
     btn.type = 'button';
     btn.dataset['active'] = 'false';
     const [v, h] = this._position().split('-') as ['bottom' | 'top', 'left' | 'right'];
     btn.style.setProperty(v, '16px');
     btn.style.setProperty(h, '16px');
-    btn.textContent = this._controlLabel();
     btn.addEventListener('click', () => this._togglePanel());
     this._ui.root.appendChild(btn);
     this._controlEl = btn;
@@ -233,64 +231,46 @@ export class Annotator {
     // Start anchored at the control; pick the edge that has room.
     const anchorLeft = h === 'left' ? rect.left : rect.right - size.width;
     const anchorTop = v === 'bottom' ? rect.top - size.height - 8 : rect.bottom + 8;
-    const pos = flipPosition({ left: anchorLeft, top: anchorTop }, size, vp, 0);
-    this._panelEl.style.left = `${pos.left}px`;
-    this._panelEl.style.top = `${pos.top}px`;
+    place(this._panelEl, flipPosition({ left: anchorLeft, top: anchorTop }, size, vp, 0));
   }
 
   private _renderReviewerPanel(): HTMLDivElement {
-    const panel = document.createElement('div');
-    panel.className = 'panel';
     const count = this._store.comments.length;
-    const h3 = document.createElement('h3');
-    h3.textContent = `You have ${count} comment${count === 1 ? '' : 's'}`;
-    const p = document.createElement('p');
-    p.textContent = 'Click the button below, then tap any element on the page to pin a comment.';
-    const row = document.createElement('div');
-    row.className = 'row';
-    const annotateBtn = this._makeButton(
-      this._annotating ? 'Stop' : 'Add comment',
-      'annotate',
-      'primary',
+    const panel = this._makePanel(
+      `You have ${count} comment${count === 1 ? '' : 's'}`,
+      'Click the button below, then tap any element on the page to pin a comment.',
+      [
+        this._makeButton(
+          this._annotating ? 'Stop' : 'Add comment',
+          () => this._toggleAnnotateMode(),
+          'primary',
+        ),
+        this._makeButton('Export & share', () => void this._handleReviewerExport()),
+      ],
     );
-    const exportBtn = this._makeButton('Export & share', 'export');
-    row.append(annotateBtn, exportBtn);
-    panel.append(h3, p, row);
     if (this._deps.config.onSubmit) {
-      const row2 = document.createElement('div');
-      row2.className = 'row';
+      const row2 = el('div', 'row');
       row2.style.marginTop = '8px';
-      row2.appendChild(this._makeButton('Send to builder', 'submit'));
+      row2.appendChild(this._makeButton('Send to builder', () => void this._handleOnSubmit()));
       panel.appendChild(row2);
     }
-    panel.addEventListener('click', (e) => {
-      const act = (e.target as HTMLElement).closest('button')?.dataset['act'];
-      if (act === 'annotate') this._toggleAnnotateMode();
-      if (act === 'export') this._handleReviewerExport();
-      if (act === 'submit') this._handleOnSubmit();
-    });
     return panel;
   }
 
   // Built imperatively to keep reviewer names out of innerHTML.
   private _renderBuilderPanel(): HTMLDivElement {
-    const drawer = document.createElement('div');
-    drawer.className = 'drawer';
+    const drawer = el('div', 'drawer');
     const stores = loadAllStores(this._deps.storage, this._deps.config.project);
-
-    const h3 = document.createElement('h3');
-    h3.textContent = 'Builder mode';
-    drawer.appendChild(h3);
+    drawer.appendChild(el('h3', undefined, 'Builder mode'));
 
     if (stores.length === 0) {
-      const empty = document.createElement('p');
-      empty.textContent = 'No comments yet.';
+      const empty = el('p', undefined, 'No comments yet.');
       empty.style.opacity = '0.7';
       drawer.appendChild(empty);
     } else {
       for (const s of stores) {
-        const label = document.createElement('label');
-        const cb = document.createElement('input');
+        const label = el('label');
+        const cb = el('input');
         cb.type = 'checkbox';
         cb.checked = true;
         cb.dataset['reviewer'] = s.reviewer;
@@ -300,32 +280,33 @@ export class Annotator {
       }
     }
 
-    const bar = document.createElement('div');
-    bar.className = 'bar';
-    bar.appendChild(this._makeButton('Export all', 'export'));
-    const clear = this._makeButton('Clear all', 'clear', 'danger');
-    bar.appendChild(clear);
+    const bar = el('div', 'bar');
+    bar.append(
+      this._makeButton('Export all', () => void this._handleBuilderExport()),
+      this._makeButton('Clear all', () => this._handleBuilderClear(), 'danger'),
+    );
     drawer.appendChild(bar);
-
-    drawer.addEventListener('click', (e) => {
-      const act = (e.target as HTMLElement).closest('button')?.dataset['act'];
-      if (act === 'export') this._handleBuilderExport();
-      if (act === 'clear') this._handleBuilderClear();
-    });
     return drawer;
   }
 
   private _makeButton(
     label: string,
-    act: string,
+    onClick: () => void,
     variant?: 'primary' | 'danger',
   ): HTMLButtonElement {
-    const b = document.createElement('button');
+    const b = el('button', variant, label);
     b.type = 'button';
-    b.dataset['act'] = act;
-    if (variant) b.className = variant;
-    b.textContent = label;
+    b.addEventListener('click', onClick);
     return b;
+  }
+
+  // Shared scaffolding for the reviewer panel and the export confirmation.
+  private _makePanel(title: string, body: string, buttons: HTMLButtonElement[]): HTMLDivElement {
+    const panel = el('div', 'panel');
+    const row = el('div', 'row');
+    row.append(...buttons);
+    panel.append(el('h3', undefined, title), el('p', undefined, body), row);
+    return panel;
   }
 
   private _toggleAnnotateMode(): void {
@@ -410,15 +391,16 @@ export class Annotator {
   // generation guards so an import/start resolving after teardown self-cancels
   // and releases whatever it produced.
   private _startVoiceDot(anchor: Anchor, clientX: number, clientY: number): void {
-    const mount = document.createElement('div');
+    const mount = el('div');
     mount.style.cssText = 'position:fixed;';
-    const pos = flipPosition(
-      { left: clientX, top: clientY },
-      { width: 280, height: 140 },
-      { width: window.innerWidth, height: window.innerHeight },
+    place(
+      mount,
+      flipPosition(
+        { left: clientX, top: clientY },
+        { width: 280, height: 140 },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
     );
-    mount.style.left = `${pos.left}px`;
-    mount.style.top = `${pos.top}px`;
     this._ui.root.appendChild(mount);
 
     const active: ActiveVoice = { mount, session: null };
@@ -531,9 +513,7 @@ export class Annotator {
     comments.forEach((c, i) => {
       const target = resolveAnchor(c.anchor);
       this._anchorCache.set(c.id, target);
-      const pin = document.createElement('div');
-      pin.className = 'pin';
-      pin.textContent = String(i + 1);
+      const pin = el('div', 'pin', String(i + 1));
       if (!target) pin.dataset['orphaned'] = 'true';
       if (c.reviewer) pin.title = c.reviewer;
       pin.addEventListener('click', (e) => {
@@ -552,13 +532,10 @@ export class Annotator {
     if (!target) {
       // Orphaned pin: park at last-known percentage within the viewport.
       const { positionPercent: p } = comment.anchor;
-      pin.style.left = `${(window.innerWidth * p.x) / 100}px`;
-      pin.style.top = `${(window.innerHeight * p.y) / 100}px`;
+      place(pin, { left: (window.innerWidth * p.x) / 100, top: (window.innerHeight * p.y) / 100 });
       return;
     }
-    const { left, top } = anchorToScreen(target, comment.anchor.positionPercent);
-    pin.style.left = `${left}px`;
-    pin.style.top = `${top}px`;
+    place(pin, anchorToScreen(target, comment.anchor.positionPercent));
   }
 
   // Cheap path used on scroll/resize: just reposition existing pins, skipping
@@ -586,21 +563,15 @@ export class Annotator {
     this._closeActiveInput();
     const comment = this._store.comments.find((c) => c.id === commentId);
     if (!comment) return;
-    const wrap = document.createElement('div');
-    wrap.className = 'input';
-    const ta = document.createElement('textarea');
+    const wrap = el('div', 'input');
+    const ta = el('textarea');
     ta.placeholder = "What's on your mind?";
     ta.value = comment.text;
     ta.rows = 3;
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    const hint = document.createElement('span');
-    hint.textContent = 'Auto-saves';
-    const del = document.createElement('button');
+    const actions = el('div', 'actions');
+    const del = el('button', 'delete', 'Delete');
     del.type = 'button';
-    del.className = 'delete';
-    del.textContent = 'Delete';
-    actions.append(hint, del);
+    actions.append(el('span', undefined, 'Auto-saves'), del);
     wrap.append(ta, actions);
     this._ui.root.appendChild(wrap);
     this._positionInputNearPin(wrap, commentId);
@@ -611,11 +582,18 @@ export class Annotator {
       if (this._destroyed) return; // a stray blur after teardown must not write
       // The comment may have been deleted while the debounce was armed —
       // saving then would resurrect it.
-      if (!this._store.comments.some((c) => c.id === commentId)) return;
+      const persisted = this._store.comments.find((c) => c.id === commentId);
+      if (!persisted) return;
+      // Hand-correcting a voice transcript flags the meta as edited (immutably).
+      const voicePatch =
+        persisted.voice && ta.value !== persisted.text
+          ? { voice: { ...persisted.voice, edited: true } }
+          : {};
       this._store = upsertComment(this._store, {
-        ...comment,
+        ...persisted,
         text: ta.value,
         updatedAt: now(),
+        ...voicePatch,
       });
       this._persist();
     };
@@ -639,13 +617,14 @@ export class Annotator {
     const pin = this._pins.get(commentId);
     if (!pin) return;
     const pr = pin.getBoundingClientRect();
-    const pos = flipPosition(
-      { left: pr.right, top: pr.top },
-      { width: wrap.offsetWidth || 280, height: wrap.offsetHeight || 120 },
-      { width: window.innerWidth, height: window.innerHeight },
+    place(
+      wrap,
+      flipPosition(
+        { left: pr.right, top: pr.top },
+        { width: wrap.offsetWidth || 280, height: wrap.offsetHeight || 120 },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
     );
-    wrap.style.left = `${pos.left}px`;
-    wrap.style.top = `${pos.top}px`;
   }
 
   // Removing the textarea from the DOM does not reliably fire blur, so a
@@ -670,9 +649,8 @@ export class Annotator {
 
   private async _handleReviewerExport(): Promise<void> {
     const meta = { generatedAt: now(), project: this._deps.config.project };
-    const md = exportReviewer(this._store, meta, { isOrphaned: this._isOrphaned });
+    const md = exportReviewer(this._store, meta, this._isOrphaned);
     const filename = exportFilename(
-      'reviewer',
       this._deps.config.project,
       this._store.reviewer,
       meta.generatedAt,
@@ -685,8 +663,8 @@ export class Annotator {
   private async _handleBuilderExport(): Promise<void> {
     const stores = loadAllStores(this._deps.storage, this._deps.config.project);
     const meta = { generatedAt: now(), project: this._deps.config.project };
-    const md = exportBuilder(stores, meta, { isOrphaned: this._isOrphaned });
-    const filename = exportFilename('builder', this._deps.config.project, null, meta.generatedAt);
+    const md = exportBuilder(stores, meta, this._isOrphaned);
+    const filename = exportFilename(this._deps.config.project, null, meta.generatedAt);
     downloadMarkdown(md, filename);
     await copyToClipboard(md);
   }
@@ -695,22 +673,13 @@ export class Annotator {
   // suggesting any share channel, rather than closing silently.
   private _showConfirmation(copied: boolean): void {
     this._closePanel();
-    const panel = document.createElement('div');
-    panel.className = 'panel';
-    const h3 = document.createElement('h3');
-    h3.textContent = 'Saved to your downloads';
-    const p = document.createElement('p');
-    p.textContent = copied
-      ? 'Copied to clipboard too. Share however you like — email, Slack, paste into a chat.'
-      : 'Share however you like — email, Slack, paste into a chat.';
-    const row = document.createElement('div');
-    row.className = 'row';
-    row.appendChild(this._makeButton('Done', 'done'));
-    panel.append(h3, p, row);
-    panel.addEventListener('click', (e) => {
-      const act = (e.target as HTMLElement).closest('button')?.dataset['act'];
-      if (act === 'done') this._closePanel();
-    });
+    const panel = this._makePanel(
+      'Saved to your downloads',
+      copied
+        ? 'Copied to clipboard too. Share however you like — email, Slack, paste into a chat.'
+        : 'Share however you like — email, Slack, paste into a chat.',
+      [this._makeButton('Done', () => this._closePanel())],
+    );
     this._panelEl = panel;
     this._ui.root.appendChild(panel);
     this._positionPanel();
@@ -718,9 +687,7 @@ export class Annotator {
 
   private _handleBuilderClear(): void {
     if (!window.confirm('Clear all comments for this project from this browser?')) return;
-    for (const s of loadAllStores(this._deps.storage, this._deps.config.project)) {
-      this._deps.storage.removeItem(storageKey(this._deps.config.project, s.reviewer));
-    }
+    clearProject(this._deps.storage, this._deps.config.project);
     this._renderPins();
     this._closePanel();
   }

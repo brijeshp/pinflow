@@ -30,6 +30,24 @@ export function createUIRoot(): UIRoot {
   };
 }
 
+/** Tiny createElement helper — className/text are the two things every site sets. */
+export function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  className?: string,
+  text?: string,
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+/** Apply a px position produced by `flipPosition` (or any {left,top} pair). */
+export function place(node: HTMLElement, pos: { left: number; top: number }): void {
+  node.style.left = `${pos.left}px`;
+  node.style.top = `${pos.top}px`;
+}
+
 export function flipPosition(
   anchor: { left: number; top: number },
   size: { width: number; height: number },

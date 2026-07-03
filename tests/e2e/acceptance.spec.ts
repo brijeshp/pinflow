@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 
 // Helper: Playwright auto-pierces shadow DOM, so we can use regular selectors.
 const CONTROL = 'button.control';
-const ANNOTATE_BTN = 'button[data-act="annotate"]';
-const EXPORT_BTN = 'button[data-act="export"]';
+const ANNOTATE_BTN = 'button:has-text("Add comment")';
+const EXPORT_BTN = 'button:has-text("Export & share")';
 const PIN = 'div.pin';
 const TEXTAREA = '[data-pinflow-root] textarea';
 

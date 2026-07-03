@@ -1,4 +1,4 @@
-export type SessionState = 'recording' | 'finalizing' | 'closed';
+type SessionState = 'recording' | 'finalizing' | 'closed';
 
 /**
  * Accumulates streaming transcript results with the two invariants the dot UI
@@ -11,10 +11,6 @@ export class TranscriptStore {
   private _committedText = '';
   private _interimText = '';
   private _state: SessionState = 'recording';
-
-  get currentState(): SessionState {
-    return this._state;
-  }
 
   /** Live, not-yet-final text. Accepted only while recording. */
   pushInterim(text: string): boolean {

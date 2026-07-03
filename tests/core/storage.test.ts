@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   deleteComment,
   emptyStore,
@@ -142,39 +142,19 @@ describe('storage v2 migration & hardening', () => {
     expect(loadStore(localStorage, 'p', 'sarah')).toEqual(first);
   });
 
-  it('saveStore reports success and persists v2', () => {
-    const res = saveStore(localStorage, emptyStore('p', 'sarah'));
-    expect(res).toEqual({ ok: true });
+  it('saveStore persists v2', () => {
+    saveStore(localStorage, emptyStore('p', 'sarah'));
     const raw = JSON.parse(localStorage.getItem('pinflow:c:p:sarah') as string);
     expect(raw.schemaVersion).toBe(2);
   });
 
-  it('refuses to overwrite a newer on-disk store (read-before-write guard)', () => {
-    localStorage.setItem(
-      'pinflow:c:p:sarah',
-      JSON.stringify({
-        schemaVersion: 999,
-        reviewer: 'sarah',
-        project: 'p',
-        createdAt: '2026-01-01T00:00:00Z',
-        comments: [makeComment({ id: 'cmt_keep' })],
-      }),
-    );
-    const res = saveStore(localStorage, emptyStore('p', 'sarah'));
-    expect(res).toEqual({ ok: false, reason: 'stale' });
-    // The newer data survives untouched.
-    const raw = JSON.parse(localStorage.getItem('pinflow:c:p:sarah') as string);
-    expect(raw.schemaVersion).toBe(999);
-    expect(raw.comments).toHaveLength(1);
-  });
-
-  it('quarantines a corrupt blob instead of silently discarding it', () => {
+  it('discards a corrupt blob on load', () => {
     localStorage.setItem('pinflow:c:p:bad', '{ broken json');
     expect(loadStore(localStorage, 'p', 'bad')).toBeNull();
-    expect(localStorage.getItem('pinflow:c:p:bad:corrupt')).toBe('{ broken json');
   });
 
-  it('returns a write failure (not a throw) when storage rejects the write', () => {
+  it('never throws on write failure and warns exactly once per session', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const throwing: Storage = {
       getItem: () => null,
       setItem: () => {
@@ -187,7 +167,10 @@ describe('storage v2 migration & hardening', () => {
       key: () => null,
       length: 0,
     };
-    const res = saveStore(throwing, emptyStore('p', 'sarah'));
-    expect(res).toEqual({ ok: false, reason: 'quota' });
+    expect(() => saveStore(throwing, emptyStore('p', 'sarah'))).not.toThrow();
+    saveStore(throwing, emptyStore('p', 'sarah')); // second failure — silent
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('[pinflow] failed to persist comments', expect.any(Error));
+    warn.mockRestore();
   });
 });

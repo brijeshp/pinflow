@@ -53,11 +53,6 @@ export interface Comment {
   voice?: VoiceMeta;
 }
 
-/** Narrows a comment to its voice form, guaranteeing `voice` metadata is present. */
-export function isVoiceComment(c: Comment): c is Comment & { modality: 'voice'; voice: VoiceMeta } {
-  return c.modality === 'voice' && c.voice !== undefined;
-}
-
 export interface ReviewerStore {
   reviewer: string;
   project: string;

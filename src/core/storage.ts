@@ -11,9 +11,6 @@ interface PersistedStore extends ReviewerStore {
   schemaVersion: number;
 }
 
-/** Outcome of a persistence attempt. Writes never throw — callers branch on this. */
-export type SaveResult = { ok: true } | { ok: false; reason: 'quota' | 'unavailable' | 'stale' };
-
 export function storageKey(project: string, reviewer: string): string {
   return `${KEY_PREFIX}${project}:${reviewer}`;
 }
@@ -54,8 +51,8 @@ function normalizeComments(input: unknown): Comment[] {
 }
 
 // Forward-tolerant migration. v1 → default modality 'text'; v2 → as-is; a NEWER
-// version is read for its stable core fields rather than wiped (saveStore's
-// read-before-write guard then refuses to clobber it). Genuinely foreign data → null.
+// version is read for its stable core fields rather than wiped. Genuinely
+// foreign data → null.
 function migrate(parsed: unknown): ReviewerStore | null {
   if (!isPersistedStore(parsed)) return null;
   return {
@@ -66,65 +63,36 @@ function migrate(parsed: unknown): ReviewerStore | null {
   };
 }
 
-function quarantine(storage: Storage, key: string, raw: string): void {
-  // Preserve the unparseable blob for forensics instead of letting the next
-  // save silently overwrite salvageable bytes. Best-effort.
-  try {
-    storage.setItem(`${key}:corrupt`, raw);
-  } catch {
-    /* ignore */
-  }
-}
-
 export function loadStore(
   storage: Storage,
   project: string,
   reviewer: string,
 ): ReviewerStore | null {
-  const key = storageKey(project, reviewer);
-  const raw = storage.getItem(key);
+  const raw = storage.getItem(storageKey(project, reviewer));
   if (!raw) return null;
   let parsed: unknown;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    quarantine(storage, key, raw);
-    return null;
+    return null; // corrupt blob — discard
   }
   return migrate(parsed);
 }
 
-function onDiskVersion(storage: Storage, key: string): number | null {
-  try {
-    const raw = storage.getItem(key);
-    if (!raw) return null;
-    const parsed: unknown = JSON.parse(raw);
-    return isObject(parsed) && typeof parsed['schemaVersion'] === 'number'
-      ? parsed['schemaVersion']
-      : null;
-  } catch {
-    return null;
-  }
-}
+// Persistence failing (quota, private mode) is worth exactly one signal per
+// session, not one per keystroke.
+let warnedWriteFailure = false;
 
-function writeFailureReason(err: unknown): 'quota' | 'unavailable' {
-  const name = err instanceof Error ? err.name : '';
-  return /quota/i.test(name) ? 'quota' : 'unavailable';
-}
-
-export function saveStore(storage: Storage, store: ReviewerStore): SaveResult {
-  const key = storageKey(store.project, store.reviewer);
-  // Read-before-write: never clobber a store written by a NEWER build (would
-  // silently destroy data this build can't represent).
-  const existing = onDiskVersion(storage, key);
-  if (existing !== null && existing > SCHEMA_VERSION) return { ok: false, reason: 'stale' };
-
+/** Guarded write — never throws. On failure the session degrades to in-memory. */
+export function saveStore(storage: Storage, store: ReviewerStore): void {
   const payload: PersistedStore = { ...store, schemaVersion: SCHEMA_VERSION };
   try {
-    storage.setItem(key, JSON.stringify(payload));
-    return { ok: true };
+    storage.setItem(storageKey(store.project, store.reviewer), JSON.stringify(payload));
   } catch (err: unknown) {
-    return { ok: false, reason: writeFailureReason(err) };
+    if (!warnedWriteFailure) {
+      warnedWriteFailure = true;
+      console.warn('[pinflow] failed to persist comments', err);
+    }
   }
 }
 
@@ -133,8 +101,7 @@ export function listReviewers(storage: Storage, project: string): string[] {
   const out: string[] = [];
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
-    // Skip quarantined blobs so a corrupt entry never appears as a reviewer.
-    if (key && key.startsWith(prefix) && !key.endsWith(':corrupt')) {
+    if (key && key.startsWith(prefix)) {
       out.push(key.slice(prefix.length));
     }
   }

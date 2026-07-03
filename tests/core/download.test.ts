@@ -48,30 +48,19 @@ describe('copyToClipboard', () => {
     expect(writeText).toHaveBeenCalledWith('hello');
   });
 
-  it('falls back to execCommand when clipboard API fails', async () => {
+  it('returns false (never throws) when the clipboard API rejects', async () => {
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: () => Promise.reject(new Error('denied')) },
       configurable: true,
     });
-    (document as unknown as Record<string, unknown>).execCommand = vi.fn().mockReturnValue(true);
-    const ok = await copyToClipboard('fallback');
-    expect(ok).toBe(true);
-    expect(document.execCommand).toHaveBeenCalledWith('copy');
-    delete (document as unknown as Record<string, unknown>).execCommand;
+    await expect(copyToClipboard('nope')).resolves.toBe(false);
   });
 
-  it('returns false when all methods fail', async () => {
+  it('returns false when the clipboard API is unavailable', async () => {
     Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: () => Promise.reject(new Error('no')) },
+      value: undefined,
       configurable: true,
     });
-    (document as unknown as Record<string, unknown>).execCommand = vi
-      .fn()
-      .mockImplementation(() => {
-        throw new Error('nope');
-      });
-    const ok = await copyToClipboard('nope');
-    expect(ok).toBe(false);
-    delete (document as unknown as Record<string, unknown>).execCommand;
+    await expect(copyToClipboard('nope')).resolves.toBe(false);
   });
 });

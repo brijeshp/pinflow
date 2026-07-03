@@ -2,10 +2,8 @@ import type { VoiceHost, VoiceModule, VoiceSession } from '../core/voice-contrac
 import { createAudioCapture } from './capture/audio';
 import { createDeepgramProvider } from './transcription/deepgram';
 import { resolveToken } from './transcription/token';
-import { startSession } from './session';
+import { noopSession, startSession } from './session';
 import { createDot } from './ui/dot';
-
-const NOOP_SESSION: VoiceSession = { stop: () => Promise.resolve(), dispose: () => {} };
 
 async function start(host: VoiceHost): Promise<VoiceSession> {
   let token: string;
@@ -14,7 +12,7 @@ async function start(host: VoiceHost): Promise<VoiceSession> {
   } catch (err) {
     host.logger.warn('voice token resolution failed', err);
     host.degradeToText();
-    return NOOP_SESSION;
+    return noopSession;
   }
 
   const dot = createDot(host.mount);
