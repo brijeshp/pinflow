@@ -1,7 +1,7 @@
 ---
 title: 'refactor: Razor-thin bundle — code review remediation + optimization'
 type: refactor
-status: active
+status: completed
 date: 2026-07-03
 ---
 
@@ -103,8 +103,8 @@ Dead weight identified by simplicity review, cross-confirmed by bundle analysis:
 
 ## Phase 5 — Ratchet the Guardrails
 
-- [ ] **P5.1 Tighten size-limit budgets** (`package.json:116-135`) after Phases 1+3: 30/30/14 → **11 KB IIFE / 10.5 KB core ESM / 4.5 KB voice** gz, then re-ratchet after v2 Phases 3–5 land. Current headroom lets a 3× regression pass CI silently.
-- [ ] **P5.2 Extend the grep leak assertion** — keep `bundle-isolation.test.ts` authoritative; add react/vue wrapper checks post-P1.2 (wrappers must NOT contain annotator symbols, MUST contain the bare `pinflow` specifier).
+- [x] **P5.1 Tighten size-limit budgets** (`package.json:116-135`) after Phases 1+3: 30/30/14 → **11 KB IIFE / 10.5 KB core ESM / 4.5 KB voice** gz, then re-ratchet after v2 Phases 3–5 land. Current headroom lets a 3× regression pass CI silently.
+- [x] **P5.2 Extend the grep leak assertion** — keep `bundle-isolation.test.ts` authoritative; add react/vue wrapper checks post-P1.2 (wrappers must NOT contain annotator symbols, MUST contain the bare `pinflow` specifier).
 - [ ] **P5.3 Add a size CI comment/metafile diff** (optional): emit esbuild metafile per build so composition regressions are reviewable, not just totals.
 
 ---
