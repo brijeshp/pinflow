@@ -49,7 +49,6 @@ export class GestureController {
     if (this._running || this._opts.mode === 'toggle') return;
     this._running = true;
     this._doc.addEventListener('pointerdown', this._onPointerDown, true);
-    this._doc.addEventListener('pointermove', this._onPointerMove, true);
     this._doc.addEventListener('pointerup', this._onPointerUp, true);
     this._doc.addEventListener('pointercancel', this._onPointerCancel, true);
     this._doc.addEventListener('click', this._onClick, true);
@@ -63,7 +62,6 @@ export class GestureController {
     this._swallowNextClick = false;
     clearTimeout(this._swallowTimer);
     this._doc.removeEventListener('pointerdown', this._onPointerDown, true);
-    this._doc.removeEventListener('pointermove', this._onPointerMove, true);
     this._doc.removeEventListener('pointerup', this._onPointerUp, true);
     this._doc.removeEventListener('pointercancel', this._onPointerCancel, true);
     this._doc.removeEventListener('click', this._onClick, true);
@@ -74,6 +72,7 @@ export class GestureController {
     clearTimeout(this._timer);
     this._timer = undefined;
     this._press = null;
+    this._doc.removeEventListener('pointermove', this._onPointerMove, true);
   }
 
   private _armSwallow(): void {
@@ -107,8 +106,11 @@ export class GestureController {
       return;
     }
 
-    // Touch: begin a long-press.
+    // Touch: begin a long-press. pointermove is only attached while a press is
+    // in flight — stealth mode must not run a capture-phase move handler on
+    // every host scroll/drag frame (P2.4).
     this._press = { pointerId: pe.pointerId, x: pe.clientX, y: pe.clientY, target };
+    this._doc.addEventListener('pointermove', this._onPointerMove, true);
     clearTimeout(this._timer);
     this._timer = setTimeout(() => {
       if (!this._press) return;

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createDeepgramProvider } from '../../src/voice/transcription/deepgram';
-import { KEEPALIVE_FRAME } from '../../src/voice/transcription/protocol';
-import type { TranscriptionProvider } from '../../src/voice/types';
+import { FINALIZE_FRAME, KEEPALIVE_FRAME } from '../../src/voice/transcription/protocol';
+import type { TranscriptionProvider, TranscriptionStream } from '../../src/voice/types';
 
 class FakeWS {
   binaryType = '';
@@ -117,5 +117,74 @@ describe('createDeepgramProvider lifecycle', () => {
     stream.close();
     fake.onclose?.({ code: 1000 } as CloseEvent);
     expect(opts.onError).not.toHaveBeenCalled();
+  });
+});
+
+describe('finalize handshake (P2.3)', () => {
+  function resultFrame(over: Record<string, unknown> = {}): MessageEvent {
+    return {
+      data: JSON.stringify({
+        type: 'Results',
+        is_final: true,
+        channel: { alternatives: [{ transcript: 'tail words' }] },
+        ...over,
+      }),
+    } as MessageEvent;
+  }
+
+  async function openedStream(h: Harness): Promise<TranscriptionStream> {
+    h.fake.readyState = WebSocket.OPEN;
+    h.fake.onopen?.();
+    return h.promise;
+  }
+
+  function trackedFinalize(stream: TranscriptionStream): { resolved: () => boolean } {
+    let done = false;
+    void stream.finalize().then(() => {
+      done = true;
+    });
+    return { resolved: () => done };
+  }
+
+  it('resolves early when the from_finalize ack arrives', async () => {
+    const h = openProvider();
+    const stream = await openedStream(h);
+    const fin = trackedFinalize(stream);
+    expect(h.fake.sent).toContain(FINALIZE_FRAME);
+
+    // An ordinary result must NOT resolve the handshake.
+    h.fake.onmessage?.(resultFrame());
+    await vi.advanceTimersByTimeAsync(50);
+    expect(fin.resolved()).toBe(false);
+
+    h.fake.onmessage?.(resultFrame({ from_finalize: true }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fin.resolved()).toBe(true);
+    // The ack's final transcript still reaches the caller.
+    expect(h.opts.onFinal).toHaveBeenCalledWith('tail words', undefined);
+    stream.close();
+  });
+
+  it('resolves at the fallback ceiling when no ack arrives', async () => {
+    const h = openProvider();
+    const stream = await openedStream(h);
+    const fin = trackedFinalize(stream);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(fin.resolved()).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(fin.resolved()).toBe(true);
+    stream.close();
+  });
+
+  it('resolves when the socket closes while waiting', async () => {
+    const h = openProvider();
+    const stream = await openedStream(h);
+    const fin = trackedFinalize(stream);
+
+    h.fake.onclose?.({ code: 1006 } as CloseEvent);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(fin.resolved()).toBe(true);
+    stream.close();
   });
 });

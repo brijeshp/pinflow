@@ -74,10 +74,10 @@ Bugs found by review in shipped/branch code. Each fix = failing test first (TDD)
 
 The one thing an embedded widget must never do is jank someone else's app.
 
-- [ ] **P2.1 Stop re-reading localStorage per scroll frame** — `src/core/ui/annotator.ts:137-146 → 510-516 → 461-470`: builder mode's `repositionPins()` → `visibleComments()` → `loadAllStores()` does a full key scan + JSON.parse of every reviewer's corpus at up to 60fps. Cache `visibleComments()`; invalidate in `renderPins()`/`refreshRoute()`.
-- [ ] **P2.2 Cache anchor resolution across reflow frames** — `annotator.ts:514` + `src/core/selector.ts:92-135`: every pin re-runs the full selector ladder per frame; an **orphaned** pin runs testid→id→CSS→XPath→2000-element TreeWalker (with full-subtree `textContent` reads) every frame — effectively quadratic in host DOM size. Cache `Map<commentId, Element|null>` at render time; on reflow only check `el.isConnected`, re-resolve lazily.
-- [ ] **P2.3 Deepgram `finalize()` handshake** — `src/voice/transcription/deepgram.ts:41-46`: blind 300 ms sleep drops the sentence tail on slow links. Resolve on the `from_finalize: true` result; keep the timer as fallback only.
-- [ ] **P2.4 Gesture listener early-exit** — `src/core/gesture/controller.ts:52`: permanent capture-phase document `pointermove` in stealth mode; add the 2-line inactive early-return.
+- [x] **P2.1 Stop re-reading localStorage per scroll frame** — `src/core/ui/annotator.ts:137-146 → 510-516 → 461-470`: builder mode's `repositionPins()` → `visibleComments()` → `loadAllStores()` does a full key scan + JSON.parse of every reviewer's corpus at up to 60fps. Cache `visibleComments()`; invalidate in `renderPins()`/`refreshRoute()`.
+- [x] **P2.2 Cache anchor resolution across reflow frames** — `annotator.ts:514` + `src/core/selector.ts:92-135`: every pin re-runs the full selector ladder per frame; an **orphaned** pin runs testid→id→CSS→XPath→2000-element TreeWalker (with full-subtree `textContent` reads) every frame — effectively quadratic in host DOM size. Cache `Map<commentId, Element|null>` at render time; on reflow only check `el.isConnected`, re-resolve lazily.
+- [x] **P2.3 Deepgram `finalize()` handshake** — `src/voice/transcription/deepgram.ts:41-46`: blind 300 ms sleep drops the sentence tail on slow links. Resolve on the `from_finalize: true` result; keep the timer as fallback only.
+- [x] **P2.4 Gesture listener early-exit** — `src/core/gesture/controller.ts:52`: permanent capture-phase document `pointermove` in stealth mode; add the 2-line inactive early-return.
 
 **Success criteria:** manual scroll profile with 10 orphaned pins on a 5,000-node DOM shows no `selector.ts` frames; v2 plan's ≤4 ms/frame budget upheld.
 

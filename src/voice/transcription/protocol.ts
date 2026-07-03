@@ -26,7 +26,14 @@ export const FINALIZE_FRAME = JSON.stringify({ type: 'Finalize' });
 export const CLOSE_STREAM_FRAME = JSON.stringify({ type: 'CloseStream' });
 
 export type DeepgramMessage =
-  | { type: 'results'; transcript: string; isFinal: boolean; confidence?: number }
+  | {
+      type: 'results';
+      transcript: string;
+      isFinal: boolean;
+      confidence?: number;
+      /** Present (true) only on the Results frame acking a Finalize. */
+      fromFinalize?: true;
+    }
   | { type: 'metadata' }
   | { type: 'error'; detail: string }
   | { type: 'unknown' };
@@ -65,9 +72,13 @@ export function parseMessage(raw: string): DeepgramMessage | null {
       const isFinal = data['is_final'] === true || data['speech_final'] === true;
       const rawConf = alt ? alt['confidence'] : undefined;
       const confidence = typeof rawConf === 'number' ? clamp01(rawConf) : undefined;
-      return confidence !== undefined
-        ? { type: 'results', transcript, isFinal, confidence }
-        : { type: 'results', transcript, isFinal };
+      return {
+        type: 'results',
+        transcript,
+        isFinal,
+        ...(confidence !== undefined && { confidence }),
+        ...(data['from_finalize'] === true && { fromFinalize: true as const }),
+      };
     }
     case 'Metadata':
       return { type: 'metadata' };

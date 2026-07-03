@@ -10,7 +10,8 @@ import type { TranscriptionProvider, TranscriptionStream } from '../types';
 const MODEL = 'nova-3';
 const LANGUAGE = 'en';
 const KEEPALIVE_MS = 4000;
-const FINALIZE_GRACE_MS = 300;
+// Ceiling on waiting for the from_finalize ack — fallback only, not a sleep.
+const FINALIZE_FALLBACK_MS = 1000;
 const OPEN_TIMEOUT_MS = 10000;
 
 export type WebSocketFactory = (url: string, protocols: string[]) => WebSocket;
@@ -34,6 +35,9 @@ export function createDeepgramProvider(
         ws.binaryType = 'arraybuffer';
         let keepalive = 0;
         let opened = false;
+        // Pending finalize() resolver; fires on the from_finalize ack, socket
+        // close, or the fallback timer — whichever comes first.
+        let finalizeAck: (() => void) | null = null;
         // Pre-open failures must both reject AND close the socket.
         const fail = (err: Error): void => {
           reject(err);
@@ -52,13 +56,24 @@ export function createDeepgramProvider(
           sendPcm(frame) {
             if (ws.readyState === WebSocket.OPEN) ws.send(frame);
           },
+          // Deepgram acks Finalize with a Results frame carrying
+          // from_finalize:true — resolve on that (captures the sentence tail on
+          // slow links) rather than blind-sleeping.
           finalize() {
+            if (ws.readyState !== WebSocket.OPEN) return Promise.resolve();
+            ws.send(FINALIZE_FRAME);
             return new Promise<void>((res) => {
-              if (ws.readyState === WebSocket.OPEN) ws.send(FINALIZE_FRAME);
-              window.setTimeout(res, FINALIZE_GRACE_MS);
+              const done = (): void => {
+                window.clearTimeout(timer);
+                finalizeAck = null;
+                res();
+              };
+              const timer = window.setTimeout(done, FINALIZE_FALLBACK_MS);
+              finalizeAck = done;
             });
           },
           close() {
+            finalizeAck?.();
             window.clearInterval(keepalive);
             if (ws.readyState === WebSocket.OPEN) ws.send(CLOSE_STREAM_FRAME);
             ws.onmessage = null;
@@ -88,6 +103,7 @@ export function createDeepgramProvider(
           } else opts.onError(e);
         };
         ws.onclose = (e): void => {
+          finalizeAck?.();
           window.clearTimeout(timer);
           window.clearInterval(keepalive);
           if (!opened) reject(new Error(`voice websocket closed before open (code ${e.code})`));
@@ -98,6 +114,7 @@ export function createDeepgramProvider(
           const msg = parseMessage(e.data);
           if (!msg) return;
           if (msg.type === 'results') {
+            if (msg.fromFinalize) finalizeAck?.();
             if (msg.transcript === '') return;
             if (msg.isFinal) opts.onFinal(msg.transcript, msg.confidence);
             else opts.onInterim(msg.transcript);

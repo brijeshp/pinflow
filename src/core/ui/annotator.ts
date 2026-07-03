@@ -61,6 +61,11 @@ export class Annotator {
   private _store: ReviewerStore;
   private _annotating = false;
   private _pins = new Map<string, HTMLDivElement>();
+  // Reflow-path caches (P2.1/P2.2): repositioning runs at up to 60fps, so it
+  // must never re-scan localStorage or re-run the selector ladder per frame.
+  // Both are dropped whenever data or route changes (persist / renderPins).
+  private _visibleCache: Array<Comment & { reviewer?: string }> | null = null;
+  private readonly _anchorCache = new Map<string, Element | null>();
   private _activeInput: ActiveInput | null = null;
   private _controlEl!: HTMLButtonElement;
   private _panelEl: HTMLDivElement | null = null;
@@ -162,7 +167,13 @@ export class Annotator {
   };
 
   private _persist(): void {
+    this._invalidateViewCaches();
     saveStore(this._deps.storage, this._store);
+  }
+
+  private _invalidateViewCaches(): void {
+    this._visibleCache = null;
+    this._anchorCache.clear();
   }
 
   private _position(): PositionCorner {
@@ -496,23 +507,30 @@ export class Annotator {
     };
   }
 
+  // Memoized: the builder branch does a full localStorage key scan + parse of
+  // every reviewer corpus — far too expensive for the per-frame reflow path.
   private _visibleComments(): Array<Comment & { reviewer?: string }> {
+    if (this._visibleCache) return this._visibleCache;
     const route = routeKey();
-    if (this._deps.mode === 'builder') {
-      const stores = loadAllStores(this._deps.storage, this._deps.config.project);
-      return stores.flatMap((s) =>
-        s.comments.filter((c) => c.route === route).map((c) => ({ ...c, reviewer: s.reviewer })),
-      );
-    }
-    return this._store.comments.filter((c) => c.route === route);
+    this._visibleCache =
+      this._deps.mode === 'builder'
+        ? loadAllStores(this._deps.storage, this._deps.config.project).flatMap((s) =>
+            s.comments
+              .filter((c) => c.route === route)
+              .map((c) => ({ ...c, reviewer: s.reviewer })),
+          )
+        : this._store.comments.filter((c) => c.route === route);
+    return this._visibleCache;
   }
 
   private _renderPins(): void {
+    this._invalidateViewCaches();
     for (const el of this._pins.values()) el.remove();
     this._pins.clear();
     const comments = this._visibleComments();
     comments.forEach((c, i) => {
       const target = resolveAnchor(c.anchor);
+      this._anchorCache.set(c.id, target);
       const pin = document.createElement('div');
       pin.className = 'pin';
       pin.textContent = String(i + 1);
@@ -549,8 +567,19 @@ export class Annotator {
     const byId = new Map(this._visibleComments().map((c) => [c.id, c]));
     for (const [id, pin] of this._pins) {
       const c = byId.get(id);
-      if (c) this._placePin(pin, c, resolveAnchor(c.anchor));
+      if (c) this._placePin(pin, c, this._cachedAnchor(c));
     }
+  }
+
+  // Reflow path never re-runs the full selector ladder. A cached element that
+  // left the DOM (host re-render) is re-resolved once and re-cached; an
+  // orphaned (null) entry stays parked — its position can't change per frame.
+  private _cachedAnchor(c: Comment): Element | null {
+    const hit = this._anchorCache.get(c.id);
+    if (hit === null || (hit !== undefined && hit.isConnected)) return hit;
+    const el = resolveAnchor(c.anchor);
+    this._anchorCache.set(c.id, el);
+    return el;
   }
 
   private _openInput(commentId: string): void {

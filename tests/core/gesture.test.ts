@@ -117,6 +117,32 @@ describe('GestureController', () => {
     expect(next.defaultPrevented).toBe(false);
   });
 
+  it('attaches the document pointermove listener only while a press is in flight (P2.4)', () => {
+    const add = vi.spyOn(document, 'addEventListener');
+    const remove = vi.spyOn(document, 'removeEventListener');
+    const moveAdds = (): number => add.mock.calls.filter(([t]) => t === 'pointermove').length;
+    const moveRemoves = (): number => remove.mock.calls.filter(([t]) => t === 'pointermove').length;
+    try {
+      const { activations, el } = setup();
+      expect(moveAdds()).toBe(0); // idle stealth mode: no per-frame move handler
+
+      dispatch(el, 'pointerdown');
+      expect(moveAdds()).toBe(1);
+
+      dispatch(el, 'pointerup');
+      expect(moveRemoves()).toBeGreaterThanOrEqual(1);
+
+      // Movement past the threshold still cancels a fresh press.
+      dispatch(el, 'pointerdown', { clientX: 10, clientY: 20 });
+      dispatch(el, 'pointermove', { clientX: 10, clientY: 45 });
+      vi.advanceTimersByTime(600);
+      expect(activations).toHaveLength(0);
+    } finally {
+      add.mockRestore();
+      remove.mockRestore();
+    }
+  });
+
   it('stops listening after stop()', () => {
     const { controller, activations, el } = setup();
     controller.stop();
