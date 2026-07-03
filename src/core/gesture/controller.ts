@@ -32,118 +32,118 @@ const SWALLOW_WINDOW_MS = 700;
  * activation instead.
  */
 export class GestureController {
-  private readonly opts: GestureControllerOptions;
-  private readonly doc: Document;
-  private press: Press | null = null;
-  private timer: ReturnType<typeof setTimeout> | undefined;
-  private swallowTimer: ReturnType<typeof setTimeout> | undefined;
-  private swallowNextClick = false;
-  private running = false;
+  private readonly _opts: GestureControllerOptions;
+  private readonly _doc: Document;
+  private _press: Press | null = null;
+  private _timer: ReturnType<typeof setTimeout> | undefined;
+  private _swallowTimer: ReturnType<typeof setTimeout> | undefined;
+  private _swallowNextClick = false;
+  private _running = false;
 
   constructor(opts: GestureControllerOptions) {
-    this.opts = opts;
-    this.doc = opts.doc ?? document;
+    this._opts = opts;
+    this._doc = opts.doc ?? document;
   }
 
   start(): void {
-    if (this.running || this.opts.mode === 'toggle') return;
-    this.running = true;
-    this.doc.addEventListener('pointerdown', this.onPointerDown, true);
-    this.doc.addEventListener('pointermove', this.onPointerMove, true);
-    this.doc.addEventListener('pointerup', this.onPointerUp, true);
-    this.doc.addEventListener('pointercancel', this.onPointerCancel, true);
-    this.doc.addEventListener('click', this.onClick, true);
-    this.doc.addEventListener('contextmenu', this.onContextMenu, true);
+    if (this._running || this._opts.mode === 'toggle') return;
+    this._running = true;
+    this._doc.addEventListener('pointerdown', this._onPointerDown, true);
+    this._doc.addEventListener('pointermove', this._onPointerMove, true);
+    this._doc.addEventListener('pointerup', this._onPointerUp, true);
+    this._doc.addEventListener('pointercancel', this._onPointerCancel, true);
+    this._doc.addEventListener('click', this._onClick, true);
+    this._doc.addEventListener('contextmenu', this._onContextMenu, true);
   }
 
   stop(): void {
-    if (!this.running) return;
-    this.running = false;
-    this.cancelPress();
-    this.swallowNextClick = false;
-    clearTimeout(this.swallowTimer);
-    this.doc.removeEventListener('pointerdown', this.onPointerDown, true);
-    this.doc.removeEventListener('pointermove', this.onPointerMove, true);
-    this.doc.removeEventListener('pointerup', this.onPointerUp, true);
-    this.doc.removeEventListener('pointercancel', this.onPointerCancel, true);
-    this.doc.removeEventListener('click', this.onClick, true);
-    this.doc.removeEventListener('contextmenu', this.onContextMenu, true);
+    if (!this._running) return;
+    this._running = false;
+    this._cancelPress();
+    this._swallowNextClick = false;
+    clearTimeout(this._swallowTimer);
+    this._doc.removeEventListener('pointerdown', this._onPointerDown, true);
+    this._doc.removeEventListener('pointermove', this._onPointerMove, true);
+    this._doc.removeEventListener('pointerup', this._onPointerUp, true);
+    this._doc.removeEventListener('pointercancel', this._onPointerCancel, true);
+    this._doc.removeEventListener('click', this._onClick, true);
+    this._doc.removeEventListener('contextmenu', this._onContextMenu, true);
   }
 
-  private cancelPress(): void {
-    clearTimeout(this.timer);
-    this.timer = undefined;
-    this.press = null;
+  private _cancelPress(): void {
+    clearTimeout(this._timer);
+    this._timer = undefined;
+    this._press = null;
   }
 
-  private armSwallow(): void {
-    this.swallowNextClick = true;
-    clearTimeout(this.swallowTimer);
-    this.swallowTimer = setTimeout(() => {
-      this.swallowNextClick = false;
+  private _armSwallow(): void {
+    this._swallowNextClick = true;
+    clearTimeout(this._swallowTimer);
+    this._swallowTimer = setTimeout(() => {
+      this._swallowNextClick = false;
     }, SWALLOW_WINDOW_MS);
   }
 
-  private activate(x: number, y: number, target: Element): void {
-    this.cancelPress();
-    this.armSwallow();
-    this.opts.onActivate(x, y, target);
+  private _activate(x: number, y: number, target: Element): void {
+    this._cancelPress();
+    this._armSwallow();
+    this._opts.onActivate(x, y, target);
   }
 
-  private onPointerDown = (e: Event): void => {
+  private _onPointerDown = (e: Event): void => {
     const pe = e as PointerEvent;
     const target = e.target as Element | null;
     if (!target) return;
 
     // A second active pointer means this is a multi-touch gesture, not a press.
-    if (this.press) {
-      this.cancelPress();
+    if (this._press) {
+      this._cancelPress();
       return;
     }
 
     // Desktop: Alt+click activates immediately.
     if (pe.pointerType !== 'touch') {
-      if (pe.altKey) this.activate(pe.clientX, pe.clientY, target);
+      if (pe.altKey) this._activate(pe.clientX, pe.clientY, target);
       return;
     }
 
     // Touch: begin a long-press.
-    this.press = { pointerId: pe.pointerId, x: pe.clientX, y: pe.clientY, target };
-    clearTimeout(this.timer);
-    this.timer = setTimeout(() => {
-      if (!this.press) return;
-      const { x, y, target: t } = this.press;
-      this.activate(x, y, t);
-    }, this.opts.longPressMs);
+    this._press = { pointerId: pe.pointerId, x: pe.clientX, y: pe.clientY, target };
+    clearTimeout(this._timer);
+    this._timer = setTimeout(() => {
+      if (!this._press) return;
+      const { x, y, target: t } = this._press;
+      this._activate(x, y, t);
+    }, this._opts.longPressMs);
   };
 
-  private onPointerMove = (e: Event): void => {
+  private _onPointerMove = (e: Event): void => {
     const pe = e as PointerEvent;
-    if (!this.press || pe.pointerId !== this.press.pointerId) return;
-    const dist = Math.hypot(pe.clientX - this.press.x, pe.clientY - this.press.y);
-    if (dist > this.opts.moveThresholdPx) this.cancelPress();
+    if (!this._press || pe.pointerId !== this._press.pointerId) return;
+    const dist = Math.hypot(pe.clientX - this._press.x, pe.clientY - this._press.y);
+    if (dist > this._opts.moveThresholdPx) this._cancelPress();
   };
 
-  private onPointerUp = (e: Event): void => {
+  private _onPointerUp = (e: Event): void => {
     const pe = e as PointerEvent;
-    if (this.press && pe.pointerId === this.press.pointerId) this.cancelPress();
+    if (this._press && pe.pointerId === this._press.pointerId) this._cancelPress();
   };
 
-  private onPointerCancel = (): void => {
-    if (this.press) this.cancelPress();
+  private _onPointerCancel = (): void => {
+    if (this._press) this._cancelPress();
   };
 
-  private onClick = (e: Event): void => {
-    if (!this.swallowNextClick) return;
-    this.swallowNextClick = false;
-    clearTimeout(this.swallowTimer);
+  private _onClick = (e: Event): void => {
+    if (!this._swallowNextClick) return;
+    this._swallowNextClick = false;
+    clearTimeout(this._swallowTimer);
     e.preventDefault();
     e.stopImmediatePropagation();
   };
 
-  private onContextMenu = (e: Event): void => {
+  private _onContextMenu = (e: Event): void => {
     // Suppress the native long-press callout/menu while a press is in flight or
     // just activated, without hijacking right-click the rest of the time.
-    if (this.press || this.swallowNextClick) e.preventDefault();
+    if (this._press || this._swallowNextClick) e.preventDefault();
   };
 }

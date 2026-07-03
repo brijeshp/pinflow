@@ -8,49 +8,49 @@ export type SessionState = 'recording' | 'finalizing' | 'closed';
  *    late finals are dropped — so the bubble can't twitch after the user stops.
  */
 export class TranscriptStore {
-  private committedText = '';
-  private interimText = '';
-  private state: SessionState = 'recording';
+  private _committedText = '';
+  private _interimText = '';
+  private _state: SessionState = 'recording';
 
   get currentState(): SessionState {
-    return this.state;
+    return this._state;
   }
 
   /** Live, not-yet-final text. Accepted only while recording. */
   pushInterim(text: string): boolean {
-    if (this.state !== 'recording') return false;
-    this.interimText = text;
+    if (this._state !== 'recording') return false;
+    this._interimText = text;
     return true;
   }
 
   /** Finalized segment — appended. Accepted while recording or finalizing. */
   pushFinal(text: string): boolean {
-    if (this.state === 'closed') return false;
+    if (this._state === 'closed') return false;
     const t = text.trim();
-    if (t) this.committedText = this.committedText ? `${this.committedText} ${t}` : t;
-    this.interimText = '';
+    if (t) this._committedText = this._committedText ? `${this._committedText} ${t}` : t;
+    this._interimText = '';
     return true;
   }
 
   beginFinalize(): void {
-    if (this.state === 'recording') this.state = 'finalizing';
+    if (this._state === 'recording') this._state = 'finalizing';
   }
 
   close(): void {
-    this.state = 'closed';
-    this.interimText = '';
+    this._state = 'closed';
+    this._interimText = '';
   }
 
   /** The persisted text — committed finals only. */
   get text(): string {
-    return this.committedText;
+    return this._committedText;
   }
 
   get display(): { committed: string; interim: string } {
-    return { committed: this.committedText, interim: this.interimText };
+    return { committed: this._committedText, interim: this._interimText };
   }
 
   isEmpty(): boolean {
-    return this.committedText.trim().length === 0;
+    return this._committedText.trim().length === 0;
   }
 }

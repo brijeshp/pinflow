@@ -16,6 +16,9 @@
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
+    "paths": {
+      "pinflow": ["./src/core/index.ts"]
+    },
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true,

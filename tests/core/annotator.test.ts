@@ -150,8 +150,8 @@ describe('Annotator voice host generation guards (P0.6)', () => {
       });
     annotator = makeAnnotator({ voice: true, loadVoice });
     (
-      annotator as unknown as { placeCommentAt(x: number, y: number, t: Element): void }
-    ).placeCommentAt(10, 10, document.body);
+      annotator as unknown as { _placeCommentAt(x: number, y: number, t: Element): void }
+    )._placeCommentAt(10, 10, document.body);
     await flushMicrotasks();
     if (!captured) throw new Error('voice host was never built');
     return captured;

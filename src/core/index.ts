@@ -22,7 +22,9 @@ export type {
 } from './types';
 export { isVoiceComment } from './types';
 
-export const version = '0.0.0';
+// Injected by tsup `define` at build time (src/globals.d.ts); the `typeof`
+// guard keeps vitest — which runs source without the define — working.
+export const version = typeof __PINFLOW_VERSION__ !== 'undefined' ? __PINFLOW_VERSION__ : '0.0.0';
 
 export interface Handle {
   destroy(): void;

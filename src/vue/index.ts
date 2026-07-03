@@ -1,8 +1,18 @@
 import { defineComponent, onBeforeUnmount, onMounted, watch } from 'vue';
-import { init, type Handle } from '../core/index';
-import type { ActivationConfig, Mode, PinflowConfig, Position, VoiceConfig } from '../core/types';
+// Bare self-reference (NOT '../core/index'): the built wrapper keeps `pinflow`
+// external so it shares the consumer's single core module — see tsup.config.ts.
+// Resolved to source for typecheck/tests via tsconfig `paths` + vitest alias.
+import {
+  init,
+  type ActivationConfig,
+  type Handle,
+  type Mode,
+  type PinflowConfig,
+  type Position,
+  type VoiceConfig,
+} from 'pinflow';
 
-export type { PinflowConfig } from '../core/types';
+export type { PinflowConfig } from 'pinflow';
 
 export const Annotator = defineComponent({
   name: 'PinflowAnnotator',
