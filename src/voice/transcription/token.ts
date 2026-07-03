@@ -33,7 +33,11 @@ export async function resolveToken(
   deps: { fetchFn?: FetchLike; hostname?: string } = {},
 ): Promise<string> {
   if (config.tokenEndpoint) {
-    const fetchFn = deps.fetchFn ?? fetch;
+    // Do NOT "simplify" to `deps.fetchFn ?? fetch`: passing `fetch` by value
+    // detaches it from its receiver, and Chromium/WebKit then throw
+    // "Illegal invocation" when it is called. The arrow keeps the call
+    // receiver-correct (a bare `fetch(...)` call resolves the global binding).
+    const fetchFn = deps.fetchFn ?? ((input: string, init?: RequestInit) => fetch(input, init));
     const res = await fetchFn(config.tokenEndpoint, { method: 'POST' });
     if (!res.ok) throw new Error(`token endpoint returned ${res.status}`);
     const body: unknown = await res.json();

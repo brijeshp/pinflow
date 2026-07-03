@@ -135,6 +135,16 @@ describe('startSession', () => {
     expect(host.committed).toHaveLength(0);
   });
 
+  it('stops the capture when capture.start fails partway (mic never left live)', async () => {
+    // Defense in depth for the partial-acquisition leak: even if the capture's
+    // own cleanup regressed, the session must call the (idempotent) stop().
+    const host = makeHost();
+    const capture = makeCapture({ fail: true });
+    await startSession(host, { ...baseDeps(), capture });
+    expect(capture.stopped).toBeGreaterThanOrEqual(1);
+    expect(host.degraded).toBe(1);
+  });
+
   it('ignores transcript frames that arrive after stop (no post-stop twitch)', async () => {
     const host = makeHost();
     const { provider, stream } = makeProvider();

@@ -11,6 +11,7 @@ const MODEL = 'nova-3';
 const LANGUAGE = 'en';
 const KEEPALIVE_MS = 4000;
 const FINALIZE_GRACE_MS = 300;
+const OPEN_TIMEOUT_MS = 10000;
 
 export type WebSocketFactory = (url: string, protocols: string[]) => WebSocket;
 
@@ -33,6 +34,19 @@ export function createDeepgramProvider(
         ws.binaryType = 'arraybuffer';
         let keepalive = 0;
         let opened = false;
+        // Pre-open failures must both reject AND close the socket.
+        const fail = (err: Error): void => {
+          reject(err);
+          try {
+            ws.close();
+          } catch {
+            /* ignore */
+          }
+        };
+        const timer = window.setTimeout(
+          () => fail(new Error('voice websocket open timed out')),
+          OPEN_TIMEOUT_MS,
+        );
 
         const stream: TranscriptionStream = {
           sendPcm(frame) {
@@ -50,6 +64,7 @@ export function createDeepgramProvider(
             ws.onmessage = null;
             ws.onerror = null;
             ws.onopen = null;
+            ws.onclose = null;
             try {
               ws.close();
             } catch {
@@ -60,14 +75,23 @@ export function createDeepgramProvider(
 
         ws.onopen = (): void => {
           opened = true;
+          window.clearTimeout(timer);
           keepalive = window.setInterval(() => {
             if (ws.readyState === WebSocket.OPEN) ws.send(KEEPALIVE_FRAME);
           }, KEEPALIVE_MS);
           resolve(stream);
         };
         ws.onerror = (e): void => {
-          if (!opened) reject(new Error('voice websocket failed to open'));
-          else opts.onError(e);
+          if (!opened) {
+            window.clearTimeout(timer);
+            fail(new Error('voice websocket failed to open'));
+          } else opts.onError(e);
+        };
+        ws.onclose = (e): void => {
+          window.clearTimeout(timer);
+          window.clearInterval(keepalive);
+          if (!opened) reject(new Error(`voice websocket closed before open (code ${e.code})`));
+          else opts.onError(new Error(`voice websocket closed unexpectedly (code ${e.code})`));
         };
         ws.onmessage = (e: MessageEvent): void => {
           if (typeof e.data !== 'string') return;

@@ -27,6 +27,25 @@ describe('resolveToken', () => {
     expect(fetchFn).toHaveBeenCalledWith('https://x/token', { method: 'POST' });
   });
 
+  it('defaults to global fetch with the exact args when no fetchFn is injected', async () => {
+    // The default MUST stay wrapped in an arrow (see token.ts): passing `fetch`
+    // by value detaches it from its receiver and Chromium/WebKit throw
+    // "Illegal invocation". happy-dom cannot reproduce the receiver check, so
+    // this pins the default path: globalThis.fetch called with correct args.
+    const spy = vi
+      .fn()
+      .mockResolvedValue(jsonResponse({ access_token: 'jwt-default', expires_in: 60 }));
+    vi.stubGlobal('fetch', spy);
+    try {
+      const token = await resolveToken({ tokenEndpoint: 'https://x/token' });
+      expect(token).toBe('jwt-default');
+      expect(spy).toHaveBeenCalledTimes(1);
+      expect(spy).toHaveBeenCalledWith('https://x/token', { method: 'POST' });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('throws on a non-200 token endpoint', async () => {
     const fetchFn = vi.fn().mockResolvedValue(jsonResponse({}, false, 403));
     await expect(resolveToken({ tokenEndpoint: 'https://x/token' }, { fetchFn })).rejects.toThrow(

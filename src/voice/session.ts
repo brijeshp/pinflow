@@ -63,6 +63,7 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
     );
   } catch (err) {
     host.logger.warn('mic capture failed', err);
+    deps.capture.stop(); // idempotent — releases anything partially acquired
     stream.close();
     host.degradeToText();
     return noopSession();

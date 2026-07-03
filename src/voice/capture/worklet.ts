@@ -2,7 +2,9 @@
 // (no separate file for hosts to serve). Downsamples the AudioContext rate
 // (commonly 48kHz) to 16kHz mono and emits linear16 PCM as transferable
 // ArrayBuffers — all off the main thread.
-const WORKLET_SOURCE = `
+// Exported for tests only — the test harness compiles this string with the
+// AudioWorklet globals stubbed (there is no worklet runtime in happy-dom).
+export const WORKLET_SOURCE = `
 class PinflowPCM extends AudioWorkletProcessor {
   constructor() {
     super();
@@ -24,7 +26,7 @@ class PinflowPCM extends AudioWorkletProcessor {
         s = s < -1 ? -1 : s > 1 ? 1 : s;
         this.out[this.len++] = s < 0 ? s * 0x8000 : s * 0x7fff;
         this.acc = 0;
-        this.count = 0;
+        this.count -= this.ratio;
         if (this.len >= this.out.length) this.flush();
       }
     }
