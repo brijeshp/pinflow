@@ -11,6 +11,7 @@ labels: bug
 **Reproduction** (URL, CodeSandbox, or minimal steps)
 
 **Environment**
+
 - Pinflow version:
 - Browser + OS:
 - Framework (vanilla / React / Vue / Next / ...):

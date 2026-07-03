@@ -25,10 +25,12 @@ export function PinflowProvider() {
 import { PinflowProvider } from './pinflow-provider';
 export default function RootLayout({ children }) {
   return (
-    <html><body>
-      <PinflowProvider />
-      {children}
-    </body></html>
+    <html>
+      <body>
+        <PinflowProvider />
+        {children}
+      </body>
+    </html>
   );
 }
 ```

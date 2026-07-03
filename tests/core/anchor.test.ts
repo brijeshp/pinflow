@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { anchorToScreen, buildAnchor, clickToPositionPercent, resolveAnchor } from '../../src/core/anchor';
+import {
+  anchorToScreen,
+  buildAnchor,
+  clickToPositionPercent,
+  resolveAnchor,
+} from '../../src/core/anchor';
 
 describe('anchor', () => {
   it('computes percentage offsets within element', () => {

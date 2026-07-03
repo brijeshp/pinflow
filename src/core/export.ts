@@ -168,9 +168,7 @@ function summarize(
   const byReviewerLines = reviewers
     .map((r) => `- ${r} — ${byReviewer.get(r) ?? 0} comments`)
     .join('\n');
-  const byRouteLines = groups
-    .map((g) => `- ${g.route} — ${g.comments.length} comments`)
-    .join('\n');
+  const byRouteLines = groups.map((g) => `- ${g.route} — ${g.comments.length} comments`).join('\n');
   return [
     '## Summary',
     '',

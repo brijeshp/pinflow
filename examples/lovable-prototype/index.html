@@ -1,39 +1,92 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pinflow — Lovable / Bolt Prototype</title>
-  <style>
-    * { margin: 0; box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; background: #fafafa; }
-    .hero { padding: 80px 24px; text-align: center; }
-    .hero h1 { font-size: 3rem; letter-spacing: -0.02em; }
-    .hero p { font-size: 1.2rem; color: #6b7280; margin-top: 12px; }
-    .hero .btn { display: inline-block; margin-top: 32px; padding: 16px 32px; background: #111; color: #fff; border-radius: 999px; text-decoration: none; font-weight: 500; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 16px; padding: 0 24px 80px; max-width: 960px; margin: 0 auto; }
-    .grid .item { background: #fff; border-radius: 12px; padding: 24px; border: 1px solid #e5e7eb; }
-    .grid .item h3 { font-size: 1.1rem; margin-bottom: 8px; }
-    .grid .item p { font-size: 0.9rem; color: #6b7280; line-height: 1.6; }
-  </style>
-</head>
-<body>
-  <div class="hero">
-    <h1>Lovable Prototype</h1>
-    <p>A typical vibe-coded output from Lovable or Bolt. Pinflow is added via one script tag.</p>
-    <a href="#" class="btn" data-testid="hero-cta">Try it free</a>
-  </div>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pinflow — Lovable / Bolt Prototype</title>
+    <style>
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: system-ui, sans-serif;
+        background: #fafafa;
+      }
+      .hero {
+        padding: 80px 24px;
+        text-align: center;
+      }
+      .hero h1 {
+        font-size: 3rem;
+        letter-spacing: -0.02em;
+      }
+      .hero p {
+        font-size: 1.2rem;
+        color: #6b7280;
+        margin-top: 12px;
+      }
+      .hero .btn {
+        display: inline-block;
+        margin-top: 32px;
+        padding: 16px 32px;
+        background: #111;
+        color: #fff;
+        border-radius: 999px;
+        text-decoration: none;
+        font-weight: 500;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+        gap: 16px;
+        padding: 0 24px 80px;
+        max-width: 960px;
+        margin: 0 auto;
+      }
+      .grid .item {
+        background: #fff;
+        border-radius: 12px;
+        padding: 24px;
+        border: 1px solid #e5e7eb;
+      }
+      .grid .item h3 {
+        font-size: 1.1rem;
+        margin-bottom: 8px;
+      }
+      .grid .item p {
+        font-size: 0.9rem;
+        color: #6b7280;
+        line-height: 1.6;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="hero">
+      <h1>Lovable Prototype</h1>
+      <p>A typical vibe-coded output from Lovable or Bolt. Pinflow is added via one script tag.</p>
+      <a href="#" class="btn" data-testid="hero-cta">Try it free</a>
+    </div>
 
-  <div class="grid">
-    <div class="item"><h3>Dashboard</h3><p>See everything at a glance. Charts, tables, and KPIs.</p></div>
-    <div class="item"><h3>Integrations</h3><p>Connect to Slack, Notion, Linear, and 40 more.</p></div>
-    <div class="item"><h3>AI Assist</h3><p>Ask questions in natural language and get answers from your data.</p></div>
-  </div>
+    <div class="grid">
+      <div class="item">
+        <h3>Dashboard</h3>
+        <p>See everything at a glance. Charts, tables, and KPIs.</p>
+      </div>
+      <div class="item">
+        <h3>Integrations</h3>
+        <p>Connect to Slack, Notion, Linear, and 40 more.</p>
+      </div>
+      <div class="item">
+        <h3>AI Assist</h3>
+        <p>Ask questions in natural language and get answers from your data.</p>
+      </div>
+    </div>
 
-  <!--
+    <!--
     This is the only line you add to a Lovable/Bolt prototype.
     Share ?reviewer=NAME links with stakeholders for feedback.
   -->
-  <script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="lovable-demo"></script>
-</body>
+    <script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="lovable-demo"></script>
+  </body>
 </html>

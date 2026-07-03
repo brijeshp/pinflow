@@ -61,12 +61,12 @@ No accounts, no servers, no auth. Ever.
 
 ```js
 window.Pinflow.init({
-  project: 'my-prototype',   // localStorage namespace
-  reviewer: 'Sarah',         // override URL param
-  mode: 'reviewer',          // 'reviewer' | 'builder'
-  theme: 'auto',             // 'light' | 'dark' | 'auto'
-  position: 'bottom-right',  // floating control position
-  hidden: false,             // headless mode
+  project: 'my-prototype', // localStorage namespace
+  reviewer: 'Sarah', // override URL param
+  mode: 'reviewer', // 'reviewer' | 'builder'
+  theme: 'auto', // 'light' | 'dark' | 'auto'
+  position: 'bottom-right', // floating control position
+  hidden: false, // headless mode
   onSubmit: async (payload) => {
     // Optional: POST to your own endpoint
     await fetch('/api/feedback', { method: 'POST', body: JSON.stringify(payload) });
@@ -99,13 +99,15 @@ Routes covered: /, /pricing
 ## Route: /
 
 ### Comment 1 — 2026-04-15T14:24:00Z
+
 **Element:** `<button data-testid="primary-cta">` ("Get started for free")
 **Selector candidates:**
+
 - testid: `primary-cta`
 - css: `main > section:nth-of-type(1) > button.cta-primary`
 - xpath: `/html/body/main/section[1]/button[1]`
-**Position:** 47% from left, 38% from top of element
-**Viewport at time of comment:** 390×844 (mobile)
+  **Position:** 47% from left, 38% from top of element
+  **Viewport at time of comment:** 390×844 (mobile)
 
 > This CTA gets lost against the background.
 ```

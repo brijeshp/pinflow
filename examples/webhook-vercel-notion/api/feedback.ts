@@ -16,7 +16,10 @@ interface Payload {
   comments: Comment[];
 }
 
-export default async function handler(req: { method: string; body: Payload }, res: { status: (n: number) => { json: (o: unknown) => void } }) {
+export default async function handler(
+  req: { method: string; body: Payload },
+  res: { status: (n: number) => { json: (o: unknown) => void } },
+) {
   if (req.method !== 'POST') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
@@ -45,7 +48,9 @@ export default async function handler(req: { method: string; body: Payload }, re
           Reviewer: { rich_text: [{ text: { content: reviewer } }] },
           Project: { rich_text: [{ text: { content: project } }] },
           Route: { rich_text: [{ text: { content: c.route } }] },
-          Element: { rich_text: [{ text: { content: c.anchor.textFingerprint || c.anchor.selectors.css } }] },
+          Element: {
+            rich_text: [{ text: { content: c.anchor.textFingerprint || c.anchor.selectors.css } }],
+          },
         },
         children: [
           {

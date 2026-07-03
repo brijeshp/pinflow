@@ -13,13 +13,13 @@ Full-codebase review (bundle/perf, TypeScript quality, simplicity/YAGNI, repo co
 
 **Measured baseline (2026-07-03):**
 
-| Bundle | Raw | Gzip | Notes |
-|---|---|---|---|
-| `dist/index.js` (core ESM) | 46,035 | **12,819** | ⚠️ shipped unminified |
-| `dist/pinflow.iife.js` | 29,510 | **9,909** | minified |
-| `dist/react.js` | 46,266 | **12,917** | ⚠️ duplicates entire core |
-| `dist/vue.js` | 46,738 | **13,049** | ⚠️ duplicates entire core |
-| `dist/voice.js` | 15,448 | **5,075** | ⚠️ shipped unminified |
+| Bundle                     | Raw    | Gzip       | Notes                     |
+| -------------------------- | ------ | ---------- | ------------------------- |
+| `dist/index.js` (core ESM) | 46,035 | **12,819** | ⚠️ shipped unminified     |
+| `dist/pinflow.iife.js`     | 29,510 | **9,909**  | minified                  |
+| `dist/react.js`            | 46,266 | **12,917** | ⚠️ duplicates entire core |
+| `dist/vue.js`              | 46,738 | **13,049** | ⚠️ duplicates entire core |
+| `dist/voice.js`            | 15,448 | **5,075**  | ⚠️ shipped unminified     |
 
 **Projected end state** (build-config wins only, before source slimming): core ESM **~9.0 KB gz**, IIFE **~9.5**, voice **~3.7**, react **~0.33**, vue **~0.47** — with zero behavioral change to the CDN single-file story.
 
@@ -41,7 +41,7 @@ Per [docs/plans/2026-06-20-001-feat-voice-stealth-feedback-annotation-layer-plan
 - CSS ships as a hand-minified inline JS string into Shadow DOM (spec §543). No CSS file extraction.
 - Zero runtime deps; no telemetry; no entitlement logic (`CONTRIBUTING.md:21-27`).
 - "0 bytes for text users" is an invariant, triple-enforced: size-limit + tsup `external` + `tests/voice/bundle-isolation.test.ts` grep assertion.
-- v2 plan Phases 3–5 (token security, export polish, a11y/perf/e2e) still land **after** this — they will *add* code; budgets below leave headroom for them (plan projects core ~10–13 KB, voice ~8.4 KB eventual).
+- v2 plan Phases 3–5 (token security, export polish, a11y/perf/e2e) still land **after** this — they will _add_ code; budgets below leave headroom for them (plan projects core ~10–13 KB, voice ~8.4 KB eventual).
 
 ---
 
@@ -54,7 +54,7 @@ Bugs found by review in shipped/branch code. Each fix = failing test first (TDD)
 - [x] **P0.3 `init()` throws when storage is blocked** — `src/core/index.ts:38` (`window.localStorage` getter throws SecurityError under third-party-storage blocking) and `src/core/identity.ts:29,38` (unguarded `setItem`). Fall back to an in-memory Storage shim; never crash the host at startup.
 - [x] **P0.4 No `ws.onclose` → silent dead recording + leaked keepalive** — `src/voice/transcription/deepgram.ts:61-83`: server-initiated close never clears the 4s keepalive interval and never reaches `onError`, so the session never degrades. Add `onclose` (clear interval; reject if pre-open, else `onError`), an open timeout, and `close()` on the pre-open reject path.
 - [x] **P0.5 Debounced save resurrects deleted comments / writes after destroy()** — `src/core/ui/annotator.ts:541-560, 578-581`: the 2s debounce is never cleared on Delete, `closeActiveInput()`, or `destroy()`; a deleted comment gets re-`upsert`ed, and the library writes to localStorage post-teardown. Hold the timer on `activeInput`, clear it in `closeActiveInput()` + delete handler, flush on close (also fixes blur-not-firing-on-removal data loss).
-- [x] **P0.6 Voice host callbacks not generation-guarded; degrade lands on wrong route** — `src/core/ui/annotator.ts:442-458`: `commit`/`discard`/`degradeToText` closures ignore the generation counter; a late `degradeToText` after destroy/navigation mutates dead state and stamps the *current* route instead of the frozen one (violates `voice-contract.ts:20-21`). Capture generation in `buildVoiceHost`; pass frozen `route` into the degrade path.
+- [x] **P0.6 Voice host callbacks not generation-guarded; degrade lands on wrong route** — `src/core/ui/annotator.ts:442-458`: `commit`/`discard`/`degradeToText` closures ignore the generation counter; a late `degradeToText` after destroy/navigation mutates dead state and stamps the _current_ route instead of the frozen one (violates `voice-contract.ts:20-21`). Capture generation in `buildVoiceHost`; pass frozen `route` into the degrade path.
 - [x] **P0.7 Worklet drops fractional downsample ratio** — `src/voice/capture/worklet.ts:22-27`: at 44.1 kHz, `count = 0` reset yields ~14.7 kHz audio declared as 16 kHz — systematic transcription degradation on the most common consumer sample rate. Fix: `this.count -= this.ratio`.
 
 **Success criteria:** all seven have regression tests; existing suite green; grep bundle-isolation test still passes.

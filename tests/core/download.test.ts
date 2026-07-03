@@ -13,7 +13,12 @@ describe('downloadMarkdown', () => {
     const clickSpy = vi.fn();
     vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
       if (tag === 'a') {
-        const a = { href: '', download: '', rel: '', click: clickSpy } as unknown as HTMLAnchorElement;
+        const a = {
+          href: '',
+          download: '',
+          rel: '',
+          click: clickSpy,
+        } as unknown as HTMLAnchorElement;
         return a;
       }
       return document.createElement(tag);
@@ -60,9 +65,11 @@ describe('copyToClipboard', () => {
       value: { writeText: () => Promise.reject(new Error('no')) },
       configurable: true,
     });
-    (document as unknown as Record<string, unknown>).execCommand = vi.fn().mockImplementation(() => {
-      throw new Error('nope');
-    });
+    (document as unknown as Record<string, unknown>).execCommand = vi
+      .fn()
+      .mockImplementation(() => {
+        throw new Error('nope');
+      });
     const ok = await copyToClipboard('nope');
     expect(ok).toBe(false);
     delete (document as unknown as Record<string, unknown>).execCommand;

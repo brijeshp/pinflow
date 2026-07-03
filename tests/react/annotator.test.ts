@@ -50,7 +50,9 @@ describe('React <Annotator />', () => {
       root.render(React.createElement(Annotator, { project: 'test-proj' }));
     });
     expect(container.innerHTML).toBe('');
-    await act(async () => { root.unmount(); });
+    await act(async () => {
+      root.unmount();
+    });
   });
 
   it('exports the component and types', async () => {

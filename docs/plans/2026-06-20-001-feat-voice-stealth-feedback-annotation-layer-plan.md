@@ -20,6 +20,7 @@ contract), Data Model & Migration, Config surface, Security (+ Egress contract),
 (+ Async Resumption Contract), Phases, Risks, Integration Tests, + new "Deferred to v2.1".
 
 **Key improvements from review:**
+
 1. **Resolved a plan-breaking bundling issue** — `tsup` `splitting:false` (tsup.config.ts:17) + the
    IIFE/CDN global build cannot resolve a bare dynamic `import('pinflow/voice')`. Fixed via an injected
    `loadVoice` seam + a CI grep assertion that voice symbols are absent from core bundles.
@@ -38,7 +39,7 @@ contract), Data Model & Migration, Config surface, Security (+ Egress contract),
 
 **New considerations discovered:** AudioContext is a capped resource (leaking it eventually throws);
 `setPointerCapture` suppresses host scroll (don't capture eagerly); interim Deepgram results can arrive
-*after* finalize (need a terminal "ignore-all" state); reviewer-name keys aren't collision-proof.
+_after_ finalize (need a terminal "ignore-all" state); reviewer-name keys aren't collision-proof.
 
 ---
 
@@ -58,8 +59,8 @@ percentage anchoring, rAF reflow, collision-flipping, SPA route-watching — is 
    stored and exported. Powered by Deepgram streaming STT (`nova-3`).
 2. **Stealth activation** — the layer is invisible until the reviewer performs a deliberate gesture
    (long-press on touch, `Alt`+click on desktop, keyboard fallback for a11y), so it sits "behind the
-   screen" and is non-intrusive. *Stealth applies to review chrome — never to the fact that the mic is
-   recording.*
+   screen" and is non-intrusive. _Stealth applies to review chrome — never to the fact that the mic is
+   recording._
 3. **Per-screen feedback that compiles to fixes** — every note carries a `{route, element-anchor}`
    identity, so the markdown export groups feedback by screen and area, and (paid tier) an LLM compiles
    cross-reviewer feedback into a Claude-Code-ready change list.
@@ -76,7 +77,7 @@ only one.
 
 Today there is no low-friction way to collect **screen-specific, component-anchored** feedback from
 partners reviewing a live experience. Forms and email lose the "where on the screen" context; screen
-recordings aren't actionable by a coding agent. Reviewers also don't want to *type* — voice is faster and
+recordings aren't actionable by a coding agent. Reviewers also don't want to _type_ — voice is faster and
 richer, especially on mobile. And the activation must be invisible: a partner reviewing a polished demo
 should not see review chrome unless they intend to leave feedback.
 
@@ -92,20 +93,20 @@ A two-layer architecture that keeps the free core pristine and isolates everythi
 **lazy-loaded, opt-in `pinflow/voice` entry**:
 
 - **Core (`src/core/**`, free, zero-deps, ≤30 KB):** extend the existing `Annotator` engine with (a) a
-  **stealth gesture state machine** (pure DOM, no deps — fits in core) and (b) an extended data model
-  (`modality`, `transcript`, `voice` metadata). Text feedback via stealth gesture works fully with **zero**
+**stealth gesture state machine** (pure DOM, no deps — fits in core) and (b) an extended data model
+(`modality`, `transcript`, `voice` metadata). Text feedback via stealth gesture works fully with **zero**
   new dependencies and **zero** network.
 - **Voice module (`src/voice/index.ts`, new export `pinflow/voice`, opt-in, separately size-budgeted):**
   hand-rolled Deepgram WebSocket client (the `@deepgram/sdk` is ~50 KB+ — too heavy; confirmed),
   AudioWorklet PCM capture, waveform, and the streaming-transcript dot UI. Core loads this module **only**
-  when `voice` is configured *and* a gesture fires (via an injected `loadVoice` seam — see Bundling
+  when `voice` is configured _and_ a gesture fires (via an injected `loadVoice` seam — see Bundling
   Constraints) — so vanilla/text users never download it and SSR never touches it.
 - **Security:** the library **never** holds a Deepgram API key. It accepts a `tokenEndpoint` (or, for
   local dev only, an opaque `devOnlyToken`) and connects with a short-lived **grant-token JWT** via the
   WebSocket subprotocol (`new WebSocket(url, ['token', jwt])`). Hosted (paid) mode points `tokenEndpoint`
   at a Sensavera-run minting endpoint that proxies Deepgram's `POST /v1/auth/grant` (TTL ≤60 s,
   `usage::write`, per-reviewer rate-limited, CORS-restricted).
-- **Compilation:** the **free** path needs **no LLM key** — the markdown export *is* the LLM-digestible
+- **Compilation:** the **free** path needs **no LLM key** — the markdown export _is_ the LLM-digestible
   artifact, grouped by screen/element, pasted into Claude Code/Codex. The **paid** path adds server-side
   LLM compilation; the LLM key lives only in that paid backend, never in the browser.
 
@@ -114,14 +115,14 @@ A two-layer architecture that keeps the free core pristine and isolates everythi
 1. **Activation gesture.** Long-press (touch, 500 ms, cancel on ~10 px move) + `Alt`+click (desktop) +
    keyboard fallback. **Pressure/force-touch is explicitly NOT used** — `PointerEvent.pressure` reads
    `0`/`0.5` on most hardware and Apple removed 3D Touch; it would be an unreliable primary. `Alt` is the
-   least cross-OS-colliding modifier (avoid Ctrl/Cmd/right-click). *Decision (simplicity review): ship a
-   fixed `Alt`+click — no `desktopModifier` option — and a single internal move-threshold constant.*
+   least cross-OS-colliding modifier (avoid Ctrl/Cmd/right-click). _Decision (simplicity review): ship a
+   fixed `Alt`+click — no `desktopModifier` option — and a single internal move-threshold constant._
 2. **"Stays on screen while the section is active."** In a framework-agnostic library, "section" = **route
    key** (`src/core/route-key.ts`). Pinflow already scopes pins per-route and re-renders on SPA navigation
    (`src/core/router.ts`); the feedback dot + transcript bubble persist while on that route, hide on
-   navigate-away, and re-show on return. We reuse the route scope. *A voice session's route is **frozen at
+   navigate-away, and re-show on return. We reuse the route scope. _A voice session's route is **frozen at
    dot creation** — finalize persists against that captured route, never a fresh `routeKey()` (see Async
-   Resumption Contract).*
+   Resumption Contract)._
 3. **Deepgram key + LLM key.** Ask for a **Deepgram token** (BYO `tokenEndpoint` free / hosted-minted
    paid) — never a raw key in client code. **No LLM key is needed for the free tier**; markdown export
    feeds Claude Code directly. An LLM key is a **paid, server-side** concern for the compilation backend
@@ -131,8 +132,8 @@ A two-layer architecture that keeps the free core pristine and isolates everythi
    LLM compilation + hosted storage + sharable reports + the test-flag campaign embed.
    - **Entitlement invariant (architecture review):** the OSS core and `pinflow/voice` contain **zero**
      entitlement, billing, licensing, or tier-checking logic. There is no `tier`/`plan`/`licenseKey`/
-     `isPaid` field anywhere in `PinflowConfig` or the data model. Free vs paid is realized *entirely by
-     what the builder wires up* — a `tokenEndpoint` that happens to be hosted, and an `onSubmit` that
+     `isPaid` field anywhere in `PinflowConfig` or the data model. Free vs paid is realized _entirely by
+     what the builder wires up_ — a `tokenEndpoint` that happens to be hosted, and an `onSubmit` that
      happens to post to an aggregation backend. The library cannot tell free from paid and must never try.
      This keeps the boundary a product/deployment boundary, not a feature flag.
 
@@ -184,34 +185,41 @@ lives in a types-only `src/core/voice-contract.ts`:
 // src/core/voice-contract.ts — TYPES ONLY (erased at build; safe for both sides, no runtime cycle)
 import type { Anchor, Comment, VoiceConfig, VoiceMeta } from './types';
 
-export interface Logger { warn(m: string, d?: unknown): void; error(m: string, d?: unknown): void; }
+export interface Logger {
+  warn(m: string, d?: unknown): void;
+  error(m: string, d?: unknown): void;
+}
 
 /** Narrow port core hands voice. Voice never touches the store or the Annotator directly. */
 export interface VoiceHost {
   readonly config: Readonly<VoiceConfig>;
-  readonly mount: HTMLElement;          // host-owned node inside the shadow root, near the dot
+  readonly mount: HTMLElement; // host-owned node inside the shadow root, near the dot
   readonly anchor: Anchor;
-  readonly route: string;               // FROZEN at dot creation
-  commit(patch: { text: string; voice: VoiceMeta }): void;  // → core upserts at finalize
-  discard(): void;                                          // empty transcript → drop the dot
-  degradeToText(prefill?: string): void;                   // failure ladder hand-back
-  readonly logger: Logger;             // no console.* in voice; token must never be passed here
+  readonly route: string; // FROZEN at dot creation
+  commit(patch: { text: string; voice: VoiceMeta }): void; // → core upserts at finalize
+  discard(): void; // empty transcript → drop the dot
+  degradeToText(prefill?: string): void; // failure ladder hand-back
+  readonly logger: Logger; // no console.* in voice; token must never be passed here
 }
 
 /** One live recording. Core OWNS its lifecycle and MUST call dispose() on destroy() + route change. */
 export interface VoiceSession {
-  stop(): Promise<void>;     // Finalize + CloseStream + commit/discard (idempotent)
-  dispose(): void;           // release mic + AudioContext + WS + timers UNCONDITIONALLY (idempotent)
+  stop(): Promise<void>; // Finalize + CloseStream + commit/discard (idempotent)
+  dispose(): void; // release mic + AudioContext + WS + timers UNCONDITIONALLY (idempotent)
 }
 
 /** Default export of `pinflow/voice`, fetched via the injected loadVoice seam. */
-export interface VoiceModule { start(host: VoiceHost): Promise<VoiceSession>; }
+export interface VoiceModule {
+  start(host: VoiceHost): Promise<VoiceSession>;
+}
 
 /** Provider seam INSIDE voice (Deepgram today; WebSpeech/others later). Ordered degrade ladder. */
 export interface TranscriptionProvider {
   readonly name: string;
   open(opts: {
-    token: string; model: string; language: string;
+    token: string;
+    model: string;
+    language: string;
     onInterim: (text: string) => void;
     onFinal: (text: string, confidence?: number) => void;
     onError: (err: unknown) => void;
@@ -250,15 +258,16 @@ CDN. Resolution:
 Measured current core: **IIFE 8.08 KB gz / ESM 10.3 KB gz** (limit 30 KB) — ~22 KB headroom. Source→gz
 ratio in this repo is ~4.4:1; CSS-in-JS ~2.8:1.
 
-| Entry | projected gz | budget | enforcement |
-|---|---|---|---|
-| core IIFE & ESM | ~10–13 KB (Phase 1 adds ~2.3 KB) | **≤30 KB** | existing size-limit |
-| `pinflow/voice` (ESM) | ~8.4 KB bottom-up | **≤14 KB** | NEW size-limit entry |
-| voice symbols in core | **0 bytes** | 0 | NEW grep assertion |
+| Entry                 | projected gz                     | budget     | enforcement          |
+| --------------------- | -------------------------------- | ---------- | -------------------- |
+| core IIFE & ESM       | ~10–13 KB (Phase 1 adds ~2.3 KB) | **≤30 KB** | existing size-limit  |
+| `pinflow/voice` (ESM) | ~8.4 KB bottom-up                | **≤14 KB** | NEW size-limit entry |
+| voice symbols in core | **0 bytes**                      | 0          | NEW grep assertion   |
 
 Runtime rules (perf review):
+
 - **Two distinct rAF loops.** The dot + transcript bubble reuse the existing event-driven reflow loop
-  (`annotator.ts:67-75`, single-flight, translate-don't-rebuild). The **waveform** runs on its *own*
+  (`annotator.ts:67-75`, single-flight, translate-don't-rebuild). The **waveform** runs on its _own_
   rAF that exists only while `recording`, cancelled on stop. Never drive layout work at animation rate.
 - **Two stable transcript nodes, never rebuilt.** One committed node (`textContent +=` on `is_final`,
   `aria-live="polite"`/`role="log"`), one interim node (overwrite `textContent` per interim,
@@ -333,15 +342,13 @@ export interface Comment {
   updatedAt: string;
   route: string;
   fullUrl: string;
-  text: string;            // typed text, or finalized transcript (unified for export)
+  text: string; // typed text, or finalized transcript (unified for export)
   anchor: Anchor;
-  modality: Modality;      // REQUIRED — default 'text' applied at creation + migration
-  voice?: VoiceMeta;       // present iff modality === 'voice'
+  modality: Modality; // REQUIRED — default 'text' applied at creation + migration
+  voice?: VoiceMeta; // present iff modality === 'voice'
 }
 
-export function isVoiceComment(
-  c: Comment,
-): c is Comment & { modality: 'voice'; voice: VoiceMeta } {
+export function isVoiceComment(c: Comment): c is Comment & { modality: 'voice'; voice: VoiceMeta } {
   return c.modality === 'voice' && c.voice !== undefined;
 }
 ```
@@ -359,16 +366,23 @@ const SCHEMA_VERSION = 2 satisfies SchemaVersion;
 
 // Parse untrusted localStorage as `unknown`, then narrow (coding-style: never trust external data).
 function migrate(parsed: unknown): ReviewerStore | null {
-  if (!isPersistedStore(parsed)) return null;                 // validate shape; drop+quarantine if corrupt
+  if (!isPersistedStore(parsed)) return null; // validate shape; drop+quarantine if corrupt
   switch (parsed.schemaVersion) {
-    case 2: return strip(parsed);
-    case 1: return { ...strip(parsed), comments: parsed.comments.map((c) => ({ ...c, modality: 'text' as const })) };
-    default: return forwardTolerantRead(parsed);              // NEWER store: read stable core fields, never wipe
+    case 2:
+      return strip(parsed);
+    case 1:
+      return {
+        ...strip(parsed),
+        comments: parsed.comments.map((c) => ({ ...c, modality: 'text' as const })),
+      };
+    default:
+      return forwardTolerantRead(parsed); // NEWER store: read stable core fields, never wipe
   }
 }
 ```
 
 Hardening rules:
+
 - **Guarded writes (CRITICAL).** Wrap every `setItem` (`storage.ts:39`, `annotator.ts:78`) in try/catch
   returning `{ ok: true } | { ok: false; reason: 'quota' | 'unavailable' }`. On failure during a voice
   finalize, keep the transcript in the editable in-memory dot (exportable) — **never lose it**. Voice
@@ -393,7 +407,7 @@ One **capture-phase controller** on the document root owns `pointerdown/move/up/
 `contextmenu` — collapsing the new long-press detector and the existing capture-phase click interceptor
 (`annotator.ts:257`) into a single source of truth, and **subsuming the existing `annotating` toggle
 flag** (don't run two activation states for `mode:'both'`). The trailing-click swallow becomes a
-**one-shot, time-bounded** flag consumed by the very next click — otherwise the user's *next genuine tap*
+**one-shot, time-bounded** flag consumed by the very next click — otherwise the user's _next genuine tap_
 on the host app gets eaten (a two-tap-button feel).
 
 ```
@@ -417,13 +431,13 @@ Config surface (back-compatible; trimmed per simplicity review):
 ```ts
 // src/core/types.ts (PinflowConfig additions)
 export interface ActivationConfig {
-  mode?: 'toggle' | 'stealth' | 'both';   // default 'toggle' (preserves v1)
-  longPressMs?: number;                    // default 500
+  mode?: 'toggle' | 'stealth' | 'both'; // default 'toggle' (preserves v1)
+  longPressMs?: number; // default 500
   // CUT for v1: desktopModifier (fixed Alt+click), moveThresholdPx (internal const ~10px)
 }
 
 export interface VoiceConfig {
-  tokenEndpoint?: string;   // preferred: returns GrantTokenResponse { access_token, expires_in }
+  tokenEndpoint?: string; // preferred: returns GrantTokenResponse { access_token, expires_in }
   /**
    * LOCAL DEV ONLY. An opaque short-lived Deepgram grant-token JWT — NEVER a raw API key.
    * Pinflow THROWS at init if this is set on a non-local origin (see Security C1).
@@ -433,12 +447,15 @@ export interface VoiceConfig {
 }
 
 /** Wire shape (snake_case = matches Deepgram). Validated as `unknown` before use. */
-export interface GrantTokenResponse { access_token: string; expires_in: number; }
+export interface GrantTokenResponse {
+  access_token: string;
+  expires_in: number;
+}
 
 export interface PinflowConfig {
   /* ...existing... */
   activation?: ActivationConfig;
-  voice?: VoiceConfig;     // presence enables voice; absence = pure v1 behavior, no network
+  voice?: VoiceConfig; // presence enables voice; absence = pure v1 behavior, no network
 }
 ```
 
@@ -453,7 +470,7 @@ add `activation`/`voice` to Vue's `props:{}` declaration, and document that call
    → create an **in-memory** `Comment` shell (`modality:'voice'`, empty `text`, **route frozen now**).
    The shell is controller state, **not** persisted (a crash mid-recording leaves nothing).
 2. Capture `myGen = annotator.generation` + an `AbortController`. `host = buildVoiceHost(anchor, route)`;
-   `mod = await annotator.loadVoice()` (memoize the *promise*, not the module, so concurrent gestures
+   `mod = await annotator.loadVoice()` (memoize the _promise_, not the module, so concurrent gestures
    don't double-import). **After the await, guard:** if `myGen !== generation` or aborted → return.
    **Mic permission requested only now** (JIT, in response to the gesture).
 3. `token.ts` fetches a grant-token JWT from `tokenEndpoint` (passing `signal`; validate response as
@@ -480,7 +497,7 @@ add `activation`/`voice` to Vue's `props:{}` declaration, and document that call
   anchor, narrow voice notes via `isVoiceComment`, and emit a transcript-aware markdown block per screen.
   **Escape user-controlled fields** (transcripts, reviewer text, selectors) when emitting markdown —
   neutralize fenced-code-block breakouts and link-context `]`/`)` — and note in docs that the export is
-  *untrusted input to a downstream LLM/agent* (prompt-injection caveat). `export.ts` already interpolates
+  _untrusted input to a downstream LLM/agent_ (prompt-injection caveat). `export.ts` already interpolates
   unescaped (export.ts:48-77); fix it here.
 - **Paid (server-side LLM):** `onSubmit` (existing escape hatch) posts the `ReviewerStore` to the hosted
   backend, which runs LLM compilation. LLM key lives only there. **Deferred:** the detailed compilation
@@ -490,6 +507,7 @@ add `activation`/`voice` to Vue's `props:{}` declaration, and document that call
 ## Implementation Phases
 
 ### Phase 1 — Foundation: model + migration hardening + stealth gesture + text feedback (no voice, no network)
+
 - `types.ts`: `Modality`, `VoiceMeta`, `isVoiceComment`, `ActivationConfig`, `VoiceConfig`,
   `GrantTokenResponse`; extend `Comment` (`modality` required), `PinflowConfig`.
 - `voice-contract.ts`: types-only contract module.
@@ -504,6 +522,7 @@ add `activation`/`voice` to Vue's `props:{}` declaration, and document that call
   intact (migration test); a v2 store is **not** wiped by a simulated v1 loader; core bundle ≤30 KB.
 
 ### Phase 2 — Voice module: capture + Deepgram streaming + dot UI
+
 - New `pinflow/voice` export + tsup entry + **its own 14 KB `size-limit` budget** + the **grep leak
   assertion**. Verify `external` + injected `loadVoice` keeps voice out of core/IIFE.
 - Port `useAudioCapture.ts` → `capture/audio.ts` (AudioWorklet, off-thread downsample, transferable
@@ -517,6 +536,7 @@ add `activation`/`voice` to Vue's `props:{}` declaration, and document that call
   to text. `pnpm size` shows 0 voice bytes in core; voice entry ≤14 KB.
 
 ### Phase 3 — Token security + hosted contract + resilience
+
 - `token.ts`: fetch `{ access_token, expires_in }` (validate as `unknown`); in-memory only; mint-on-reconnect.
 - **Dev-token origin guard:** throw at init if `devOnlyToken` set on a non-local origin.
 - Reconnect-once-on-token-expiry (gated by generation/AbortController; stop wins); finalize-timeout;
@@ -528,6 +548,7 @@ add `activation`/`voice` to Vue's `props:{}` declaration, and document that call
   network drop preserves partial transcript and degrades; security-reviewer pass.
 
 ### Phase 4 — Export, free/paid wiring, Sensavera embed
+
 - `export.ts`: group by screen → element; `isVoiceComment` narrowing; **markdown escaping** + prompt-
   injection caveat.
 - Sensavera embed recipe (stealth + voice + hosted `tokenEndpoint` + `onSubmit` → aggregation), with the
@@ -536,6 +557,7 @@ add `activation`/`voice` to Vue's `props:{}` declaration, and document that call
   agent can act on; documented Sensavera embed.
 
 ### Phase 5 — A11y, perf, tests, docs, demo
+
 - A11y: keyboard activation, `role="dialog"` focus management on the dot, `role="log"`/`aria-live="polite"`
   on **committed** transcript only (interim `aria-hidden`), 24 px min targets (WCAG 2.5.8),
   `prefers-reduced-motion` (freeze waveform), no-drag alternative (WCAG 2.5.7), CSP guidance
@@ -554,6 +576,7 @@ add `activation`/`voice` to Vue's `props:{}` declaration, and document that call
   bytes in core; `pnpm size` + `pnpm test` + build all pass.
 
 ### Deferred to v2.1 (intentional scope cuts)
+
 - `prerecorded.ts` Deepgram REST fallback (text fallback covers v1; it's a second integration for marginal
   resilience). · CDN/IIFE voice via script-injection. · Web Speech no-network provider. · `desktopModifier`,
   `moveThresholdPx`, `model`, `language`, configurable `maxSessionMs`. · The paid LLM compilation
@@ -568,10 +591,10 @@ add `activation`/`voice` to Vue's `props:{}` declaration, and document that call
 - **Force/pressure-touch ("press hard") as primary.** Rejected — `pressure` is `0`/`0.5` on most hardware,
   3D Touch is gone. Long-press is the robust primary.
 - **Web Speech API instead of Deepgram.** Rejected for the product path — Chrome-only, no quality control,
-  not viable for paid aggregation. Kept as a *deferred* provider behind the `TranscriptionProvider` seam.
+  not viable for paid aggregation. Kept as a _deferred_ provider behind the `TranscriptionProvider` seam.
 - **Prerecorded REST fallback rung.** Considered, **deferred** — a second Deepgram integration for a
   marginal resilience win; text fallback covers v1.
-- **Discriminated-union persisted `Comment`** (TextComment | VoiceComment). Rejected for the *stored*
+- **Discriminated-union persisted `Comment`** (TextComment | VoiceComment). Rejected for the _stored_
   shape (breaks back-compat/migration); instead `modality` is required + `isVoiceComment` guard gives
   clean narrowing without a hard union.
 - **Relative dynamic import / `splitting:true` for core.** Rejected — pulls voice into the core graph /
@@ -582,6 +605,7 @@ add `activation`/`voice` to Vue's `props:{}` declaration, and document that call
 ## System-Wide Impact
 
 ### Interaction Graph
+
 `pointerdown` → gesture controller arms timer → (timer) `activated` → `annotator.dropDot()` →
 `buildAnchor()` → in-memory shell (route frozen). If voice: capture `gen`+`AbortController` →
 `loadVoice()` → guard → `buildVoiceHost()` → `mod.start(host)` → `getUserMedia()` → `token.fetch(signal)`
@@ -593,6 +617,7 @@ the existing capture-phase click and the `router.ts` history monkeypatch (exactl
 `init`; voice teardown never calls `watchRoute`).
 
 ### Error & Failure Propagation
+
 Lowest→highest: `getUserMedia` reject (NotAllowed/NotFound/NotReadable/Security) → "type instead";
 `tokenEndpoint` non-200/oversized/hostile body → fail closed → reconnect once → text; WS open error / NET-0001
 (10 s silence) → reconnect with fresh token, else text; `Results` parse / `type:Error` → drop frame (parser
@@ -602,6 +627,7 @@ non-blocking, keep local data. No errors silently swallowed; friendly UI copy; d
 logger (token redacted; never logged).
 
 ### State Lifecycle Risks — Async Resumption Contract
+
 The existing engine (`destroy()`, `refreshRoute()`, `init()`'s `current?.destroy()`) is **fully
 synchronous** and assumes the DOM it touches still exists. Every new await (import, getUserMedia, token
 fetch, WS open) resolves into a world that may have changed. Mandatory primitives:
@@ -610,8 +636,8 @@ fetch, WS open) resolves into a world that may have changed. Mandatory primitive
   new-session-on-same-dot. Capture at each async start; compare at **every** resumption point.
 - **AbortController** per voice session; `signal` passed into `getUserMedia`/`fetch`; `.abort()` on
   disconnect/route-change/destroy.
-- **Release-on-stale-resume rule (iron law):** *every post-await guard must release the resource the await
-  produced before returning* — a guard that just `return`s leaks the mic/WS/AudioContext it just acquired
+- **Release-on-stale-resume rule (iron law):** _every post-await guard must release the resource the await
+  produced before returning_ — a guard that just `return`s leaks the mic/WS/AudioContext it just acquired
   (e.g. `getUserMedia` resolving after dismissal → `stream.getTracks().forEach(t => t.stop())`, the
   creepiest failure if missed).
 
@@ -626,14 +652,17 @@ round-trip). Empty-discard evaluated **after** finalize settles, not on the stop
 are not collision-proof — the hosted/paid path should mint a stable reviewer id.
 
 ### API Surface Parity
+
 Same capability across vanilla `init()` / IIFE `<script data-project>` / React / Vue — automatic via
-`PinflowConfig` + the engine, *if* the wrapper re-init keys include the new primitives and Vue's `props:{}`
+`PinflowConfig` + the engine, _if_ the wrapper re-init keys include the new primitives and Vue's `props:{}`
 declares them. The IIFE path (`src/core/iife.ts`, parses only `data-project` today) gains `data-activation`
-+ `data-voice-token-endpoint` parsing **with validation** (require `https:` + allowlisted host) — but the
-hosted tier should configure security-sensitive endpoints via **code, not `data-*`** (a host with stored
-XSS can rewrite attributes → token theft).
+
+- `data-voice-token-endpoint` parsing **with validation** (require `https:` + allowlisted host) — but the
+  hosted tier should configure security-sensitive endpoints via **code, not `data-*`** (a host with stored
+  XSS can rewrite attributes → token theft).
 
 ### Integration Test Scenarios (cross-layer; unit mocks won't catch these)
+
 1. **Long-press vs scroll (touch):** finger down + drag 30 px on a scrollable page → page scrolls, **no**
    dot, no synthetic host click. **+ two-finger touch during press → no dot.**
 2. **`Alt`+click on a link:** dot drops, the link's click is swallowed (one-shot), browser does **not**
@@ -643,7 +672,7 @@ XSS can rewrite attributes → token theft).
    re-appears only when returning there.
 4. **Token expiry mid-session:** grant-token TTL passes during a 90 s dictation → WS continues; a forced
    reconnect re-mints and resumes without losing committed transcript; **a stop during reconnect → stop wins.**
-5. **Permission granted *after* dismiss:** dismiss the dot, then the late `getUserMedia` resolves → mic
+5. **Permission granted _after_ dismiss:** dismiss the dot, then the late `getUserMedia` resolves → mic
    released, no orphan dot, no recording.
 6. **Mic denied → text fallback → export:** deny permission, type into the dot, export → markdown shows
    the note under the correct screen/element as `text` modality.
@@ -658,6 +687,7 @@ XSS can rewrite attributes → token theft).
 ## Acceptance Criteria
 
 ### Functional
+
 - [ ] Stealth long-press (touch) and `Alt`+click (desktop) drop a feedback dot; keyboard path exists.
 - [ ] v1 `toggle` mode and all existing behavior unchanged (default when `activation` omitted).
 - [ ] With `voice` configured, speaking streams a live transcript next to the dot and persists the
@@ -671,6 +701,7 @@ XSS can rewrite attributes → token theft).
 - [ ] IIFE `data-*` attributes enable activation + voice token endpoint (validated).
 
 ### Non-Functional
+
 - [ ] **Performance:** dot/transcript reuse the reflow rAF; waveform on its own recording-only rAF; two
       stable transcript nodes; binary transferable PCM; voice lazy-loaded (0 bytes in core, grep-asserted).
 - [ ] **Bundle:** core ≤30 KB gz (both entries); `pinflow/voice` ≤14 KB gz.
@@ -689,6 +720,7 @@ XSS can rewrite attributes → token theft).
 - [ ] **SSR-safe:** no audio/WS/`window` at module scope; `src/voice/**` pure on import; wrappers headless.
 
 ### Quality Gates
+
 - [ ] Vitest coverage ≥80 % lines/fns/stmts, ≥75 % branches on pure modules; **no `any` in the voice
       module** (all wire input parsed as `unknown`).
 - [ ] Playwright e2e green on Desktop Chrome + Pixel 5 + iPhone 13, incl. the integration scenarios.
@@ -696,6 +728,7 @@ XSS can rewrite attributes → token theft).
 - [ ] security-reviewer + code-reviewer pass; no `console.log` in shipped code.
 
 ## Success Metrics
+
 - A partner leaves 5 voice notes across 3 screens in < 2 minutes with no visible review chrome.
 - ≥90 % of voice notes carry a resolvable element anchor (non-orphan) at export time.
 - The exported markdown lets Claude Code/Codex locate and propose a fix for ≥80 % of notes without human
@@ -703,6 +736,7 @@ XSS can rewrite attributes → token theft).
 - Core ≤30 KB gz; voice ≤14 KB gz; vanilla/text users download 0 bytes of voice code.
 
 ## Dependencies & Prerequisites
+
 - **Deepgram account** (`nova-3` streaming); for paid mode a backend that proxies `POST /v1/auth/grant`
   (TTL ≤60 s, `usage::write`, CORS-restricted) and **disables Deepgram-side audio retention/training**.
   For free/dev the builder supplies a `tokenEndpoint`.
@@ -713,27 +747,29 @@ XSS can rewrite attributes → token theft).
 - Paid compilation backend (LLM key) — out of this repo's scope; only the `onSubmit` seam ships now.
 
 ## Risk Analysis & Mitigation
-- **Bundling split correctness** (the lazy import vs `splitting:false`/IIFE). *Mitigate:* injected
+
+- **Bundling split correctness** (the lazy import vs `splitting:false`/IIFE). _Mitigate:_ injected
   `loadVoice` + `external` + the grep leak assertion (not just a size budget). Resolve before Phase 2.
 - **localStorage data loss** — quota/private-mode write throws (C1), a v1 build wiping v2 data (C2),
-  corrupt/concurrent overwrite. *Mitigate:* guarded writes, forward-tolerant read + read-before-write
+  corrupt/concurrent overwrite. _Mitigate:_ guarded writes, forward-tolerant read + read-before-write
   guard, corrupt-blob quarantine, multi-tab merge. Address in Phase 1.
 - **Async races** (mic-stays-on, transcript on wrong screen, two-tap buttons, double mic/socket on
-  re-init). *Mitigate:* the Async Resumption Contract (generation + AbortController + release-on-resume +
+  re-init). _Mitigate:_ the Async Resumption Contract (generation + AbortController + release-on-resume +
   idempotent teardown).
-- **iOS Safari long-press callout/zoom** still fires despite CSS (known WebKit regressions). *Mitigate:*
+- **iOS Safari long-press callout/zoom** still fires despite CSS (known WebKit regressions). _Mitigate:_
   scope CSS to the activation surface, test on hardware, document residual risk; keyboard/desktop paths
   unaffected.
-- **Runaway Deepgram cost.** *Mitigate:* server-side rate limits + short TTL are the real control;
+- **Runaway Deepgram cost.** _Mitigate:_ server-side rate limits + short TTL are the real control;
   `maxSessionMs`/keepalive are UX/courtesy only (not a security boundary).
-- **Privacy/legal** (stealth + mic + US third-party). *Mitigate:* visible recording indicator, one-time
+- **Privacy/legal** (stealth + mic + US third-party). _Mitigate:_ visible recording indicator, one-time
   consent naming Deepgram as sub-processor, no audio stored, opt-in by design.
-- **Markdown/prompt injection** into the downstream coding agent. *Mitigate:* escape user content in
+- **Markdown/prompt injection** into the downstream coding agent. _Mitigate:_ escape user content in
   export; document the artifact as untrusted data, not instructions.
-- **localStorage eviction** (iOS 7-day / ITP) — store may vanish for infrequent reviewers. *Mitigate:*
+- **localStorage eviction** (iOS 7-day / ITP) — store may vanish for infrequent reviewers. _Mitigate:_
   the markdown export (and paid hosted store) is the durable artifact; encourage export at session end.
 
 ## Documentation Plan
+
 - README v2 section (stealth + voice + free/paid + **security/consent + CSP additions**).
 - New examples: `examples/vanilla-stealth-voice`, `examples/hosted-token-endpoint` (minimal
   `/v1/auth/grant` proxy w/ CORS + rate limit), `examples/sensavera-embed`.
@@ -744,6 +780,7 @@ XSS can rewrite attributes → token theft).
 ## Sources & References
 
 ### Internal References (repo)
+
 - Engine & seam: `src/core/ui/annotator.ts` (`:39-49`, `:51-79` destroy/persist/reflow, `:236-277`,
   `:313-334`); `src/core/index.ts` (`:26-60`, sync `current?.destroy()` at `:30`).
 - Reusable anchoring/overlay: `src/core/anchor.ts`, `src/core/selector.ts`, `src/core/ui/dom.ts`
@@ -759,6 +796,7 @@ XSS can rewrite attributes → token theft).
 - v1 design + deferral of voice/paid: `specs/pinflow_v1_spec.md` §5.2, §5.7, §9, §12, §13.
 
 ### Borrowable Sensavera/ShareVoice assets (port, don't reinvent)
+
 - `sensavera-frontend/hooks/useAudioCapture.ts` — AudioWorklet 16 kHz PCM downsample, 5-band waveform,
   iOS Safari handling (top prize).
 - `packages/member-experience-core/components/ui/Waveform.tsx` — 5-bar levels-driven waveform.
@@ -770,6 +808,7 @@ XSS can rewrite attributes → token theft).
 - Scope-triple precedent `{node_key, field_key, prompt_id}` (`FieldBlock.tsx`) → pinflow's `{route, anchor}`.
 
 ### External References (Deepgram — citation-backed)
+
 - Token grant: https://developers.deepgram.com/guides/fundamentals/token-based-authentication ;
   https://developers.deepgram.com/reference/auth/tokens/grant (`POST /v1/auth/grant`, default TTL 30 s,
   max 3600 s, `usage::write`, Member+).
@@ -782,6 +821,7 @@ XSS can rewrite attributes → token theft).
 - Prerecorded REST (deferred): https://developers.deepgram.com/reference/speech-to-text/listen-pre-recorded .
 
 ### External References (gesture, audio, bundling, a11y — citation-backed)
+
 - Pointer Events / long-press / `setPointerCapture` / `touch-action`:
   https://developer.mozilla.org/en-US/docs/Web/API/Pointer_events ;
   https://react-spectrum.adobe.com/beta/react-aria/useLongPress.html (500 ms).

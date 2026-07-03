@@ -10,7 +10,8 @@ export interface UIRoot {
 export function createUIRoot(): UIRoot {
   const host = document.createElement('div');
   host.setAttribute('data-pinflow-root', '');
-  host.style.cssText = 'all:initial; position:fixed; inset:0; pointer-events:none; z-index:2147483646;';
+  host.style.cssText =
+    'all:initial; position:fixed; inset:0; pointer-events:none; z-index:2147483646;';
   document.body.appendChild(host);
   const shadow = host.attachShadow({ mode: 'open' });
   const style = document.createElement('style');

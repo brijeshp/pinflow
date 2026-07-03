@@ -1,119 +1,146 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <meta name="description" content="Figma-style pin-and-comment annotation for any prototype. One line to install. Zero backend. Exports markdown that drops straight into Claude Code.">
-  <title>Pinflow — pin-and-comment annotation for prototypes</title>
-  <link rel="stylesheet" href="/style.css">
-</head>
-<body>
-  <nav class="nav">
-    <div class="nav-inner">
-      <span class="brand">pinflow</span>
-      <div class="nav-links">
-        <a href="https://github.com/pinflow/pinflow" target="_blank" rel="noreferrer">GitHub</a>
-        <a href="https://www.npmjs.com/package/pinflow" target="_blank" rel="noreferrer">npm</a>
-        <a href="#install">Install</a>
-      </div>
-    </div>
-  </nav>
-
-  <main>
-    <section class="hero">
-      <h1>Pin-and-comment annotation<br>for any prototype.</h1>
-      <p class="tagline">
-        One line to install. Zero backend. Exports markdown that drops straight into Claude Code.
-      </p>
-
-      <div class="install-block" id="install">
-        <div class="tabs">
-          <button class="tab active" data-tab="script">Script tag</button>
-          <button class="tab" data-tab="npm">npm</button>
-          <button class="tab" data-tab="react">React</button>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="Figma-style pin-and-comment annotation for any prototype. One line to install. Zero backend. Exports markdown that drops straight into Claude Code."
+    />
+    <title>Pinflow — pin-and-comment annotation for prototypes</title>
+    <link rel="stylesheet" href="/style.css" />
+  </head>
+  <body>
+    <nav class="nav">
+      <div class="nav-inner">
+        <span class="brand">pinflow</span>
+        <div class="nav-links">
+          <a href="https://github.com/pinflow/pinflow" target="_blank" rel="noreferrer">GitHub</a>
+          <a href="https://www.npmjs.com/package/pinflow" target="_blank" rel="noreferrer">npm</a>
+          <a href="#install">Install</a>
         </div>
-        <pre class="code" data-panel="script" style="display:block;"><code>&lt;script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="my-prototype"&gt;&lt;/script&gt;</code></pre>
-        <pre class="code" data-panel="npm" style="display:none;"><code>npm install pinflow</code></pre>
-        <pre class="code" data-panel="react" style="display:none;"><code>import { Annotator } from 'pinflow/react';
+      </div>
+    </nav>
+
+    <main>
+      <section class="hero">
+        <h1>Pin-and-comment annotation<br />for any prototype.</h1>
+        <p class="tagline">
+          One line to install. Zero backend. Exports markdown that drops straight into Claude Code.
+        </p>
+
+        <div class="install-block" id="install">
+          <div class="tabs">
+            <button class="tab active" data-tab="script">Script tag</button>
+            <button class="tab" data-tab="npm">npm</button>
+            <button class="tab" data-tab="react">React</button>
+          </div>
+          <pre
+            class="code"
+            data-panel="script"
+            style="display: block"
+          ><code>&lt;script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="my-prototype"&gt;&lt;/script&gt;</code></pre>
+          <pre
+            class="code"
+            data-panel="npm"
+            style="display: none"
+          ><code>npm install pinflow</code></pre>
+          <pre
+            class="code"
+            data-panel="react"
+            style="display: none"
+          ><code>import { Annotator } from 'pinflow/react';
 
 &lt;Annotator project="my-prototype" /&gt;</code></pre>
-      </div>
-
-      <p class="try-it">
-        👇 <strong>This page has Pinflow loaded.</strong> Click the button in the bottom-right to try it.
-      </p>
-    </section>
-
-    <section class="demo-prototype" id="demo">
-      <h2 data-testid="demo-heading">Acme SaaS</h2>
-      <p class="demo-sub">An imaginary product. Pretend it's yours. Try pinning a comment on the pricing card.</p>
-
-      <div class="pricing">
-        <div class="tier" data-testid="tier-starter">
-          <h3>Starter</h3>
-          <div class="price">$9<span>/mo</span></div>
-          <ul>
-            <li>Up to 3 projects</li>
-            <li>Community support</li>
-            <li>Basic exports</li>
-          </ul>
-          <button class="btn-outline">Start free</button>
         </div>
-        <div class="tier featured" data-testid="tier-pro">
-          <h3>Pro</h3>
-          <div class="price">$29<span>/mo</span></div>
-          <ul>
-            <li>Unlimited projects</li>
-            <li>Priority support</li>
-            <li>Advanced exports</li>
-            <li>Team collaboration</li>
-          </ul>
-          <button class="btn-primary">Upgrade</button>
-        </div>
-        <div class="tier" data-testid="tier-enterprise">
-          <h3>Enterprise</h3>
-          <div class="price">Custom</div>
-          <ul>
-            <li>Everything in Pro</li>
-            <li>SSO + audit logs</li>
-            <li>Dedicated support</li>
-          </ul>
-          <button class="btn-outline">Contact sales</button>
-        </div>
-      </div>
-    </section>
 
-    <section class="features">
-      <div class="feature">
-        <h3>One line to install</h3>
-        <p>A single script tag, or a single component import. No config files. No build step required.</p>
-      </div>
-      <div class="feature">
-        <h3>Zero backend</h3>
-        <p>Everything lives in localStorage. No accounts, no servers, no auth. Works offline.</p>
-      </div>
-      <div class="feature">
-        <h3>AI-native export</h3>
-        <p>The markdown export is optimized for direct paste into Claude Code or Cursor. Selectors, positions, and element text included.</p>
-      </div>
-      <div class="feature">
-        <h3>Beautiful by default</h3>
-        <p>Polished UI that respects prefers-color-scheme. Shadow DOM isolation prevents style collisions.</p>
-      </div>
-      <div class="feature">
-        <h3>Mobile ready</h3>
-        <p>Touch-friendly pins, keyboard-aware inputs, responsive flip-positioning.</p>
-      </div>
-      <div class="feature">
-        <h3>~7 KB gzipped</h3>
-        <p>Zero runtime dependencies. Under 30KB is the hard ceiling.</p>
-      </div>
-    </section>
+        <p class="try-it">
+          👇 <strong>This page has Pinflow loaded.</strong> Click the button in the bottom-right to
+          try it.
+        </p>
+      </section>
 
-    <section class="export-sample">
-      <h2>What the export looks like</h2>
-      <p class="demo-sub">Paste this into Claude Code or Cursor as your next prompt.</p>
-      <pre class="code-block"><code># Feedback for my-prototype — from Sarah
+      <section class="demo-prototype" id="demo">
+        <h2 data-testid="demo-heading">Acme SaaS</h2>
+        <p class="demo-sub">
+          An imaginary product. Pretend it's yours. Try pinning a comment on the pricing card.
+        </p>
+
+        <div class="pricing">
+          <div class="tier" data-testid="tier-starter">
+            <h3>Starter</h3>
+            <div class="price">$9<span>/mo</span></div>
+            <ul>
+              <li>Up to 3 projects</li>
+              <li>Community support</li>
+              <li>Basic exports</li>
+            </ul>
+            <button class="btn-outline">Start free</button>
+          </div>
+          <div class="tier featured" data-testid="tier-pro">
+            <h3>Pro</h3>
+            <div class="price">$29<span>/mo</span></div>
+            <ul>
+              <li>Unlimited projects</li>
+              <li>Priority support</li>
+              <li>Advanced exports</li>
+              <li>Team collaboration</li>
+            </ul>
+            <button class="btn-primary">Upgrade</button>
+          </div>
+          <div class="tier" data-testid="tier-enterprise">
+            <h3>Enterprise</h3>
+            <div class="price">Custom</div>
+            <ul>
+              <li>Everything in Pro</li>
+              <li>SSO + audit logs</li>
+              <li>Dedicated support</li>
+            </ul>
+            <button class="btn-outline">Contact sales</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="features">
+        <div class="feature">
+          <h3>One line to install</h3>
+          <p>
+            A single script tag, or a single component import. No config files. No build step
+            required.
+          </p>
+        </div>
+        <div class="feature">
+          <h3>Zero backend</h3>
+          <p>Everything lives in localStorage. No accounts, no servers, no auth. Works offline.</p>
+        </div>
+        <div class="feature">
+          <h3>AI-native export</h3>
+          <p>
+            The markdown export is optimized for direct paste into Claude Code or Cursor. Selectors,
+            positions, and element text included.
+          </p>
+        </div>
+        <div class="feature">
+          <h3>Beautiful by default</h3>
+          <p>
+            Polished UI that respects prefers-color-scheme. Shadow DOM isolation prevents style
+            collisions.
+          </p>
+        </div>
+        <div class="feature">
+          <h3>Mobile ready</h3>
+          <p>Touch-friendly pins, keyboard-aware inputs, responsive flip-positioning.</p>
+        </div>
+        <div class="feature">
+          <h3>~7 KB gzipped</h3>
+          <p>Zero runtime dependencies. Under 30KB is the hard ceiling.</p>
+        </div>
+      </section>
+
+      <section class="export-sample">
+        <h2>What the export looks like</h2>
+        <p class="demo-sub">Paste this into Claude Code or Cursor as your next prompt.</p>
+        <pre class="code-block"><code># Feedback for my-prototype — from Sarah
 
 Generated: 2026-04-15T14:45:00Z
 Reviewer: Sarah
@@ -134,20 +161,29 @@ Routes covered: /, /pricing
 **Viewport at time of comment:** 390×844 (mobile)
 
 &gt; This CTA gets lost against the background.</code></pre>
-    </section>
+      </section>
 
-    <section class="cta-section">
-      <h2>Ship feedback loops, not friction.</h2>
+      <section class="cta-section">
+        <h2>Ship feedback loops, not friction.</h2>
+        <p>
+          <a
+            class="btn-primary-large"
+            href="https://github.com/pinflow/pinflow"
+            target="_blank"
+            rel="noreferrer"
+            >Get it on GitHub</a
+          >
+        </p>
+      </section>
+    </main>
+
+    <footer>
       <p>
-        <a class="btn-primary-large" href="https://github.com/pinflow/pinflow" target="_blank" rel="noreferrer">Get it on GitHub</a>
+        MIT licensed. Built for vibe-coded prototypes.
+        <a href="https://github.com/pinflow/pinflow">github.com/pinflow/pinflow</a>
       </p>
-    </section>
-  </main>
+    </footer>
 
-  <footer>
-    <p>MIT licensed. Built for vibe-coded prototypes. <a href="https://github.com/pinflow/pinflow">github.com/pinflow/pinflow</a></p>
-  </footer>
-
-  <script type="module" src="/main.ts"></script>
-</body>
+    <script type="module" src="/main.ts"></script>
+  </body>
 </html>

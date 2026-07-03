@@ -5,7 +5,11 @@ export function currentViewport(): Viewport {
   return { width: window.innerWidth, height: window.innerHeight };
 }
 
-export function clickToPositionPercent(el: Element, clientX: number, clientY: number): PositionPercent {
+export function clickToPositionPercent(
+  el: Element,
+  clientX: number,
+  clientY: number,
+): PositionPercent {
   const rect = el.getBoundingClientRect();
   const w = Math.max(rect.width, 1);
   const h = Math.max(rect.height, 1);
