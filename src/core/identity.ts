@@ -13,6 +13,16 @@ function reviewerKey(project: string): string {
   return `${NAME_KEY_PREFIX}:${project}`;
 }
 
+// Best-effort, mirroring storage.ts's never-throw discipline: private modes /
+// full quotas may reject the write; identity then just isn't remembered.
+function remember(storage: Storage, project: string, name: string): void {
+  try {
+    storage.setItem(reviewerKey(project), name);
+  } catch {
+    /* non-persistent session */
+  }
+}
+
 export function reviewerFromUrl(url: string): string | null {
   try {
     const parsed = new URL(url);
@@ -26,7 +36,7 @@ export function reviewerFromUrl(url: string): string | null {
 export function resolveReviewer(deps: IdentityDeps): string | null {
   const urlName = deps.url ? reviewerFromUrl(deps.url) : null;
   if (urlName) {
-    deps.storage.setItem(reviewerKey(deps.project), urlName);
+    remember(deps.storage, deps.project, urlName);
     return urlName;
   }
   const stored = deps.storage.getItem(reviewerKey(deps.project));
@@ -35,7 +45,7 @@ export function resolveReviewer(deps: IdentityDeps): string | null {
     const answer = deps.prompt("What's your name?");
     if (answer && answer.trim().length > 0) {
       const name = answer.trim();
-      deps.storage.setItem(reviewerKey(deps.project), name);
+      remember(deps.storage, deps.project, name);
       return name;
     }
   }

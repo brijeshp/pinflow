@@ -44,6 +44,15 @@ interface ActiveVoice {
   session: VoiceSession | null;
 }
 
+interface ActiveInput {
+  wrap: HTMLDivElement;
+  commentId: string;
+  /** Pending debounced-save timer id; 0 = none armed. */
+  timer: number;
+  /** Save the textarea's current text now (idempotent; clears the timer). */
+  flush(): void;
+}
+
 type PositionCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 
 export class Annotator {
@@ -52,7 +61,7 @@ export class Annotator {
   private store: ReviewerStore;
   private annotating = false;
   private pins = new Map<string, HTMLDivElement>();
-  private activeInput: { wrap: HTMLDivElement; commentId: string } | null = null;
+  private activeInput: ActiveInput | null = null;
   private controlEl!: HTMLButtonElement;
   private panelEl: HTMLDivElement | null = null;
   private reflowFrame = 0;
@@ -60,6 +69,9 @@ export class Annotator {
   // Bumped on every teardown (destroy/route change) so in-flight async voice
   // work resolving into a stale world can detect it and self-cancel.
   private generation = 0;
+  // Set once destroy() finishes tearing down: from then on the annotator must
+  // never write to storage or touch the DOM, no matter what resolves late.
+  private destroyed = false;
   private activeVoice: ActiveVoice | null = null;
   private readonly voiceLogger: Logger = {
     warn: (m, d) => console.warn(`[pinflow] ${m}`, d),
@@ -84,7 +96,11 @@ export class Annotator {
     window.removeEventListener('resize', this.onReflow);
     window.removeEventListener('scroll', this.onReflow);
     this.gesture?.stop();
+    // dispose() may synchronously best-effort persist an in-flight transcript,
+    // so the destroyed flag flips only after voice teardown completes.
     this.teardownVoice();
+    this.destroyed = true;
+    this.closeActiveInput(false);
     if (this.annotating) this.exitAnnotateMode();
     if (this.reflowFrame) cancelAnimationFrame(this.reflowFrame);
     this.ui.destroy();
@@ -350,13 +366,20 @@ export class Annotator {
     this.commitTextComment(anchor, '', true);
   }
 
-  private commitTextComment(anchor: Anchor, text: string, openForEdit: boolean): void {
+  // `route` defaults to the current route; the voice degrade path passes the
+  // FROZEN route captured at dot creation (voice-contract.ts frozen-route rule).
+  private commitTextComment(
+    anchor: Anchor,
+    text: string,
+    openForEdit: boolean,
+    route = routeKey(),
+  ): void {
     const t = now();
     const comment: Comment = {
       id: createId(),
       createdAt: t,
       updatedAt: t,
-      route: routeKey(),
+      route,
       fullUrl: window.location.href,
       text,
       modality: 'text',
@@ -391,7 +414,7 @@ export class Annotator {
     this.activeVoice = active;
     const myGen = this.generation;
     const route = routeKey();
-    const host = this.buildVoiceHost(mount, anchor, route, active);
+    const host = this.buildVoiceHost(mount, anchor, route, active, myGen);
 
     this.loadVoiceModule()
       .then((mod) => {
@@ -419,6 +442,7 @@ export class Annotator {
     anchor: Anchor,
     route: string,
     active: ActiveVoice,
+    gen: number,
   ): VoiceHost {
     const commitVoice = (text: string, voice: VoiceMeta): void => {
       if (this.activeVoice === active) this.activeVoice = null;
@@ -444,15 +468,29 @@ export class Annotator {
       mount,
       anchor,
       route,
-      commit: ({ text, voice }) => commitVoice(text, voice),
+      // destroy() guards: after teardown the world is gone — a late callback
+      // must not write to storage or touch the DOM. (A same-tick commit during
+      // destroy()'s own dispose() is still allowed — see destroy().)
+      commit: ({ text, voice }) => {
+        if (this.destroyed) return;
+        commitVoice(text, voice);
+      },
       discard: () => {
+        if (this.destroyed) return;
         if (this.activeVoice === active) this.activeVoice = null;
         mount.remove();
       },
       degradeToText: (prefill) => {
+        if (this.destroyed) return;
         if (this.activeVoice === active) this.activeVoice = null;
         mount.remove();
-        this.commitTextComment(anchor, prefill ?? '', true);
+        // After a route change (generation bumped) the recording's route is no
+        // longer on screen: persist any transcript to the FROZEN route, but
+        // never open an editor there — and drop a degrade with nothing to say.
+        const live = gen === this.generation;
+        const text = prefill ?? '';
+        if (!live && text.length === 0) return;
+        this.commitTextComment(anchor, text, live, route);
       },
       logger: this.voiceLogger,
     };
@@ -538,8 +576,13 @@ export class Annotator {
     this.ui.root.appendChild(wrap);
     this.positionInputNearPin(wrap, commentId);
 
-    let debounce: number | undefined;
     const save = (): void => {
+      window.clearTimeout(input.timer);
+      input.timer = 0;
+      if (this.destroyed) return; // a stray blur after teardown must not write
+      // The comment may have been deleted while the debounce was armed —
+      // saving then would resurrect it.
+      if (!this.store.comments.some((c) => c.id === commentId)) return;
       this.store = upsertComment(this.store, {
         ...comment,
         text: ta.value,
@@ -547,19 +590,20 @@ export class Annotator {
       });
       this.persist();
     };
+    const input: ActiveInput = { wrap, commentId, timer: 0, flush: save };
     ta.addEventListener('input', () => {
-      window.clearTimeout(debounce);
-      debounce = window.setTimeout(save, 2000);
+      window.clearTimeout(input.timer);
+      input.timer = window.setTimeout(save, 2000);
     });
     ta.addEventListener('blur', save);
     del.addEventListener('click', () => {
       this.store = deleteCommentFromStore(this.store, commentId);
       this.persist();
-      this.closeActiveInput();
+      this.closeActiveInput(false); // never flush a just-deleted comment
       this.renderPins();
     });
     ta.focus();
-    this.activeInput = { wrap, commentId };
+    this.activeInput = input;
   }
 
   private positionInputNearPin(wrap: HTMLDivElement, commentId: string): void {
@@ -575,9 +619,16 @@ export class Annotator {
     wrap.style.top = `${pos.top}px`;
   }
 
-  private closeActiveInput(): void {
-    this.activeInput?.wrap.remove();
+  // Removing the textarea from the DOM does not reliably fire blur, so a
+  // pending debounced save must be flushed here or up to 2s of typing is lost.
+  // `flush=false` (delete/destroy) clears the timer without saving.
+  private closeActiveInput(flush = true): void {
+    const input = this.activeInput;
+    if (!input) return;
     this.activeInput = null;
+    if (flush && input.timer) input.flush();
+    else window.clearTimeout(input.timer);
+    input.wrap.remove();
   }
 
   // Only classify comments on the current route — we can't tell if a comment

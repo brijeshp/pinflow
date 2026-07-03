@@ -13,7 +13,11 @@ describe('identity', () => {
 
   it('URL wins over storage', () => {
     localStorage.setItem('pinflow:r:p', 'Old');
-    const name = resolveReviewer({ url: 'http://x/?reviewer=New', storage: localStorage, project: 'p' });
+    const name = resolveReviewer({
+      url: 'http://x/?reviewer=New',
+      storage: localStorage,
+      project: 'p',
+    });
     expect(name).toBe('New');
     expect(localStorage.getItem('pinflow:r:p')).toBe('New');
   });
@@ -42,5 +46,25 @@ describe('identity', () => {
     expect(modeFromUrl('http://x/?mode=reviewer')).toBe('reviewer');
     expect(modeFromUrl('http://x/?mode=other')).toBeNull();
     expect(modeFromUrl('http://x/')).toBeNull();
+  });
+
+  it('survives a storage whose setItem throws (P0.3)', () => {
+    const throwing: Storage = {
+      length: 0,
+      clear() {},
+      getItem: () => null,
+      key: () => null,
+      removeItem() {},
+      setItem() {
+        throw new DOMException('quota', 'QuotaExceededError');
+      },
+    };
+    expect(
+      resolveReviewer({ url: 'http://x/?reviewer=Ann', storage: throwing, project: 'p' }),
+    ).toBe('Ann');
+    const prompt = vi.fn().mockReturnValue('Jen');
+    expect(resolveReviewer({ url: 'http://x/', storage: throwing, project: 'p', prompt })).toBe(
+      'Jen',
+    );
   });
 });

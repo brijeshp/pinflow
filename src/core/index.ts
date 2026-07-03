@@ -1,5 +1,6 @@
 import { modeFromUrl, resolveReviewer } from './identity';
 import { routeOf, watchRoute } from './router';
+import { acquireStorage } from './safe-storage';
 import type { Mode, PinflowConfig } from './types';
 import { Annotator } from './ui/annotator';
 
@@ -35,7 +36,7 @@ export function init(config: PinflowConfig): Handle {
   }
   current?.destroy();
 
-  const storage = window.localStorage;
+  const storage = acquireStorage();
   const mode: Mode = config.mode ?? modeFromUrl(window.location.href) ?? 'reviewer';
   const reviewer =
     config.reviewer ??
