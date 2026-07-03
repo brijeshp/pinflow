@@ -8,7 +8,6 @@ import {
   type Handle,
   type Mode,
   type PinflowConfig,
-  type Position,
   type VoiceConfig,
 } from 'pinflow';
 
@@ -20,9 +19,14 @@ export const Annotator = defineComponent({
     project: { type: String, required: true },
     reviewer: { type: String, default: undefined },
     mode: { type: String as () => Mode, default: undefined },
-    position: { type: String as () => Position, default: undefined },
-    hidden: { type: Boolean, default: undefined },
-    onSubmit: { type: Function as unknown as () => PinflowConfig['onSubmit'], default: undefined },
+    /**
+     * Maps to core `onSubmit`. Named `submitHandler` because an `on*`-prefixed
+     * prop collides with Vue's `v-on`/`@submit` listener convention.
+     */
+    submitHandler: {
+      type: Function as unknown as () => PinflowConfig['onSubmit'],
+      default: undefined,
+    },
     activation: { type: Object as () => ActivationConfig, default: undefined },
     voice: { type: Object as () => VoiceConfig, default: undefined },
   },
@@ -31,7 +35,16 @@ export const Annotator = defineComponent({
     const start = (): void => {
       if (typeof window === 'undefined') return;
       handle?.destroy();
-      handle = init(props as PinflowConfig);
+      // Snapshot the reactive props — copying the nested objects core retains —
+      // so later prop/object mutation can't leak into a live config.
+      handle = init({
+        project: props.project,
+        ...(props.reviewer !== undefined ? { reviewer: props.reviewer } : {}),
+        ...(props.mode !== undefined ? { mode: props.mode } : {}),
+        ...(props.submitHandler ? { onSubmit: props.submitHandler } : {}),
+        ...(props.activation ? { activation: { ...props.activation } } : {}),
+        ...(props.voice ? { voice: { ...props.voice } } : {}),
+      });
     };
     onMounted(start);
     // Re-init only on stable primitive keys.

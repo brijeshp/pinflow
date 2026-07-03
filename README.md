@@ -65,8 +65,6 @@ window.Pinflow.init({
   reviewer: 'Sarah', // override URL param
   mode: 'reviewer', // 'reviewer' | 'builder'
   theme: 'auto', // 'light' | 'dark' | 'auto'
-  position: 'bottom-right', // floating control position
-  hidden: false, // headless mode
   onSubmit: async (payload) => {
     // Optional: POST to your own endpoint
     await fetch('/api/feedback', { method: 'POST', body: JSON.stringify(payload) });

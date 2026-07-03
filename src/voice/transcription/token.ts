@@ -24,14 +24,24 @@ function isGrantResponse(v: unknown): v is GrantTokenResponse {
 export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>;
 
 /**
- * Resolve a short-lived Deepgram credential. Prefers `tokenEndpoint` (mints a
- * grant-token JWT server-side); falls back to `devOnlyToken` only on a local
- * origin (the raw-token-in-prod footgun is a hard throw, not a doc note).
+ * Resolve a short-lived Deepgram credential. Order: `getToken` (caller-owned
+ * minting) → `tokenEndpoint` (bare POST minting a grant-token JWT server-side)
+ * → `devOnlyToken`, allowed only on a local origin (the raw-token-in-prod
+ * footgun is a hard throw, not a doc note).
  */
 export async function resolveToken(
   config: Readonly<VoiceConfig>,
   deps: { fetchFn?: FetchLike; hostname?: string } = {},
 ): Promise<string> {
+  if (config.getToken) {
+    // A rejection propagates and degrades like any other token failure.
+    const token = await config.getToken();
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new Error('pinflow: voice.getToken returned an empty token');
+    }
+    return token;
+  }
+
   if (config.tokenEndpoint) {
     // Do NOT "simplify" to `deps.fetchFn ?? fetch`: passing `fetch` by value
     // detaches it from its receiver, and Chromium/WebKit then throw

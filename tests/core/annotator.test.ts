@@ -182,6 +182,88 @@ describe('Annotator voice edited flag (P3.3)', () => {
   });
 });
 
+describe('Annotator body-cursor save/restore (P4.6)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    document.body.style.cursor = '';
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  function enterAnnotateMode(): void {
+    shadow().querySelector<HTMLButtonElement>('.control')?.click();
+    const add = Array.from(shadow().querySelectorAll('button')).find(
+      (b) => b.textContent === 'Add comment',
+    );
+    if (!add) throw new Error('Add comment button not found');
+    add.click();
+  }
+
+  it('restores the host page cursor it found, not a hardcoded empty string', () => {
+    document.body.style.cursor = 'pointer';
+    annotator = makeAnnotator();
+    enterAnnotateMode();
+    expect(document.body.style.cursor).toBe('crosshair');
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(document.body.style.cursor).toBe('pointer');
+  });
+});
+
+describe('Annotator deferred identity (P4.3)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  function place(a: Annotator): void {
+    (a as unknown as { _placeCommentAt(x: number, y: number, t: Element): void })._placeCommentAt(
+      10,
+      10,
+      document.body,
+    );
+  }
+
+  function makeDeferred(resolveIdentity: () => string | null): Annotator {
+    return new Annotator({
+      config: { project: PROJECT, activation: { mode: 'stealth' } },
+      reviewer: null,
+      mode: 'reviewer',
+      storage: localStorage,
+      resolveIdentity,
+    });
+  }
+
+  it('resolves identity once at first placement and loads that reviewer corpus', () => {
+    const resolveIdentity = vi.fn().mockReturnValue('Ghost');
+    annotator = makeDeferred(resolveIdentity);
+    expect(resolveIdentity).not.toHaveBeenCalled();
+
+    place(annotator);
+    place(annotator);
+    expect(resolveIdentity).toHaveBeenCalledTimes(1);
+    const store = loadStore(localStorage, PROJECT, 'Ghost');
+    expect(store?.comments).toHaveLength(2);
+  });
+
+  it('declined identity aborts placement without writing anything', () => {
+    const resolveIdentity = vi.fn().mockReturnValue(null);
+    annotator = makeDeferred(resolveIdentity);
+    place(annotator);
+    expect(resolveIdentity).toHaveBeenCalledTimes(1);
+    expect(localStorage.length).toBe(0);
+    // Not sticky: the next activation asks again.
+    place(annotator);
+    expect(resolveIdentity).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('Annotator voice host generation guards (P0.6)', () => {
   let annotator: Annotator | null = null;
 

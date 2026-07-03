@@ -31,4 +31,34 @@ describe('Vue <Annotator />', () => {
     expect(wrapper.el.textContent).toBe('');
     wrapper.unmount();
   });
+
+  it('snapshots props at init: later mutation of a passed object does not leak (P4.5)', async () => {
+    const { Annotator } = await import('../../src/vue/index');
+    const activation = { mode: 'stealth' as const };
+    const voice = { tokenEndpoint: 'https://x/token' };
+    const wrapper = mount(Annotator, { project: 'vue-test', activation, voice });
+
+    activation.mode = 'toggle' as never;
+    voice.tokenEndpoint = 'https://evil/token';
+
+    const config = initMock.mock.calls[0]?.[0] as {
+      activation?: { mode?: string };
+      voice?: { tokenEndpoint?: string };
+    };
+    expect(config.activation).not.toBe(activation);
+    expect(config.activation?.mode).toBe('stealth');
+    expect(config.voice).not.toBe(voice);
+    expect(config.voice?.tokenEndpoint).toBe('https://x/token');
+    wrapper.unmount();
+  });
+
+  it('maps the submitHandler prop to core onSubmit (renamed off Vue on* convention)', async () => {
+    const { Annotator } = await import('../../src/vue/index');
+    const submitHandler = vi.fn();
+    const wrapper = mount(Annotator, { project: 'vue-test', submitHandler });
+    expect(initMock).toHaveBeenCalledWith(
+      expect.objectContaining({ project: 'vue-test', onSubmit: submitHandler }),
+    );
+    wrapper.unmount();
+  });
 });

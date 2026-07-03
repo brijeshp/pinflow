@@ -7,7 +7,9 @@ export interface RouteWatcher {
 // complete before we re-read `location`.
 export function watchRoute(onChange: (route: string) => void): RouteWatcher {
   let route = routeOf();
+  let stopped = false;
   const emit = (): void => {
+    if (stopped) return; // an orphaned wrapper (see stop) must never emit
     const next = routeOf();
     if (next !== route) {
       route = next;
@@ -17,23 +19,29 @@ export function watchRoute(onChange: (route: string) => void): RouteWatcher {
 
   const origPush = history.pushState;
   const origReplace = history.replaceState;
-  history.pushState = function (this: History, ...args: Parameters<History['pushState']>) {
+  const wrappedPush = function (this: History, ...args: Parameters<History['pushState']>) {
     const r = origPush.apply(this, args);
     queueMicrotask(emit);
     return r;
   };
-  history.replaceState = function (this: History, ...args: Parameters<History['replaceState']>) {
+  const wrappedReplace = function (this: History, ...args: Parameters<History['replaceState']>) {
     const r = origReplace.apply(this, args);
     queueMicrotask(emit);
     return r;
   };
+  history.pushState = wrappedPush;
+  history.replaceState = wrappedReplace;
   window.addEventListener('popstate', emit);
   window.addEventListener('hashchange', emit);
 
   return {
     stop() {
-      history.pushState = origPush;
-      history.replaceState = origReplace;
+      stopped = true;
+      // Another library may have wrapped history AFTER us; restoring then
+      // would rip ITS wrapper out of the chain. Only restore while still on
+      // top — otherwise leave ours in place, dead (the flag above).
+      if (history.pushState === wrappedPush) history.pushState = origPush;
+      if (history.replaceState === wrappedReplace) history.replaceState = origReplace;
       window.removeEventListener('popstate', emit);
       window.removeEventListener('hashchange', emit);
     },

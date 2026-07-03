@@ -153,6 +153,57 @@ describe('storage v2 migration & hardening', () => {
     expect(loadStore(localStorage, 'p', 'bad')).toBeNull();
   });
 
+  it('coerces corrupt text/route/createdAt to safe defaults instead of crashing export (P4.6)', () => {
+    const corrupt = {
+      ...makeComment({ id: 'cmt_corrupt' }),
+      text: 42,
+      route: null,
+      createdAt: 1234567890,
+    };
+    localStorage.setItem(
+      'pinflow:c:p:sarah',
+      JSON.stringify({
+        schemaVersion: 2,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [corrupt],
+      }),
+    );
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments).toHaveLength(1);
+    expect(loaded?.comments[0]).toMatchObject({ text: '', route: '', createdAt: '' });
+  });
+
+  it('drops records with a corrupt anchor sub-shape, keeping valid siblings (P4.6)', () => {
+    const good = makeComment({ id: 'cmt_good' });
+    const noSelectors = { ...makeComment({ id: 'cmt_a' }), anchor: { positionPercent: {} } };
+    const badCss = {
+      ...makeComment({ id: 'cmt_b' }),
+      anchor: { ...good.anchor, selectors: { css: 9 } },
+    };
+    const noPosition = {
+      ...makeComment({ id: 'cmt_c' }),
+      anchor: { selectors: good.anchor.selectors, viewport: good.anchor.viewport },
+    };
+    const noViewport = {
+      ...makeComment({ id: 'cmt_d' }),
+      anchor: { selectors: good.anchor.selectors, positionPercent: { x: 1, y: 2 } },
+    };
+    localStorage.setItem(
+      'pinflow:c:p:sarah',
+      JSON.stringify({
+        schemaVersion: 2,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [good, noSelectors, badCss, noPosition, noViewport],
+      }),
+    );
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments.map((c) => c.id)).toEqual(['cmt_good']);
+  });
+
   it('never throws on write failure and warns exactly once per session', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const throwing: Storage = {

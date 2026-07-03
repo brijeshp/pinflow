@@ -76,13 +76,13 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
     return noopSession;
   }
 
-  const persist = (interim: boolean): void => {
-    if (store.isEmpty()) {
+  const persist = (text: string, interim: boolean): void => {
+    if (text.trim().length === 0) {
       host.discard();
       return;
     }
     host.commit({
-      text: store.text,
+      text,
       voice: {
         durationMs: Math.max(0, clock() - startedAt),
         engine: deps.provider.engine,
@@ -105,7 +105,7 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
       }
       store.close();
       stream?.close();
-      persist(false);
+      persist(store.text, false);
     },
     dispose(): void {
       if (disposed) return;
@@ -113,8 +113,19 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
       deps.capture.stop();
       if (!settled) {
         settled = true;
+        // Best-effort salvage: committed finals PLUS any still-pending interim
+        // tail (the store is still recording — finalize never ran). The interim
+        // flag is set only when interim content actually made it into the text,
+        // matching the VoiceMeta.interim doc.
+        const d = store.display;
+        const interimTail = d.interim.trim();
         store.close();
-        persist(true); // best-effort: keep what was already committed
+        const text = interimTail
+          ? d.committed
+            ? `${d.committed} ${interimTail}`
+            : interimTail
+          : d.committed;
+        persist(text, interimTail.length > 0);
       }
       stream?.close();
     },

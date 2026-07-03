@@ -189,7 +189,8 @@ describe('startSession', () => {
     expect('confidence' in voice).toBe(false);
   });
 
-  it('dispose() releases the mic and best-effort persists committed text as interim', async () => {
+  it('dispose() releases the mic and best-effort persists committed finals WITHOUT the interim flag', async () => {
+    // All salvaged text was finalized — the interim flag would be a lie (P4.6).
     const host = makeHost();
     const { provider, stream } = makeProvider();
     const capture = makeCapture();
@@ -199,6 +200,32 @@ describe('startSession', () => {
     session.dispose(); // idempotent
     expect(capture.stopped).toBeGreaterThanOrEqual(1);
     expect(host.committed).toHaveLength(1);
+    expect(host.committed[0]?.text).toBe('partial thought');
+    const voice = host.committed[0]?.voice as Record<string, unknown>;
+    expect('interim' in voice).toBe(false);
+  });
+
+  it('dispose() salvages a pending interim tail and flags it (P4.6)', async () => {
+    const host = makeHost();
+    const { provider, stream } = makeProvider();
+    const session = await startSession(host, { ...baseDeps(), provider });
+    stream().emitFinal('hello');
+    stream().emitInterim('there wor');
+    session.dispose(); // network died mid-utterance
+    expect(host.committed).toHaveLength(1);
+    expect(host.committed[0]?.text).toBe('hello there wor');
+    expect(host.committed[0]?.voice).toMatchObject({ interim: true });
+  });
+
+  it('dispose() with ONLY interim results salvages them instead of discarding (P4.6)', async () => {
+    const host = makeHost();
+    const { provider, stream } = makeProvider();
+    const session = await startSession(host, { ...baseDeps(), provider });
+    stream().emitInterim('never finalized speech');
+    session.dispose();
+    expect(host.discarded).toBe(0);
+    expect(host.committed).toHaveLength(1);
+    expect(host.committed[0]?.text).toBe('never finalized speech');
     expect(host.committed[0]?.voice).toMatchObject({ interim: true });
   });
 });

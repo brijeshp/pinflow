@@ -26,6 +26,24 @@ describe('selector', () => {
     expect(getStableId(els[1]!)).toBe('legit-id');
   });
 
+  it('anchors on legit semantic ids; the hashed heuristic requires a digit (P4.6)', () => {
+    const doc = html(
+      '<div id="header"></div><div id="sidebar"></div><div id="a1b2c3"></div><div id="x9f3k2m"></div>',
+    );
+    const els = doc.querySelectorAll('div');
+    expect(getStableId(els[0]!)).toBe('header'); // pure letters — semantic
+    expect(getStableId(els[1]!)).toBe('sidebar');
+    expect(getStableId(els[2]!)).toBeNull(); // digits + length — likely hashed
+    expect(getStableId(els[3]!)).toBeNull();
+  });
+
+  it('keeps legit long class names in css paths; skips digit-bearing hashes (P4.6)', () => {
+    const doc = html('<main><button class="button x1y2z3q">Go</button></main>');
+    const css = getCssPath(doc.querySelector('button')!);
+    expect(css).toContain('.button'); // pure letters — semantic
+    expect(css).not.toContain('x1y2z3q'); // digit-bearing hash — skipped
+  });
+
   it('builds a css path with nth-of-type', () => {
     const doc = html(
       '<main><section><button class="cta-primary">A</button></section><section><button>B</button></section></main>',

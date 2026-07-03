@@ -10,10 +10,15 @@ export type AnnotatorProps = PinflowConfig;
 export function Annotator(props: AnnotatorProps): null {
   const handleRef = useRef<Handle | null>(null);
   const propsRef = useRef(props);
-  propsRef.current = props;
+
+  // Refs must not be written during render (React concurrent semantics —
+  // a render may be thrown away or replayed). Sync after commit instead;
+  // declared BEFORE the init effect so each commit sees fresh props.
+  useEffect(() => {
+    propsRef.current = props;
+  });
 
   useEffect(() => {
-    if (typeof window === 'undefined') return;
     handleRef.current?.destroy();
     handleRef.current = init(propsRef.current);
     return () => {

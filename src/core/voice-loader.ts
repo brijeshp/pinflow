@@ -10,5 +10,12 @@ import type { VoiceModule } from './voice-contract';
  * text (a dedicated CDN voice loader is deferred to v2.1).
  */
 export function loadVoice(): Promise<VoiceModule> {
-  return import('pinflow/voice').then((m) => (m as { default: VoiceModule }).default);
+  return import('pinflow/voice').then((m) => {
+    // Interop hardening: prefer the ESM default, fall back to a CJS-shaped
+    // namespace, and reject cleanly (into the existing degrade path) if
+    // neither carries the contract.
+    const mod = (m as { default?: VoiceModule }).default ?? (m as unknown as VoiceModule);
+    if (typeof mod?.start !== 'function') throw new Error('pinflow/voice: invalid module');
+    return mod;
+  });
 }

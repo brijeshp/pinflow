@@ -12,7 +12,6 @@ export function createUIRoot(): UIRoot {
   host.setAttribute('data-pinflow-root', '');
   host.style.cssText =
     'all:initial; position:fixed; inset:0; pointer-events:none; z-index:2147483646;';
-  document.body.appendChild(host);
   const shadow = host.attachShadow({ mode: 'open' });
   const style = document.createElement('style');
   style.textContent = STYLES;
@@ -20,11 +19,28 @@ export function createUIRoot(): UIRoot {
   const root = document.createElement('div');
   root.className = 'root';
   shadow.appendChild(root);
+  // An ESM init() may run before <body> exists (module script in <head>).
+  // The shadow tree above is built synchronously either way — only the host
+  // APPEND waits for DOM ready (mirroring iife.ts), which keeps init()'s
+  // synchronous Handle contract intact.
+  let destroyed = false;
+  if (document.body) {
+    document.body.appendChild(host);
+  } else {
+    document.addEventListener(
+      'DOMContentLoaded',
+      () => {
+        if (!destroyed) document.body.appendChild(host);
+      },
+      { once: true },
+    );
+  }
   return {
     host,
     shadow,
     root,
     destroy() {
+      destroyed = true;
       host.remove();
     },
   };

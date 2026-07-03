@@ -3,11 +3,14 @@ import type { SelectorCandidates } from './types';
 // Auto-generated / framework-internal IDs that we refuse to anchor on, since
 // they change on every render. Covered: React useId (`:r1:`), Radix, Headless
 // UI, Mantine, anything underscore-prefixed, and likely-hashed shortish IDs.
-const AUTO_ID_RE = /^(__|:r[0-9a-z]+:|radix-|headlessui-|mantine-|[a-z0-9]{6,}$)/i;
+// The hashed branch requires a digit — legit semantic ids like `header`,
+// `footer`, `sidebar` are pure letters and must stay anchorable.
+const AUTO_ID_RE = /^(__|:r[0-9a-z]+:|radix-|headlessui-|mantine-|(?=.*\d)[a-z0-9]{6,}$)/i;
 
 // Utility / state classes we skip when building a CSS segment. These change
-// frequently and would make selectors brittle.
-const SKIP_CLASS_RE = /^(hover|focus|active|is-|has-|[a-z]+-[0-9]+|[a-z0-9]{6,})$/;
+// frequently and would make selectors brittle. Same digit requirement as
+// AUTO_ID_RE on the hashed branch: `button`/`navbar`/`container` are legit.
+const SKIP_CLASS_RE = /^(hover|focus|active|is-|has-|[a-z]+-[0-9]+|(?=.*\d)[a-z0-9]{6,})$/;
 
 // Cap on how many elements we walk in the fingerprint fallback — DOMs can be
 // huge and this is the last-ditch path.
@@ -123,7 +126,7 @@ export function findByCandidates(
     /* xpath not supported or malformed */
   }
   if (fingerprint) {
-    const walker = document.createTreeWalker(root as Node, NodeFilter.SHOW_ELEMENT);
+    const walker = doc.createTreeWalker(root as Node, NodeFilter.SHOW_ELEMENT);
     let count = 0;
     let node = walker.nextNode();
     while (node && count++ < FINGERPRINT_WALK_LIMIT) {

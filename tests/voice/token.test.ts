@@ -18,6 +18,30 @@ describe('isLocalOrigin', () => {
 });
 
 describe('resolveToken', () => {
+  it('getToken wins over tokenEndpoint (P4.1 escape hatch)', async () => {
+    const fetchFn = vi.fn();
+    const getToken = vi.fn().mockResolvedValue('custom-jwt');
+    const token = await resolveToken(
+      { getToken, tokenEndpoint: 'https://x/token', devOnlyToken: 'dev' },
+      { fetchFn, hostname: 'localhost' },
+    );
+    expect(token).toBe('custom-jwt');
+    expect(getToken).toHaveBeenCalledTimes(1);
+    expect(fetchFn).not.toHaveBeenCalled();
+  });
+
+  it('a getToken rejection propagates and degrades like any other token failure', async () => {
+    await expect(
+      resolveToken({ getToken: () => Promise.reject(new Error('mint failed')) }),
+    ).rejects.toThrow('mint failed');
+  });
+
+  it('an empty getToken result is a failure, not a silent bad credential', async () => {
+    await expect(resolveToken({ getToken: () => Promise.resolve('') })).rejects.toThrow(
+      'empty token',
+    );
+  });
+
   it('mints from a token endpoint and returns the access_token', async () => {
     const fetchFn = vi
       .fn()

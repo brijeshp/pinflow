@@ -1,5 +1,4 @@
 export type Mode = 'reviewer' | 'builder';
-export type Position = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
 
 export interface SelectorCandidates {
   testid: string | null;
@@ -33,7 +32,10 @@ export interface VoiceMeta {
   confidence?: number;
   /** true when the reviewer hand-corrected the transcript. */
   edited?: boolean;
-  /** true when only interim results were salvaged (network dropped before finalize). */
+  /**
+   * true when the salvaged text includes un-finalized interim results
+   * (session torn down mid-utterance, e.g. network dropped before finalize).
+   */
   interim?: boolean;
   /** provenance, e.g. `deepgram:nova-3` — matters for the paid compiler + quality debugging. */
   engine?: string;
@@ -68,15 +70,22 @@ export interface ActivationConfig {
    * `both` = control button AND the stealth gesture.
    */
   mode?: 'toggle' | 'stealth' | 'both';
-  /** Long-press duration in ms before a touch gesture activates. Default 500. */
-  longPressMs?: number;
 }
 
 /**
  * Opt-in voice annotation. Presence enables voice; absence keeps pure v1 behavior
  * with no network. The library never holds a Deepgram API key — see `tokenEndpoint`.
+ *
+ * Credential resolution order: `getToken` → `tokenEndpoint` → `devOnlyToken`.
  */
 export interface VoiceConfig {
+  /**
+   * Escape hatch: mint the short-lived Deepgram grant-token JWT yourself
+   * (custom auth, credentials, project scoping). Takes precedence over
+   * `tokenEndpoint`. A rejection degrades to the text fallback like any other
+   * token failure.
+   */
+  getToken?: () => Promise<string>;
   /** Preferred: endpoint that mints a short-lived grant-token JWT (`GrantTokenResponse`). */
   tokenEndpoint?: string;
   /**
@@ -97,8 +106,6 @@ export interface PinflowConfig {
   reviewer?: string;
   mode?: Mode;
   onSubmit?: (payload: ReviewerStore) => void | Promise<void>;
-  position?: Position;
-  hidden?: boolean;
   /** Activation strategy. Defaults to `{ mode: 'toggle' }` for v1 back-compat. */
   activation?: ActivationConfig;
   /** Opt-in voice annotation config. Omit for pure pin/text behavior. */

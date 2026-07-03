@@ -35,17 +35,36 @@ function isPersistedStore(v: unknown): v is {
   );
 }
 
-// Comments from localStorage are untrusted: drop obviously malformed entries and
-// guarantee every survivor carries a `modality` (v1 stores predate the field).
+// The anchor sub-shape export/render dereference without guards: selectors
+// (with a string `css`), positionPercent, and viewport must all be objects or
+// the record is dropped rather than admitted to crash export later.
+function hasValidAnchor(c: Record<string, unknown>): boolean {
+  const anchor = c['anchor'];
+  if (!isObject(anchor)) return false;
+  const selectors = anchor['selectors'];
+  return (
+    isObject(selectors) &&
+    typeof selectors['css'] === 'string' &&
+    isObject(anchor['positionPercent']) &&
+    isObject(anchor['viewport'])
+  );
+}
+
+// Comments from localStorage are untrusted: drop malformed entries, coerce the
+// string fields downstream code dereferences unguarded, and guarantee every
+// survivor carries a `modality` (v1 stores predate the field).
 function normalizeComments(input: unknown): Comment[] {
   if (!Array.isArray(input)) return [];
   return input
     .filter(
       (c): c is Record<string, unknown> =>
-        isObject(c) && typeof c['id'] === 'string' && isObject(c['anchor']),
+        isObject(c) && typeof c['id'] === 'string' && hasValidAnchor(c),
     )
     .map((c) => ({
       ...(c as unknown as Comment),
+      text: typeof c['text'] === 'string' ? c['text'] : '',
+      route: typeof c['route'] === 'string' ? c['route'] : '',
+      createdAt: typeof c['createdAt'] === 'string' ? c['createdAt'] : '',
       modality: c['modality'] === 'voice' ? 'voice' : 'text',
     }));
 }

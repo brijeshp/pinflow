@@ -27,14 +27,19 @@ import type { Logger, VoiceHost, VoiceModule, VoiceSession } from '../voice-cont
 import { loadVoice as defaultLoadVoice } from '../voice-loader';
 import { createUIRoot, el, flipPosition, place, type UIRoot } from './dom';
 
-const DEFAULT_LONG_PRESS_MS = 500;
+// Not publicly configurable (P4.4): the 500ms default matched every real use.
+// GestureController keeps its internal option for tests.
+const LONG_PRESS_MS = 500;
 const MOVE_THRESHOLD_PX = 10;
 
 interface AnnotatorDeps {
   config: Required<Pick<PinflowConfig, 'project'>> & PinflowConfig;
-  reviewer: string;
+  /** null = stealth mode with identity deferred to the first activation. */
+  reviewer: string | null;
   mode: Mode;
   storage: Storage;
+  /** Resolves (and may prompt for) the reviewer identity at first activation. */
+  resolveIdentity?: () => string | null;
   /** Injectable for tests; defaults to the real lazy `import('pinflow/voice')`. */
   loadVoice?: () => Promise<VoiceModule>;
 }
@@ -53,11 +58,10 @@ interface ActiveInput {
   flush(): void;
 }
 
-type PositionCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
-
 export class Annotator {
   private readonly _ui: UIRoot;
   private readonly _deps: AnnotatorDeps;
+  private _reviewer: string | null;
   private _store: ReviewerStore;
   private _annotating = false;
   private _pins = new Map<string, HTMLDivElement>();
@@ -67,8 +71,10 @@ export class Annotator {
   private _visibleCache: Array<Comment & { reviewer?: string }> | null = null;
   private readonly _anchorCache = new Map<string, Element | null>();
   private _activeInput: ActiveInput | null = null;
-  private _controlEl!: HTMLButtonElement;
+  private _controlEl: HTMLButtonElement | null = null;
   private _panelEl: HTMLDivElement | null = null;
+  /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
+  private _prevBodyCursor = '';
   private _reflowFrame = 0;
   private _gesture: GestureController | null = null;
   // Bumped on every teardown (destroy/route change) so in-flight async voice
@@ -86,9 +92,14 @@ export class Annotator {
   constructor(deps: AnnotatorDeps) {
     this._deps = deps;
     this._ui = createUIRoot();
+    this._reviewer = deps.reviewer;
+    // Deferred-identity (stealth) starts with an inert placeholder store; the
+    // real corpus is loaded once _ensureIdentity resolves a name.
     this._store =
-      loadStore(deps.storage, deps.config.project, deps.reviewer) ??
-      emptyStore(deps.config.project, deps.reviewer);
+      deps.reviewer !== null
+        ? (loadStore(deps.storage, deps.config.project, deps.reviewer) ??
+          emptyStore(deps.config.project, deps.reviewer))
+        : emptyStore(deps.config.project, '');
     this._renderControl();
     this._renderPins();
     this._startGesture();
@@ -131,7 +142,7 @@ export class Annotator {
     if (this._activationMode() === 'toggle') return;
     this._gesture = new GestureController({
       mode: this._activationMode(),
-      longPressMs: this._deps.config.activation?.longPressMs ?? DEFAULT_LONG_PRESS_MS,
+      longPressMs: LONG_PRESS_MS,
       moveThresholdPx: MOVE_THRESHOLD_PX,
       onActivate: (x, y, target) => this._placeCommentAt(x, y, target),
     });
@@ -176,20 +187,14 @@ export class Annotator {
     this._anchorCache.clear();
   }
 
-  private _position(): PositionCorner {
-    return (this._deps.config.position as PositionCorner) ?? 'bottom-right';
-  }
-
   private _renderControl(): void {
-    if (this._deps.config.hidden) return;
     // Stealth activation is invisible — no control button.
     if (this._activationMode() === 'stealth') return;
     const btn = el('button', 'control', this._controlLabel());
     btn.type = 'button';
     btn.dataset['active'] = 'false';
-    const [v, h] = this._position().split('-') as ['bottom' | 'top', 'left' | 'right'];
-    btn.style.setProperty(v, '16px');
-    btn.style.setProperty(h, '16px');
+    btn.style.bottom = '16px';
+    btn.style.right = '16px';
     btn.addEventListener('click', () => this._togglePanel());
     this._ui.root.appendChild(btn);
     this._controlEl = btn;
@@ -217,21 +222,20 @@ export class Annotator {
     this._panelEl = null;
   }
 
-  // Anchor panel to the control and flip away from the nearest viewport edge
-  // based on which corner the control sits in.
+  // The control is fixed bottom-right: anchor the panel above it, right-aligned,
+  // and let flipPosition handle tiny viewports.
   private _positionPanel(): void {
-    if (!this._panelEl) return;
+    if (!this._panelEl || !this._controlEl) return;
     const rect = this._controlEl.getBoundingClientRect();
     const size = {
       width: this._panelEl.offsetWidth || 280,
       height: this._panelEl.offsetHeight || 180,
     };
     const vp = { width: window.innerWidth, height: window.innerHeight };
-    const [v, h] = this._position().split('-') as ['bottom' | 'top', 'left' | 'right'];
-    // Start anchored at the control; pick the edge that has room.
-    const anchorLeft = h === 'left' ? rect.left : rect.right - size.width;
-    const anchorTop = v === 'bottom' ? rect.top - size.height - 8 : rect.bottom + 8;
-    place(this._panelEl, flipPosition({ left: anchorLeft, top: anchorTop }, size, vp, 0));
+    place(
+      this._panelEl,
+      flipPosition({ left: rect.right - size.width, top: rect.top - size.height - 8 }, size, vp, 0),
+    );
   }
 
   private _renderReviewerPanel(): HTMLDivElement {
@@ -316,9 +320,10 @@ export class Annotator {
 
   private _enterAnnotateMode(): void {
     this._annotating = true;
-    this._controlEl.dataset['active'] = 'true';
+    if (this._controlEl) this._controlEl.dataset['active'] = 'true';
     document.addEventListener('click', this._onDocumentClick, true);
     document.addEventListener('keydown', this._onKeyDown);
+    this._prevBodyCursor = document.body.style.cursor;
     document.body.style.cursor = 'crosshair';
     this._closePanel();
   }
@@ -328,7 +333,8 @@ export class Annotator {
     if (this._controlEl) this._controlEl.dataset['active'] = 'false';
     document.removeEventListener('click', this._onDocumentClick, true);
     document.removeEventListener('keydown', this._onKeyDown);
-    document.body.style.cursor = '';
+    document.body.style.cursor = this._prevBodyCursor;
+    this._prevBodyCursor = '';
   }
 
   private _onKeyDown = (e: KeyboardEvent): void => {
@@ -344,11 +350,28 @@ export class Annotator {
     this._placeCommentAt(e.clientX, e.clientY, target);
   };
 
+  // Stealth defers the (blocking) identity prompt from init to the first
+  // activation — the moment identity is actually needed, right before any
+  // comment can be created. Declining leaves the layer dormant; the next
+  // activation asks again. Resolving loads that reviewer's existing corpus.
+  private _ensureIdentity(): boolean {
+    if (this._reviewer !== null) return true;
+    const name = this._deps.resolveIdentity?.() ?? null;
+    if (!name) return false;
+    this._reviewer = name;
+    this._store =
+      loadStore(this._deps.storage, this._deps.config.project, name) ??
+      emptyStore(this._deps.config.project, name);
+    this._renderPins();
+    return true;
+  }
+
   // Shared by the toggle click path and the stealth gesture: drop an anchored
   // note at a screen point. Voice-configured → a streaming voice dot; otherwise
   // the classic text input.
   private _placeCommentAt(clientX: number, clientY: number, target: Element): void {
     if (this._ui.host.contains(target)) return; // never annotate our own UI
+    if (!this._ensureIdentity()) return; // identity is required before any comment exists
     const anchor = buildAnchor(target, clientX, clientY);
     if (this._deps.config.voice) {
       if (this._activeVoice) return; // one recording at a time
