@@ -101,11 +101,46 @@ export interface GrantTokenResponse {
   expires_in: number;
 }
 
+/**
+ * Design tokens applied as CSS custom properties (`--pf-*`) on the widget's
+ * shadow host. All optional; omitted tokens keep the stock look.
+ */
+export interface PinflowTheme {
+  fontFamily?: string;
+  /** Primary action color: buttons, pins, active states. */
+  accent?: string;
+  /** Text/icon color on accent surfaces. */
+  accentContrast?: string;
+  /** Panel/popup background. */
+  surface?: string;
+  /** Primary text color inside panels/popups. */
+  text?: string;
+  /** Secondary/hint text color. */
+  textMuted?: string;
+  /** Destructive actions and the recording indicator. */
+  danger?: string;
+  /** Corner radius for panels and inputs, e.g. `'14px'`. */
+  radius?: string;
+  /** Elevation shadow for panels and inputs. */
+  shadow?: string;
+}
+
 export interface PinflowConfig {
   project: string;
   reviewer?: string;
   mode?: Mode;
   onSubmit?: (payload: ReviewerStore) => void | Promise<void>;
+  /**
+   * Fired after each persisted comment mutation with the fresh store and the
+   * change. The host owns debouncing/batching/network; exceptions are caught
+   * and logged. Builder-mode "Clear all" does not emit.
+   */
+  onChange?: (
+    store: ReviewerStore,
+    change: { type: 'add' | 'update' | 'delete'; comment: Comment },
+  ) => void;
+  /** Visual design tokens; applied once at init. See {@link PinflowTheme}. */
+  theme?: PinflowTheme;
   /** Activation strategy. Defaults to `{ mode: 'toggle' }` for v1 back-compat. */
   activation?: ActivationConfig;
   /** Opt-in voice annotation config. Omit for pure pin/text behavior. */

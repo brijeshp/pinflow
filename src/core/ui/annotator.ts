@@ -92,6 +92,7 @@ export class Annotator {
   constructor(deps: AnnotatorDeps) {
     this._deps = deps;
     this._ui = createUIRoot();
+    this._applyTheme();
     this._reviewer = deps.reviewer;
     // Deferred-identity (stealth) starts with an inert placeholder store; the
     // real corpus is loaded once _ensureIdentity resolves a name.
@@ -177,9 +178,36 @@ export class Annotator {
     });
   };
 
+  // Theme tokens ride as custom properties on the shadow host and inherit into
+  // the shadow tree, where styles.ts consumes them via var(--pf-*,stock).
+  private _applyTheme(): void {
+    const theme = this._deps.config.theme;
+    if (!theme) return;
+    for (const [k, v] of Object.entries(theme)) {
+      if (v) {
+        this._ui.host.style.setProperty(
+          `--pf-${k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}`,
+          v,
+        );
+      }
+    }
+  }
+
   private _persist(): void {
     this._invalidateViewCaches();
     saveStore(this._deps.storage, this._store);
+  }
+
+  // A2: notify the host after a persisted mutation. Host exceptions must never
+  // break the annotator, and a torn-down world must never call out.
+  private _emitChange(type: 'add' | 'update' | 'delete', comment: Comment): void {
+    const cb = this._deps.config.onChange;
+    if (!cb || this._destroyed) return;
+    try {
+      cb(this._store, { type, comment });
+    } catch (err) {
+      this._voiceLogger.warn('onChange handler threw', err);
+    }
   }
 
   private _invalidateViewCaches(): void {
@@ -402,6 +430,7 @@ export class Annotator {
     };
     this._store = upsertComment(this._store, comment);
     this._persist();
+    this._emitChange('add', comment);
     this._renderPins();
     if (openForEdit) this._openInput(comment.id);
   }
@@ -476,6 +505,7 @@ export class Annotator {
       };
       this._store = upsertComment(this._store, comment);
       this._persist();
+      this._emitChange('add', comment);
       mount.remove();
       this._renderPins();
     };
@@ -607,18 +637,18 @@ export class Annotator {
       // saving then would resurrect it.
       const persisted = this._store.comments.find((c) => c.id === commentId);
       if (!persisted) return;
+      if (ta.value === persisted.text) return; // no-op blur: nothing to save or emit
       // Hand-correcting a voice transcript flags the meta as edited (immutably).
-      const voicePatch =
-        persisted.voice && ta.value !== persisted.text
-          ? { voice: { ...persisted.voice, edited: true } }
-          : {};
-      this._store = upsertComment(this._store, {
+      const voicePatch = persisted.voice ? { voice: { ...persisted.voice, edited: true } } : {};
+      const updated: Comment = {
         ...persisted,
         text: ta.value,
         updatedAt: now(),
         ...voicePatch,
-      });
+      };
+      this._store = upsertComment(this._store, updated);
       this._persist();
+      this._emitChange('update', updated);
     };
     const input: ActiveInput = { wrap, commentId, timer: 0, flush: save };
     ta.addEventListener('input', () => {
@@ -627,8 +657,10 @@ export class Annotator {
     });
     ta.addEventListener('blur', save);
     del.addEventListener('click', () => {
+      const removed = this._store.comments.find((c) => c.id === commentId);
       this._store = deleteCommentFromStore(this._store, commentId);
       this._persist();
+      if (removed) this._emitChange('delete', removed);
       this._closeActiveInput(false); // never flush a just-deleted comment
       this._renderPins();
     });

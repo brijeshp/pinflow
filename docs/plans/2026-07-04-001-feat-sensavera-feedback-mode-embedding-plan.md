@@ -27,10 +27,10 @@ This is pinflow's first real-world host. **The prime directive: every pinflow ch
 
 ## Phase A — Pinflow: generic API additions (this repo)
 
-- [ ] **A1. `theme` config (design tokens)** — `PinflowConfig.theme?: PinflowTheme` with a minimal token set: `fontFamily`, `accent`, `accentContrast`, `surface`, `text`, `textMuted`, `danger`, `radius`, `shadow`. Implementation: rewrite `src/core/ui/styles.ts` values as `var(--pf-accent,#111)`-style fallbacks (CSS already ships — near-zero byte cost) and set the custom properties on the shadow host from config at init. Defaults = current look. Voice dot (`src/voice/ui/dot.ts`) reads the same tokens (`danger` = recording). Tests: tokens applied to host style; absent theme = unchanged CSS.
-- [ ] **A2. `onChange` callback** — `PinflowConfig.onChange?: (store: ReviewerStore, change: { type: 'add' | 'update' | 'delete'; comment: Comment }) => void`. Fired after each persisted mutation (piggyback on `_persist()`); host owns debouncing/batching/network. Never throws into pinflow (wrap in try/catch + logger warn). Tests: fires on add/edit/delete with correct change payload; exceptions contained.
+- [x] **A1. `theme` config (design tokens)** — `PinflowConfig.theme?: PinflowTheme` with a minimal token set: `fontFamily`, `accent`, `accentContrast`, `surface`, `text`, `textMuted`, `danger`, `radius`, `shadow`. Implementation: rewrite `src/core/ui/styles.ts` values as `var(--pf-accent,#111)`-style fallbacks (CSS already ships — near-zero byte cost) and set the custom properties on the shadow host from config at init. Defaults = current look. Voice dot (`src/voice/ui/dot.ts`) reads the same tokens (`danger` = recording). Tests: tokens applied to host style; absent theme = unchanged CSS.
+- [x] **A2. `onChange` callback** — `PinflowConfig.onChange?: (store: ReviewerStore, change: { type: 'add' | 'update' | 'delete'; comment: Comment }) => void`. Fired after each persisted mutation (piggyback on `_persist()`); host owns debouncing/batching/network. Never throws into pinflow (wrap in try/catch + logger warn). Tests: fires on add/edit/delete with correct change payload; exceptions contained.
 - [ ] **A3. Release mechanics** — pinflow is not on npm and has no git remote. Sensavera can't consume it until it's published (or `file:`/workspace-linked for dev). Decide: publish `0.1.0` (changeset is ready) or link locally for the spike. **Blocking prerequisite for Phase C.**
-- [ ] Budget check: A1+A2 must fit inside the 10.5/11 KB core budgets (est. +250–400 B gz total).
+- [x] Budget check: A1+A2 must fit inside the 10.5/11 KB core budgets (est. +250–400 B gz total).
 
 ## Phase B — ShareVoice backend + hub enablement
 

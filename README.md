@@ -64,9 +64,26 @@ window.Pinflow.init({
   project: 'my-prototype', // localStorage namespace
   reviewer: 'Sarah', // override URL param
   mode: 'reviewer', // 'reviewer' | 'builder'
-  theme: 'auto', // 'light' | 'dark' | 'auto'
+  theme: {
+    // Optional design tokens so the widget matches your product.
+    // All optional; omit the object entirely for the stock look.
+    fontFamily: 'DM Sans',
+    accent: '#2d8b8b', // buttons, pins, active states
+    accentContrast: '#f1faee', // text on accent surfaces
+    surface: '#ffffff', // panel/popup background
+    text: '#1a2332',
+    textMuted: '#4a5568',
+    danger: '#e07a5f', // delete + recording indicator
+    radius: '14px',
+    shadow: '0 4px 20px rgba(26,35,50,0.1)',
+  },
+  onChange: (store, change) => {
+    // Optional: live ingestion — fires after every persisted add/update/delete.
+    // You own debouncing/batching; exceptions are caught and logged.
+    void fetch('/api/feedback-events', { method: 'POST', body: JSON.stringify(change) });
+  },
   onSubmit: async (payload) => {
-    // Optional: POST to your own endpoint
+    // Optional: POST the full store to your own endpoint on explicit submit
     await fetch('/api/feedback', { method: 'POST', body: JSON.stringify(payload) });
   },
 });

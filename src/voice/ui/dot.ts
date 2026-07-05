@@ -36,7 +36,9 @@ export function createDot(mount: HTMLElement): DotUI {
 
   const rec = document.createElement('span');
   rec.setAttribute('aria-hidden', 'true');
-  rec.style.cssText = 'width:10px;height:10px;border-radius:50%;background:#ff5a5a;flex:0 0 auto';
+  // var(--pf-*) = the core theme seam; tokens inherit into the shadow tree.
+  rec.style.cssText =
+    'width:10px;height:10px;border-radius:50%;background:var(--pf-danger,#ff5a5a);flex:0 0 auto';
 
   const wave = document.createElement('div');
   wave.setAttribute('aria-hidden', 'true');
@@ -45,7 +47,7 @@ export function createDot(mount: HTMLElement): DotUI {
   for (let i = 0; i < BAR_COUNT; i++) {
     const bar = document.createElement('div');
     bar.style.cssText =
-      'width:3px;height:20px;border-radius:2px;background:#2fd6c3;transform:scaleY(.12);transform-origin:center';
+      'width:3px;height:20px;border-radius:2px;background:var(--pf-accent,#2fd6c3);transform:scaleY(.12);transform-origin:center';
     wave.appendChild(bar);
     bars.push(bar);
   }
@@ -71,8 +73,8 @@ export function createDot(mount: HTMLElement): DotUI {
     'padding:4px 12px',
     'border:0',
     'border-radius:8px',
-    'background:#2fd6c3',
-    'color:#06231f',
+    'background:var(--pf-accent,#2fd6c3)',
+    'color:var(--pf-accent-contrast,#06231f)',
     'font:600 13px system-ui,sans-serif',
     'cursor:pointer',
   ].join(';');
