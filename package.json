@@ -71,6 +71,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "size": "size-limit",
+    "wiki:check": "node scripts/wiki-check.mjs",
     "changeset": "changeset",
     "release": "pnpm build && changeset publish",
     "prepublishOnly": "pnpm build && pnpm test && pnpm size"

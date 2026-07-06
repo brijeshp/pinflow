@@ -7,6 +7,17 @@ date: 2026-07-06
 
 # chore: Adopt OpenWiki as the agent-facing codebase wiki (Claude Code + Codex)
 
+> ## ⚠️ Revision 2 (2026-07-06) — subscription-native pivot: OpenWiki dropped
+>
+> After review, the owner rejected the Anthropic API-key spend OpenWiki requires; the repo also has no GitHub remote, killing the scheduled-Action automation that was OpenWiki's main differentiator. The design below was **implemented instead**, keeping every architectural decision from this plan except the generator:
+>
+> - **Kept**: `AGENTS.md` (hand-authored invariants + source-of-truth precedence, Codex-native) + `CLAUDE.md` = `@AGENTS.md` import; committed wiki; review bar; fix-at-source rule; Prettier discipline; doc-drift fix (Phase 0.1, shipped).
+> - **Swapped**: `openwiki/` generation → `docs/wiki/` authored and maintained by the coding agents themselves (Claude Code / Codex on existing subscriptions, $0 marginal cost). Initial generation via parallel sub-agents reading source; every claim spot-checked.
+> - **Freshness**: `docs/wiki/.last-sync` (SHA marker) + `pnpm wiki:check` (`scripts/wiki-check.mjs`) + the update playbook `.claude/skills/wiki-update/SKILL.md`, run at branch-finish time instead of on a cron. Any agent can execute the playbook — it is plain markdown.
+> - **Dropped**: OpenWiki CLI, API keys, `openwiki-update.yml`, the PAT/bot-PR CI machinery (C1), and the Phase 0 probe of OpenWiki's write semantics — all moot without OpenWiki. The SpecFlow findings they answered remain documented below for the record.
+>
+> Sections below describe the original OpenWiki design and are retained as decision history. Acceptance criteria that survive the pivot: the Phase 1–2 criteria minus OpenWiki-specific ones (idempotent `--update`, `npm pack` exclusion — satisfied trivially since `files` allowlists only `dist` + top-level docs).
+
 ## Overview
 
 Adopt [OpenWiki](https://github.com/langchain-ai/openwiki) (LangChain's MIT-licensed, DeepAgents-based repo-documentation CLI) so pinflow carries a generated, continuously-refreshed wiki of its own codebase — and wire it so **one source of truth serves both Claude Code and Codex**:

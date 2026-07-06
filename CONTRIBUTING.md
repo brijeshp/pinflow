@@ -24,6 +24,7 @@ pnpm build
 - **Size budgets are hard ceilings**, enforced by `pnpm size` (`size-limit` in `package.json` is the source of truth — currently 11 KB gz core IIFE, 10.5 KB core ESM, 4.5 KB voice, 1 KB per wrapper). Budgets only ever ratchet down.
 - Core must stay framework-agnostic. React/Vue wrappers are thin.
 - No telemetry. Ever.
+- `docs/wiki/` is the agent-maintained codebase map. Don't edit it ad hoc — follow `.claude/skills/wiki-update/SKILL.md`; `pnpm wiki:check` reports drift. Coding agents read `AGENTS.md` first.
 
 ## Reporting security issues
 
