@@ -21,6 +21,8 @@ Pinflow today is excellent at **capture** (pins, voice, per-frame scoping, theme
 
 **On storage (question 1):** don't build or host storage — make persistence _pluggable and symmetric_. Pinflow already has the write half (`onChange` → the host upserts/deletes by comment id; sensavera's `session_feedback_annotations` table is a working reference implementation). The missing half is **read**: a `source` hook that hydrates comments from the host on init. Once both halves exist, "perpetual storage" is any backend that implements three verbs (list / upsert / delete) over the pinflow comment schema — which we formalize as a versioned, documented **sync protocol**. localStorage remains the zero-config default; the protocol is the growth path. This keeps the library razor-thin and makes every host's backend a durable store without pinflow ever owning data.
 
+**The one assumption to state out loud:** pinflow's `reviewer` is a display label, never authentication. Authorship identity — "which human gave this feedback, and may they see it again" — is entirely host-owned (sensavera: session/shortcode possession). Every scoping rule below builds on that.
+
 **On closing the loop (question 2):** the strongest mechanism is **resolution shown in situ** — the reviewer reopens the prototype and sees their own pins annotated with the team's disposition: a muted ✓ pin for "done," a struck pin for "declined," each with a one-line resolution note in the (read-only) popup. Feedback returns to the exact place it was given, which no email digest can match. Mechanically this is small: the `Comment` model gains `status` + `resolution` (set by the _team_, never the reviewer, delivered through the same hydration path), and pinflow renders it. Out-of-band digests ("here's what happened to your 12 comments") are host territory — sensavera can generate them from the same data; the library just guarantees the data model carries disposition. The collated markdown export doubles as the team-side tracking artifact: every comment block carries its stable id, frame label, element context, and current status — pasteable into a tracker, a PR description, or an AI agent.
 
 ## Design principles (library ↔ host boundary)
@@ -38,15 +40,15 @@ Pinflow today is excellent at **capture** (pins, voice, per-frame scoping, theme
 
 - [ ] **L1.1 Comment model v3**: add `status?: 'open' | 'done' | 'declined'` (absent = open) and `resolution?: string` (team's one-liner, ≤500 chars). Storage `SCHEMA_VERSION` 2→3 with forward-tolerant migration ([storage.ts:4](../../src/core/storage.ts)); wire types are additive so the sensavera BE contract is unbroken.
 - [ ] **L1.2 Frame labels in exports**: `config.describeRoute?: (key: string) => string` — exports render `## Section 2 — Employment details` with the stable key in backticks beneath. Hosts with `routeKey` almost always have labels; URL-default hosts need nothing.
-- [ ] **L1.3 Element context enrichment**: capture (at pin time, into `anchor`) the target's accessible name/role and nearest heading text (~2 lines of capture code, big legibility win): exports say _“the ‘Continue’ button under ‘Next section’”_ instead of only a CSS path. Bytes-budgeted; fingerprint already exists.
-- [ ] **L1.4 Comment ids + status in markdown**: every block leads with `### [c_9f2k…] Comment 3 — open` so trackers/agents/humans can reference and round-trip a specific comment.
-- [ ] **L1.5 JSON export**: `exportJSON(store | stores)` → versioned `{ pinflowExport: 3, comments: [...] }` — the machine-readable twin of the markdown (markdown for humans/agents, JSON for pipelines). Exposed on the handle and in builder mode.
+- [ ] **L1.3 Element context enrichment**: capture (at pin time, into `anchor`) the target's accessible name/role and nearest heading text: exports say _“the ‘Continue’ button under ‘Next section’”_ instead of only a CSS path. Bytes-budgeted; extends the existing README privacy warning (captured page text now includes the nearest heading, not just the target's fingerprint).
+- [ ] **L1.4 Comment ids + status in markdown**: every block leads with `### [c_9f2k…] Comment 3`, with a `— done`/`— declined` suffix only when a disposition exists (backendless v1-style exports stay noise-free).
+- [ ] **L1.5 JSON export**: `exportJSON(store | stores)` → `{ pinflowExport: 3, comments: [...] }` — version number IS the comment schema version (one namespace). The machine-readable twin of the markdown (markdown for humans/agents, JSON for pipelines). Exposed on the handle and in builder mode. Constraint: export helpers stay DOM-free pure functions — S2.2 runs them server-side in the hub.
 
 ## Phase L2 — Pinflow: pluggable persistence + the loop UI
 
-- [ ] **L2.1 `source` hydration hook**: `config.source?: () => Promise<Comment[]>` — fetched once at init (and on `refreshRoute`? no — once, plus an explicit `handle.reload()`), merged into the local store by comment id with `updatedAt`-wins semantics, EXCEPT `status`/`resolution` which the server always wins (the team sets them; the reviewer's device can't). Failure = silent fallback to localStorage (same posture as `onChange`).
-- [ ] **L2.2 Sync protocol doc** (`PROTOCOL.md`): formalize what already exists — the comment JSON schema, the three verbs (list → `source`, upsert/delete → `onChange`), idempotency rules, and the status ownership rule. Sensavera's endpoints become the named reference implementation. This document _is_ the promotable "bring your own backend" story.
-- [ ] **L2.3 Resolution UI**: `done` pins render muted with a check glyph; `declined` muted/struck; popup for a resolved comment shows the resolution note read-only above the (still-editable? **no — frozen**) text. Reviewer edits to resolved comments are blocked with the note visible — the conversation happened; don't fork it. Theme tokens cover the styling (muted = textMuted).
+- [ ] **L2.1 `source` hydration hook**: `config.source?: () => Promise<Comment[]>` — fetched **once at init** (hosts refresh by re-init; no `reload()` API — YAGNI, localStorage makes re-init lossless). **Scope rule:** in reviewer mode, `source` returns only the current reviewer's comments — the host authenticates that however it likes; pinflow never enforces identity. All-reviewer hydration for builder mode is explicitly a later slice. Merge by comment id: `updatedAt`-wins for content, **server always wins for `status`/`resolution`** (the team sets disposition; a reviewer's device can never overwrite it). Failure = silent fallback to localStorage (same posture as `onChange`).
+- [ ] **L2.2 Sync protocol doc** (`PROTOCOL.md`): formalize what already exists — the comment JSON schema (versioned; same version namespace as the storage schema, so "v3" means one thing everywhere), the three verbs (list → `source`, upsert/delete → `onChange`), idempotency rules, **scope rules** (list is per-reviewer in reviewer mode; disposition fields are server-owned), and the privacy expectations. Sensavera's endpoints become the named reference implementation. This document _is_ the promotable "bring your own backend" story.
+- [ ] **L2.3 Resolution UI**: `done` pins render muted with a check glyph; `declined` muted/struck; popup for a resolved comment shows the resolution note read-only above the text. Resolved comments are **fully frozen — no edit, no delete**: once the team dispositions a comment it's a shared record, not the reviewer's draft. Theme tokens cover the styling (muted = textMuted).
 - [ ] **L2.4 Budget check**: L1+L2 must fit existing budgets (est. +600–900 B gz core). The grep guards and wrapper budgets stay.
 
 ## Phase L3 — Pinflow: publishable independent asset
@@ -79,6 +81,14 @@ Pinflow today is excellent at **capture** (pins, voice, per-frame scoping, theme
 - Threading/replies, assignees, severity (v1 spec deferral stands; status+resolution is the minimum loop).
 - A hosted pinflow backend/SaaS (violates the ethos that IS the pitch; revisit only if the paid-compiler idea matures).
 - In-library notifications (host territory, always).
+
+## Acceptance criteria
+
+- [ ] A v2 localStorage store loads unchanged under schema v3; a v3 store round-trips status/resolution.
+- [ ] With `source` + `onChange` wired to a conformant backend: pin on device A → appears on device B for the same reviewer; team sets `done` + note → reviewer's pin renders resolved, frozen, with the note visible.
+- [ ] A reviewer can never alter or delete a dispositioned comment, and a device can never overwrite server-set `status`/`resolution`.
+- [ ] Collated markdown for a multi-frame, multi-reviewer corpus shows: friendly frame headings (`describeRoute`), element context lines, stable ids, dispositions — and `exportJSON` emits the same corpus machine-readably.
+- [ ] All existing guards hold: size budgets, voice-isolation grep, wrapper isolation, 0-byte cost when features are unconfigured.
 
 ## Sequencing & risks
 
