@@ -1,0 +1,16 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sensavera-frontend-sandboxbe",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/brijeshpatel/Apps/ShareVoice-worktrees/feedback-mode/sensavera-frontend",
+        "run",
+        "dev"
+      ],
+      "port": 3000
+    }
+  ]
+}

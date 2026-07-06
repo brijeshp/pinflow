@@ -53,7 +53,11 @@ describe('theme tokens (A1)', () => {
     expect(STYLES).toContain('var(--pf-surface,#fff)');
     expect(STYLES).toContain('var(--pf-radius,12px)');
     expect(STYLES).toContain('var(--pf-danger,#dc2626)');
-    expect(STYLES).toContain('var(--pf-font-family,');
     expect(STYLES).toContain('var(--pf-shadow,');
+    // Chrome drops a var()-dependent longhand sharing a block with all:initial,
+    // so the font token must be consumed on .root — never inside :host.
+    const hostRule = STYLES.slice(0, STYLES.indexOf('}') + 1);
+    expect(hostRule).not.toContain('var(--pf-font-family');
+    expect(STYLES).toMatch(/\.root\{[^}]*font-family:var\(--pf-font-family,inherit\)/);
   });
 });

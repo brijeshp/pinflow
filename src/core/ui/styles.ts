@@ -4,10 +4,13 @@
 // Theme seam (A1): the nine PinflowTheme tokens surface as var(--pf-*,stock)
 // fallbacks; the annotator sets the custom properties on the shadow host, and
 // they inherit through the shadow boundary. No theme → identical stock CSS.
+// GOTCHA: --pf-font-family is consumed on .root, NOT :host — Chrome drops a
+// var()-dependent longhand that shares a block with `all:initial` (found via
+// the sensavera browser proof), so the :host rule keeps only the static stack.
 export const STYLES =
-  ':host{all:initial;font-family:var(--pf-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif);color-scheme:light dark}' +
+  ':host{all:initial;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color-scheme:light dark}' +
   '*{box-sizing:border-box}' +
-  '.root{position:fixed;inset:0;pointer-events:none;z-index:2147483646}' +
+  '.root{position:fixed;inset:0;pointer-events:none;z-index:2147483646;font-family:var(--pf-font-family,inherit)}' +
   '.control{position:fixed;pointer-events:auto;background:#0f172a;color:#f8fafc;border-radius:999px;padding:10px 14px;font-size:13px;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,.18),0 2px 4px rgba(0,0,0,.08);cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:8px;transition:transform .15s ease}' +
   '.control:hover{transform:translateY(-1px)}' +
   '.control[data-active="true"]{background:var(--pf-accent,#2563eb)}' +
