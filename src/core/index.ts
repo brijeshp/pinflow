@@ -40,13 +40,19 @@ function isLocalOrigin(hostname: string): boolean {
 
 export interface Handle {
   destroy(): void;
+  /**
+   * Re-evaluate the current route/frame key and re-render pins. Called
+   * automatically on URL changes; hosts using `config.routeKey` call it
+   * whenever their logical screen changes without a URL change.
+   */
+  refreshRoute(): void;
 }
 
 let current: Handle | null = null;
 
 export function init(config: PinflowConfig): Handle {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
-    return { destroy() {} };
+    return { destroy() {}, refreshRoute() {} };
   }
   // The devOnlyToken guardrail is a LOUD, EARLY failure by design (types.ts
   // promises "throws at init"). token.ts re-checks lazily as defense in depth.
@@ -79,7 +85,7 @@ export function init(config: PinflowConfig): Handle {
     }) ??
     (mode === 'builder' ? '__builder__' : null);
 
-  if (!reviewer && !stealth) return { destroy() {} };
+  if (!reviewer && !stealth) return { destroy() {}, refreshRoute() {} };
 
   const annotator = new Annotator({
     config,
@@ -105,6 +111,9 @@ export function init(config: PinflowConfig): Handle {
       watcher.stop();
       annotator.destroy();
       if (current === handle) current = null;
+    },
+    refreshRoute() {
+      annotator.refreshRoute();
     },
   };
   current = handle;

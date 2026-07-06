@@ -141,6 +141,16 @@ export interface PinflowConfig {
   ) => void;
   /** Visual design tokens; applied once at init. See {@link PinflowTheme}. */
   theme?: PinflowTheme;
+  /**
+   * Logical screen key used to anchor, show, and group comments. Defaults to
+   * the URL (`pathname+search`) — correct for route-per-screen apps. Hosts
+   * whose screens change WITHOUT a URL change (wizards, framed/phased
+   * experiences) return their own frame id here, and call
+   * `handle.refreshRoute()` whenever it changes so pins from other frames
+   * hide immediately. The value is stored on each comment and becomes the
+   * per-screen grouping in exports/ingestion.
+   */
+  routeKey?: () => string;
   /** Activation strategy. Defaults to `{ mode: 'toggle' }` for v1 back-compat. */
   activation?: ActivationConfig;
   /** Opt-in voice annotation config. Omit for pure pin/text behavior. */

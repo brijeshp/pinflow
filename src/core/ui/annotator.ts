@@ -59,6 +59,11 @@ interface ActiveInput {
 export class Annotator {
   private readonly _ui: UIRoot;
   private readonly _deps: AnnotatorDeps;
+  // Host-defined logical screen key (config.routeKey) or the URL default —
+  // the seam that makes frame-per-screen hosts (wizards, phased experiences
+  // on one URL) work: pins anchor to and show on the host's notion of a
+  // screen, and refreshRoute() re-evaluates it.
+  private readonly _routeKey: () => string;
   private _reviewer: string | null;
   private _store: ReviewerStore;
   private _annotating = false;
@@ -89,6 +94,7 @@ export class Annotator {
 
   constructor(deps: AnnotatorDeps) {
     this._deps = deps;
+    this._routeKey = deps.config.routeKey ?? routeKey;
     this._ui = createUIRoot();
     this._applyTheme();
     this._reviewer = deps.reviewer;
@@ -413,14 +419,14 @@ export class Annotator {
     anchor: Anchor,
     text: string,
     openForEdit: boolean,
-    route = routeKey(),
+    route?: string,
   ): void {
     const t = now();
     const comment: Comment = {
       id: createId(),
       createdAt: t,
       updatedAt: t,
-      route,
+      route: route ?? this._routeKey(),
       fullUrl: window.location.href,
       text,
       modality: 'text',
@@ -456,7 +462,7 @@ export class Annotator {
     const active: ActiveVoice = { mount, session: null };
     this._activeVoice = active;
     const myGen = this._generation;
-    const route = routeKey();
+    const route = this._routeKey();
     const host = this._buildVoiceHost(mount, anchor, route, active, myGen);
 
     this._loadVoiceModule()
@@ -544,7 +550,7 @@ export class Annotator {
   // every reviewer corpus — far too expensive for the per-frame reflow path.
   private _visibleComments(): Array<Comment & { reviewer?: string }> {
     if (this._visibleCache) return this._visibleCache;
-    const route = routeKey();
+    const route = this._routeKey();
     this._visibleCache =
       this._deps.mode === 'builder'
         ? loadAllStores(this._deps.storage, this._deps.config.project).flatMap((s) =>
@@ -729,7 +735,7 @@ export class Annotator {
   // on another route would resolve without navigating there, so those stay
   // "live" conservatively (spec §5.2 intent: orphaned = element missing now).
   private _isOrphaned = (c: Comment): boolean => {
-    if (c.route !== routeKey()) return false;
+    if (c.route !== this._routeKey()) return false;
     return resolveAnchor(c.anchor) === null;
   };
 

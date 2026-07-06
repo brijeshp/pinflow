@@ -158,7 +158,7 @@ Threading, @mentions, status, severity, assignees, voice notes, sketching, real-
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md). TL;DR: zero runtime deps, 30KB gzipped ceiling, UI layer stays in Shadow DOM.
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md). TL;DR: zero runtime deps, hard size budgets enforced by `pnpm size` (`size-limit` in `package.json`), UI layer stays in Shadow DOM.
 
 ## License
 
