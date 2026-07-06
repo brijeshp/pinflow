@@ -62,68 +62,111 @@ function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-describe('Annotator debounced save lifecycle (P0.5)', () => {
+describe('Annotator explicit-save lifecycle', () => {
   let annotator: Annotator | null = null;
 
   afterEach(() => {
     annotator?.destroy();
     annotator = null;
-    vi.useRealTimers();
     localStorage.clear();
     document.body.innerHTML = '';
   });
 
-  it('delete within the debounce window does not resurrect the comment', () => {
-    vi.useFakeTimers();
+  function clickSave(): void {
+    const save = shadow().querySelector<HTMLButtonElement>('button.save');
+    if (!save) throw new Error('no save button');
+    save.click();
+  }
+
+  it('Save persists the text, closes the popup, and Delete stays destructive-only', () => {
     seedStore(makeComment('original'));
     annotator = makeAnnotator();
 
     const ta = openFirstPinInput();
-    ta.value = 'typed just before delete';
-    ta.dispatchEvent(new Event('input'));
+    ta.value = 'explicitly saved';
+    clickSave();
 
-    const del = shadow().querySelector<HTMLButtonElement>('button.delete');
-    if (!del) throw new Error('no delete button');
-    del.click();
+    expect(shadow().querySelector('.input')).toBeNull(); // popup closed
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('explicitly saved');
 
-    vi.advanceTimersByTime(3000);
-    const store = loadStore(localStorage, PROJECT, REVIEWER);
-    expect(store?.comments ?? []).toHaveLength(0);
+    openFirstPinInput();
+    shadow().querySelector<HTMLButtonElement>('button.delete')?.click();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
   });
 
-  it('does not write to storage after destroy()', () => {
-    vi.useFakeTimers();
+  it('Escape dismisses without saving; typing is never auto-persisted', () => {
+    seedStore(makeComment('original'));
+    annotator = makeAnnotator();
+
+    const ta = openFirstPinInput();
+    ta.value = 'typed but abandoned';
+    ta.dispatchEvent(new Event('input'));
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    expect(shadow().querySelector('.input')).toBeNull();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('original');
+  });
+
+  it('clicking outside the popup dismisses without saving', async () => {
+    seedStore(makeComment('original'));
+    annotator = makeAnnotator();
+
+    const ta = openFirstPinInput();
+    ta.value = 'typed then clicked away';
+    await flushMicrotasks(); // arm the outside-dismiss listener (next task)
+    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+
+    expect(shadow().querySelector('.input')).toBeNull();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('original');
+  });
+
+  it('dismissing a never-saved empty comment deletes it (no orphan pins)', () => {
+    seedStore(makeComment(''));
+    annotator = makeAnnotator();
+
+    const ta = openFirstPinInput();
+    ta.value = 'typed but never saved';
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
+    expect(shadow().querySelector('.pin')).toBeNull();
+  });
+
+  it('Cmd+Enter saves like the Save button', () => {
+    seedStore(makeComment('original'));
+    annotator = makeAnnotator();
+
+    const ta = openFirstPinInput();
+    ta.value = 'keyboard saved';
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true }));
+
+    expect(shadow().querySelector('.input')).toBeNull();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('keyboard saved');
+  });
+
+  it('unsaved typing is discarded on destroy() — no write after teardown', () => {
     seedStore(makeComment('original'));
     annotator = makeAnnotator();
 
     const ta = openFirstPinInput();
     ta.value = 'typed then torn down';
-    ta.dispatchEvent(new Event('input'));
-
+    const rawBefore = localStorage.getItem(storageKey(PROJECT, REVIEWER));
     annotator.destroy();
     annotator = null;
-    const rawAfterDestroy = localStorage.getItem(storageKey(PROJECT, REVIEWER));
 
-    vi.advanceTimersByTime(3000);
-    expect(localStorage.getItem(storageKey(PROJECT, REVIEWER))).toBe(rawAfterDestroy);
-    const store = loadStore(localStorage, PROJECT, REVIEWER);
-    expect(store?.comments[0]?.text).toBe('original');
+    expect(localStorage.getItem(storageKey(PROJECT, REVIEWER))).toBe(rawBefore);
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('original');
   });
 
-  it('closing the input (route change) flushes pending typing immediately', () => {
-    vi.useFakeTimers();
+  it('route change discards unsaved typing (Save is the only commit)', () => {
     seedStore(makeComment('original'));
     annotator = makeAnnotator();
 
     const ta = openFirstPinInput();
     ta.value = 'edited before navigation';
-    ta.dispatchEvent(new Event('input'));
-
-    // Route change closes the input; the pending debounce must flush, not drop.
     annotator.refreshRoute();
 
-    const store = loadStore(localStorage, PROJECT, REVIEWER);
-    expect(store?.comments[0]?.text).toBe('edited before navigation');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('original');
   });
 });
 
@@ -147,12 +190,12 @@ describe('Annotator voice edited flag (P3.3)', () => {
   }
 
   function editFirstPin(newText: string): void {
-    vi.useFakeTimers();
     annotator = makeAnnotator();
     const ta = openFirstPinInput();
     ta.value = newText;
-    ta.dispatchEvent(new Event('input'));
-    vi.advanceTimersByTime(2500); // fire the debounced save
+    const save = shadow().querySelector<HTMLButtonElement>('button.save');
+    if (!save) throw new Error('no save button');
+    save.click();
   }
 
   it('marks voice meta edited:true when the transcript text is changed', () => {
@@ -245,8 +288,18 @@ describe('Annotator deferred identity (P4.3)', () => {
     annotator = makeDeferred(resolveIdentity);
     expect(resolveIdentity).not.toHaveBeenCalled();
 
+    // Save text after each placement: switching away from an unsaved EMPTY
+    // popup discards that comment by design (explicit-save semantics).
+    const saveWith = (text: string): void => {
+      const ta = shadow().querySelector('textarea');
+      if (!ta) throw new Error('input did not open');
+      ta.value = text;
+      shadow().querySelector<HTMLButtonElement>('button.save')?.click();
+    };
     place(annotator);
+    saveWith('first');
     place(annotator);
+    saveWith('second');
     expect(resolveIdentity).toHaveBeenCalledTimes(1);
     const store = loadStore(localStorage, PROJECT, 'Ghost');
     expect(store?.comments).toHaveLength(2);

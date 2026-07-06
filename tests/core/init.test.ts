@@ -14,6 +14,9 @@ function altClick(target: EventTarget): void {
   const e = new Event('pointerdown', { bubbles: true, cancelable: true });
   Object.assign(e, { pointerId: 1, pointerType: 'mouse', altKey: true, clientX: 12, clientY: 12 });
   target.dispatchEvent(e);
+  // The gesture controller swallows exactly one trailing click after an
+  // activation; consume it so later .click() calls reach their targets.
+  document.body.dispatchEvent(new Event('click', { bubbles: true }));
 }
 
 const ORIGINAL_URL = window.location.href;
@@ -108,11 +111,23 @@ describe('init / destroy', () => {
       const handle = init({ project: 'st', activation: { mode: 'stealth' } });
       expect(prompt).not.toHaveBeenCalled();
 
+      // Save text after each activation — switching away from an unsaved
+      // EMPTY popup discards that comment by design (explicit-save semantics).
+      const saveWith = (text: string): void => {
+        const sh = document.querySelector('[data-pinflow-root]')?.shadowRoot;
+        const ta = sh?.querySelector('textarea');
+        if (!ta) throw new Error('input did not open');
+        ta.value = text;
+        sh?.querySelector<HTMLButtonElement>('button.save')?.click();
+      };
+
       altClick(document.body);
       expect(prompt).toHaveBeenCalledTimes(1);
+      saveWith('first');
 
       altClick(document.body);
       expect(prompt).toHaveBeenCalledTimes(1); // identity is sticky
+      saveWith('second');
 
       const raw = localStorage.getItem('pinflow:c:st:Stealthy');
       expect(raw).not.toBeNull();

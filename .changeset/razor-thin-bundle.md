@@ -10,6 +10,7 @@ Razor-thin bundle overhaul: review remediation, build optimization, and pre-1.0 
 - Vue wrapper: `onSubmit` prop renamed to `submitHandler`; `position`/`hidden` props removed.
 - `init()` now throws when `voice.devOnlyToken` is set on a non-local origin (as documented).
 - Stealth mode no longer prompts for a reviewer name at page load — identity defers to first activation.
+- The comment popup now has an explicit **Save** button (plus Cmd/Ctrl+Enter) instead of auto-save; **Escape or clicking outside dismisses** without saving, and dismissing a comment whose saved text is still empty deletes it (no orphan pins from accidental gestures).
 
 **Fixed:**
 

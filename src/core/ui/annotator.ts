@@ -52,10 +52,8 @@ interface ActiveVoice {
 interface ActiveInput {
   wrap: HTMLDivElement;
   commentId: string;
-  /** Pending debounced-save timer id; 0 = none armed. */
-  timer: number;
-  /** Save the textarea's current text now (idempotent; clears the timer). */
-  flush(): void;
+  /** Detach the popup's document-level dismiss listeners. */
+  cleanup(): void;
 }
 
 export class Annotator {
@@ -612,6 +610,10 @@ export class Annotator {
     return el;
   }
 
+  // Explicit-save popup: Save (or Cmd/Ctrl+Enter) persists; Escape or clicking
+  // anywhere outside dismisses, dropping unsaved edits. Dismissing a comment
+  // whose saved text is still empty deletes it — no orphan pins littering the
+  // page from an accidental gesture.
   private _openInput(commentId: string): void {
     this._closeActiveInput();
     const comment = this._store.comments.find((c) => c.id === commentId);
@@ -624,48 +626,70 @@ export class Annotator {
     const actions = el('div', 'actions');
     const del = el('button', 'delete', 'Delete');
     del.type = 'button';
-    actions.append(el('span', undefined, 'Auto-saves'), del);
+    const saveBtn = el('button', 'save', 'Save');
+    saveBtn.type = 'button';
+    actions.append(del, saveBtn);
     wrap.append(ta, actions);
     this._ui.root.appendChild(wrap);
     this._positionInputNearPin(wrap, commentId);
 
     const save = (): void => {
-      window.clearTimeout(input.timer);
-      input.timer = 0;
-      if (this._destroyed) return; // a stray blur after teardown must not write
-      // The comment may have been deleted while the debounce was armed —
-      // saving then would resurrect it.
+      if (this._destroyed) return;
       const persisted = this._store.comments.find((c) => c.id === commentId);
-      if (!persisted) return;
-      if (ta.value === persisted.text) return; // no-op blur: nothing to save or emit
-      // Hand-correcting a voice transcript flags the meta as edited (immutably).
-      const voicePatch = persisted.voice ? { voice: { ...persisted.voice, edited: true } } : {};
-      const updated: Comment = {
-        ...persisted,
-        text: ta.value,
-        updatedAt: now(),
-        ...voicePatch,
-      };
-      this._store = upsertComment(this._store, updated);
-      this._persist();
-      this._emitChange('update', updated);
+      if (persisted && ta.value !== persisted.text) {
+        // Hand-correcting a voice transcript flags the meta as edited (immutably).
+        const voicePatch = persisted.voice ? { voice: { ...persisted.voice, edited: true } } : {};
+        const updated: Comment = {
+          ...persisted,
+          text: ta.value,
+          updatedAt: now(),
+          ...voicePatch,
+        };
+        this._store = upsertComment(this._store, updated);
+        this._persist();
+        this._emitChange('update', updated);
+      }
+      this._closeActiveInput();
     };
-    const input: ActiveInput = { wrap, commentId, timer: 0, flush: save };
-    ta.addEventListener('input', () => {
-      window.clearTimeout(input.timer);
-      input.timer = window.setTimeout(save, 2000);
-    });
-    ta.addEventListener('blur', save);
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation(); // don't also exit annotate mode
+        this._closeActiveInput();
+      } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        save();
+      }
+    };
+    ta.addEventListener('keydown', onKey);
+    // Clicking anywhere outside dismisses. composedPath (not target) because
+    // document-level listeners see shadow-internal events retargeted to the
+    // host. Armed on the next task so the gesture that opened the popup can't
+    // instantly close it.
+    const onOutside = (e: Event): void => {
+      if (e.composedPath().includes(wrap)) return;
+      this._closeActiveInput();
+    };
+    const arm = window.setTimeout(
+      () => document.addEventListener('pointerdown', onOutside, true),
+      0,
+    );
+    saveBtn.addEventListener('click', save);
     del.addEventListener('click', () => {
       const removed = this._store.comments.find((c) => c.id === commentId);
       this._store = deleteCommentFromStore(this._store, commentId);
       this._persist();
       if (removed) this._emitChange('delete', removed);
-      this._closeActiveInput(false); // never flush a just-deleted comment
+      this._closeActiveInput(false); // already gone — nothing to clean up
       this._renderPins();
     });
     ta.focus();
-    this._activeInput = input;
+    this._activeInput = {
+      wrap,
+      commentId,
+      cleanup: () => {
+        window.clearTimeout(arm);
+        document.removeEventListener('pointerdown', onOutside, true);
+      },
+    };
   }
 
   private _positionInputNearPin(wrap: HTMLDivElement, commentId: string): void {
@@ -682,16 +706,23 @@ export class Annotator {
     );
   }
 
-  // Removing the textarea from the DOM does not reliably fire blur, so a
-  // pending debounced save must be flushed here or up to 2s of typing is lost.
-  // `flush=false` (delete/destroy) clears the timer without saving.
-  private _closeActiveInput(flush = true): void {
+  // Closing never saves — Save is explicit. A dismissed comment whose SAVED
+  // text is still empty gets deleted (`cleanupEmpty=false` for delete/destroy:
+  // delete already removed it; destroy must not write during teardown).
+  private _closeActiveInput(cleanupEmpty = true): void {
     const input = this._activeInput;
     if (!input) return;
     this._activeInput = null;
-    if (flush && input.timer) input.flush();
-    else window.clearTimeout(input.timer);
+    input.cleanup();
     input.wrap.remove();
+    if (!cleanupEmpty || this._destroyed) return;
+    const c = this._store.comments.find((x) => x.id === input.commentId);
+    if (c && c.text === '') {
+      this._store = deleteCommentFromStore(this._store, input.commentId);
+      this._persist();
+      this._emitChange('delete', c);
+      this._renderPins();
+    }
   }
 
   // Only classify comments on the current route — we can't tell if a comment

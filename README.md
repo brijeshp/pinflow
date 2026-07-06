@@ -51,7 +51,7 @@ import { Annotator } from 'pinflow/vue';
 
 1. **Builder** ships a prototype (Lovable, Bolt, Replit, Vercel preview — anything).
 2. **Reviewer** opens the URL. Identity comes from `?reviewer=NAME` or a one-time prompt.
-3. Reviewer clicks any element to drop a pin, types a comment. Auto-saves to localStorage.
+3. Reviewer clicks any element to drop a pin, types a comment, hits Save. Stored in localStorage.
 4. Reviewer hits "Export & share" → downloads a markdown file.
 5. Builder pastes the markdown into Claude Code as the next prompt.
 

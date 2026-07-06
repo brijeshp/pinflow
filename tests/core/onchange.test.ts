@@ -60,12 +60,14 @@ describe('onChange callback (A2)', () => {
     const ta = shadow().querySelector('textarea');
     expect(ta).not.toBeNull();
     ta!.value = 'needs more contrast';
-    ta!.dispatchEvent(new Event('blur'));
+    (shadow().querySelector('.save') as HTMLButtonElement).click();
     expect(changes).toHaveLength(2);
     expect(changes[1]!.type).toBe('update');
     expect(changes[1]!.comment.id).toBe(id);
     expect(changes[1]!.comment.text).toBe('needs more contrast');
 
+    // Save closed the popup — reopen via the pin to delete.
+    (shadow().querySelector('.pin') as HTMLDivElement).click();
     (shadow().querySelector('.delete') as HTMLButtonElement).click();
     expect(changes).toHaveLength(3);
     expect(changes[2]!.type).toBe('delete');
@@ -74,13 +76,27 @@ describe('onChange callback (A2)', () => {
     handle.destroy();
   });
 
-  it('does not emit an update when the text is unchanged on blur', async () => {
+  it('does not emit an update when Save is clicked with unchanged text', async () => {
     const changes: Change[] = [];
     const handle = await mount(changes);
     altClick(document.body);
     const ta = shadow().querySelector('textarea')!;
-    ta.dispatchEvent(new Event('blur')); // no edit — plain focus loss
-    expect(changes.map((c) => c.type)).toEqual(['add']);
+    ta.value = 'kept';
+    (shadow().querySelector('.save') as HTMLButtonElement).click();
+    (shadow().querySelector('.pin') as HTMLDivElement).click();
+    (shadow().querySelector('.save') as HTMLButtonElement).click(); // no edit this time
+    expect(changes.map((c) => c.type)).toEqual(['add', 'update']);
+    handle.destroy();
+  });
+
+  it('dismissing a never-saved empty comment emits its delete', async () => {
+    const changes: Change[] = [];
+    const handle = await mount(changes);
+    altClick(document.body); // add (empty text)
+    const ta = shadow().querySelector('textarea')!;
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(changes.map((c) => c.type)).toEqual(['add', 'delete']);
+    expect(changes[1]!.storeSize).toBe(0);
     handle.destroy();
   });
 

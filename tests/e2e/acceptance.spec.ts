@@ -6,6 +6,7 @@ const ANNOTATE_BTN = 'button:has-text("Add comment")';
 const EXPORT_BTN = 'button:has-text("Export & share")';
 const PIN = 'div.pin';
 const TEXTAREA = '[data-pinflow-root] textarea';
+const SAVE_BUTTON = '[data-pinflow-root] button.save';
 
 // §11.1 — Script tag enables annotation with no config beyond data-project
 test('AC1: script tag auto-inits annotation', async ({ page }) => {
@@ -21,7 +22,7 @@ test('AC2: pin + comment persists across reload', async ({ page }) => {
   await page.locator(ANNOTATE_BTN).click();
   await page.locator('[data-testid="primary-cta"]').click({ force: true });
   await page.locator(TEXTAREA).fill('Needs more contrast');
-  await page.locator(TEXTAREA).blur();
+  await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
   await page.goto('/?reviewer=Alice');
@@ -36,7 +37,7 @@ test('AC3: comments persist across SPA routes', async ({ page }) => {
   await page.locator(ANNOTATE_BTN).click();
   await page.locator('h1').click({ force: true });
   await page.locator(TEXTAREA).fill('Fix heading');
-  await page.locator(TEXTAREA).blur();
+  await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
   // Navigate to /pricing
@@ -57,7 +58,7 @@ test('AC4: reviewer isolation', async ({ page }) => {
   await page.locator(ANNOTATE_BTN).click();
   await page.locator('h1').click({ force: true });
   await page.locator(TEXTAREA).fill('Alice comment');
-  await page.locator(TEXTAREA).blur();
+  await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
   await page.goto('/?reviewer=Bob');
@@ -72,7 +73,7 @@ test('AC5: reviewer export', async ({ page }) => {
   await page.locator(ANNOTATE_BTN).click();
   await page.locator('[data-testid="primary-cta"]').click({ force: true });
   await page.locator(TEXTAREA).fill('Export test comment');
-  await page.locator(TEXTAREA).blur();
+  await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
   await page.locator(CONTROL).click();
@@ -91,7 +92,7 @@ test('AC6: builder mode aggregates', async ({ page }) => {
   await page.locator(ANNOTATE_BTN).click();
   await page.locator('h1').click({ force: true });
   await page.locator(TEXTAREA).fill('Alice says hi');
-  await page.locator(TEXTAREA).blur();
+  await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
   // Bob
@@ -100,7 +101,7 @@ test('AC6: builder mode aggregates', async ({ page }) => {
   await page.locator(ANNOTATE_BTN).click();
   await page.locator('[data-testid="primary-cta"]').click({ force: true });
   await page.locator(TEXTAREA).fill('Bob says hi');
-  await page.locator(TEXTAREA).blur();
+  await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
   // Builder
@@ -116,7 +117,7 @@ test('AC8: export markdown has selector candidates and element context', async (
   await page.locator(ANNOTATE_BTN).click();
   await page.locator('[data-testid="primary-cta"]').click({ force: true });
   await page.locator(TEXTAREA).fill('Check this');
-  await page.locator(TEXTAREA).blur();
+  await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
   await page.locator(CONTROL).click();
@@ -142,7 +143,7 @@ test('AC9: pins anchored after resize', async ({ page }) => {
   await page.locator(ANNOTATE_BTN).click();
   await page.locator('[data-testid="primary-cta"]').click({ force: true });
   await page.locator(TEXTAREA).fill('resize me');
-  await page.locator(TEXTAREA).blur();
+  await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
   const pin = page.locator(PIN);
