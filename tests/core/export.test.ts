@@ -64,7 +64,7 @@ describe('exportReviewer', () => {
     expect(md).toContain('Total comments: 3');
     expect(md).toContain('Routes covered: /, /pricing');
     expect(md).toContain('## Route: /');
-    expect(md).toContain('### Comment 1 — 2026-04-15T14:24:00Z');
+    expect(md).toContain('### [cmt_1] Comment 1 — 2026-04-15T14:24:00Z');
     expect(md).toContain(
       '**Element:** `<button data-testid="primary-cta">` ("Get started for free")',
     );
@@ -95,7 +95,7 @@ describe('exportBuilder', () => {
     expect(md).toContain('## Summary');
     expect(md).toContain('- Sarah — 3 comments');
     expect(md).toContain('- Mike — 1 comments');
-    expect(md).toContain('### Comment 1 — Sarah, 2026-04-15T14:24:00Z');
+    expect(md).toContain('### [cmt_1] Comment 1 — Sarah, 2026-04-15T14:24:00Z');
     expect(md).toMatchSnapshot();
   });
 
@@ -107,6 +107,27 @@ describe('exportBuilder', () => {
     );
     const routeOrder = [...md.matchAll(/## Route: (\S+)/g)].map((m) => m[1]);
     expect(routeOrder[0]).toBe('/'); // 2 comments
+  });
+});
+
+describe('disposition in comment headings', () => {
+  const meta = { generatedAt: '2026-04-15T14:45:00Z', project: 'my-prototype' };
+
+  it('suffixes — done / — declined only when a disposition exists', () => {
+    const store: ReviewerStore = {
+      ...sarah,
+      comments: [
+        makeComment({ id: 'cmt_d', route: '/', text: 'a', status: 'done' }),
+        makeComment({ id: 'cmt_x', route: '/', text: 'b', status: 'declined' }),
+        makeComment({ id: 'cmt_o', route: '/', text: 'c', status: 'open' }),
+        makeComment({ id: 'cmt_n', route: '/', text: 'd' }),
+      ],
+    };
+    const md = exportReviewer(store, meta, () => false);
+    expect(md).toContain('### [cmt_d] Comment 1 — 2026-04-15T14:24:00Z — done');
+    expect(md).toContain('### [cmt_x] Comment 2 — 2026-04-15T14:24:00Z — declined');
+    expect(md).toContain('### [cmt_o] Comment 3 — 2026-04-15T14:24:00Z\n');
+    expect(md).toContain('### [cmt_n] Comment 4 — 2026-04-15T14:24:00Z\n');
   });
 });
 

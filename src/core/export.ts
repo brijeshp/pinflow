@@ -53,8 +53,13 @@ function viewportLabel(comment: Comment): string {
   return `${width}×${height} (${kind})`;
 }
 
-function commentHeading(index: number, createdAt: string, reviewer?: string): string {
-  return `### Comment ${index} — ${reviewer ? `${reviewer}, ` : ''}${createdAt}`;
+// Leads with the stable comment id (the tracker/sync handle) and trails with
+// the team's disposition — only when one exists, so backendless exports stay
+// noise-free.
+function commentHeading(comment: Comment, index: number, reviewer?: string): string {
+  const disp =
+    comment.status === 'done' || comment.status === 'declined' ? ` — ${comment.status}` : '';
+  return `### [${comment.id}] Comment ${index} — ${reviewer ? `${reviewer}, ` : ''}${comment.createdAt}${disp}`;
 }
 
 // "the ‘Continue’ button under ‘Next section’" — the human twin of the CSS
@@ -68,7 +73,7 @@ function contextLine(comment: Comment): string {
 }
 
 function commentBlock(comment: Comment, index: number, reviewer?: string): string {
-  const heading = commentHeading(index, comment.createdAt, reviewer);
+  const heading = commentHeading(comment, index, reviewer);
   const pos = comment.anchor.positionPercent;
   const ctx = contextLine(comment);
   return [
@@ -86,7 +91,7 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
 
 function orphanBlock(comment: Comment & { reviewer?: string }, index: number): string {
   return [
-    commentHeading(index, comment.createdAt, comment.reviewer),
+    commentHeading(comment, index, comment.reviewer),
     `**Last known element:** ${elementLabel(comment)}`,
     `**Last known selector:** \`${comment.anchor.selectors.css}\``,
     `**Route:** ${comment.route}`,
