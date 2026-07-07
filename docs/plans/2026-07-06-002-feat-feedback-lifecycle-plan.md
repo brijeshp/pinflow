@@ -58,8 +58,8 @@ Pinflow today is excellent at **capture** (pins, voice, per-frame scoping, theme
 ## Phase L3 — Pinflow: publishable independent asset
 
 - [ ] **L3.1 Publish 0.1.0 to npm** (changeset ready) — **needs your call on the npm org/name + git remote** (currently no remote; the repo can't be public-promoted without one).
-- [ ] **L3.2 README repositioning**: lead with the lifecycle (capture → export → sync → resolve), the sync protocol, and "sensavera runs this in production" as the case study; refresh the demo site with frame-scoping + Save UX + resolution states.
-- [ ] **L3.3 Known polish**: voice HUD should consume surface/text/font tokens (standing gap from the sensavera integration).
+- [x] **L3.2 README repositioning**: lead with the lifecycle (capture → export → sync → resolve), the sync protocol, and "sensavera runs this in production" as the case study; refresh the demo site with frame-scoping + Save UX + resolution states.
+- [x] **L3.3 Known polish**: voice HUD should consume surface/text/font tokens (standing gap from the sensavera integration).
 
 ## Phase S1 — Sensavera BE (contract-note asks; backend is BE-owned)
 
