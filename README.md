@@ -91,6 +91,10 @@ window.Pinflow.init({
 
 See [`specs/pinflow_v1_spec.md`](./specs/pinflow_v1_spec.md) for the full API.
 
+## Sync
+
+localStorage is the zero-config default. To make feedback durable — and to close the loop with team dispositions rendered on the reviewer's own pins — pair `source` (read: hydrate comments from your backend at init) with `onChange` (write: upsert/delete by comment id). The full contract, including merge semantics and the server-owned `status`/`resolution` fields, is three verbs documented in [`PROTOCOL.md`](./PROTOCOL.md).
+
 ## Builder mode
 
 Open your prototype URL with `?mode=builder` to see all comments from every reviewer whose comments are in this browser's localStorage. Hit "Export all" to download an aggregated markdown file.
