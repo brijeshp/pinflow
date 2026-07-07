@@ -43,6 +43,10 @@ Pinflow today is excellent at **capture** (pins, voice, per-frame scoping, theme
 - [ ] **L1.3 Element context enrichment**: capture (at pin time, into `anchor`) the target's accessible name/role and nearest heading text: exports say _“the ‘Continue’ button under ‘Next section’”_ instead of only a CSS path. Bytes-budgeted; extends the existing README privacy warning (captured page text now includes the nearest heading, not just the target's fingerprint).
 - [ ] **L1.4 Comment ids + status in markdown**: every block leads with `### [c_9f2k…] Comment 3`, with a `— done`/`— declined` suffix only when a disposition exists (backendless v1-style exports stay noise-free).
 - [ ] **L1.5 JSON export**: `exportJSON(store | stores)` → `{ pinflowExport: 3, comments: [...] }` — version number IS the comment schema version (one namespace). The machine-readable twin of the markdown (markdown for humans/agents, JSON for pipelines). Exposed on the handle and in builder mode. Constraint: export helpers stay DOM-free pure functions — S2.2 runs them server-side in the hub.
+- [ ] **L1.6 The submission moment** (free-plan hand-off, guided): v1's "Export & share" already downloads + copies to clipboard; make the hand-off active instead of passive:
+  - `config.submitTo?: { email: string; subject?: string }` — the post-export confirmation gains an "Email it to the builder" button: opens `mailto:` (subject prefilled) with the instruction "your feedback is copied — paste it into the email." Download + clipboard + mailto = a complete zero-backend submission channel.
+  - `handle.exportMarkdown(): string` and `handle.downloadExport(): void` — public API so HOSTS place the submission moment (stealth mode has no chrome, so the host owns the exit ramp: end-of-flow screens, "done reviewing?" banners). A library-injected floating stealth chip was considered and rejected — it breaks stealth's invisibility contract and hosts know their own "finished" moment; revisit only on demand.
+  - Free-vs-managed framing (for L3.2's README): free = artifact + guided hand-off, the reviewer carries it; managed = `onChange`/`onSubmit` already streamed it (sensavera never needs the email path — every pin is server-side on save). The future "paid compiler" slots in behind the managed seam.
 
 ## Phase L2 — Pinflow: pluggable persistence + the loop UI
 
@@ -88,6 +92,7 @@ Pinflow today is excellent at **capture** (pins, voice, per-frame scoping, theme
 - [ ] With `source` + `onChange` wired to a conformant backend: pin on device A → appears on device B for the same reviewer; team sets `done` + note → reviewer's pin renders resolved, frozen, with the note visible.
 - [ ] A reviewer can never alter or delete a dispositioned comment, and a device can never overwrite server-set `status`/`resolution`.
 - [ ] Collated markdown for a multi-frame, multi-reviewer corpus shows: friendly frame headings (`describeRoute`), element context lines, stable ids, dispositions — and `exportJSON` emits the same corpus machine-readably.
+- [ ] A reviewer on a backendless (free) install can finish with feedback in the builder's inbox using only pinflow UI: export → download + clipboard → prefilled mailto — no typing an address, no hunting for the file.
 - [ ] All existing guards hold: size budgets, voice-isolation grep, wrapper isolation, 0-byte cost when features are unconfigured.
 
 ## Sequencing & risks
