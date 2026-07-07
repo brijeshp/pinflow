@@ -18,10 +18,13 @@ export function createDot(mount: HTMLElement): DotUI {
   const card = document.createElement('div');
   card.setAttribute('role', 'dialog');
   card.setAttribute('aria-label', 'Voice feedback');
+  // var(--pf-*) = the core theme seam; tokens inherit into the shadow tree
+  // (same mechanism the accent tokens below already rely on). The stock dark
+  // look is the fallback when the host sets no theme.
   card.style.cssText = [
-    'font:14px/1.4 system-ui,sans-serif',
-    'background:#0c1f26',
-    'color:#eaf6f4',
+    'font:14px/1.4 var(--pf-font-family,system-ui,sans-serif)',
+    'background:var(--pf-surface,#0c1f26)',
+    'color:var(--pf-text,#eaf6f4)',
     'padding:10px 12px',
     'border-radius:12px',
     'box-shadow:0 6px 24px rgba(0,0,0,.35)',
@@ -36,7 +39,6 @@ export function createDot(mount: HTMLElement): DotUI {
 
   const rec = document.createElement('span');
   rec.setAttribute('aria-hidden', 'true');
-  // var(--pf-*) = the core theme seam; tokens inherit into the shadow tree.
   rec.style.cssText =
     'width:10px;height:10px;border-radius:50%;background:var(--pf-danger,#ff5a5a);flex:0 0 auto';
 
@@ -60,7 +62,7 @@ export function createDot(mount: HTMLElement): DotUI {
   const committedEl = document.createElement('span');
   const interimEl = document.createElement('span');
   interimEl.setAttribute('aria-hidden', 'true');
-  interimEl.style.cssText = 'color:#8fb6b0';
+  interimEl.style.cssText = 'color:var(--pf-text-muted,#8fb6b0)';
   log.append(committedEl, interimEl);
 
   const stop = document.createElement('button');
@@ -75,7 +77,7 @@ export function createDot(mount: HTMLElement): DotUI {
     'border-radius:8px',
     'background:var(--pf-accent,#2fd6c3)',
     'color:var(--pf-accent-contrast,#06231f)',
-    'font:600 13px system-ui,sans-serif',
+    'font:600 13px var(--pf-font-family,system-ui,sans-serif)',
     'cursor:pointer',
   ].join(';');
 
