@@ -10,6 +10,16 @@ export interface ExportMeta {
 // (spec §5.2, §7.2).
 export type IsOrphaned = (comment: Comment) => boolean;
 
+/** Optional host-provided friendly label for a route/frame key (config.describeRoute). */
+export type DescribeRoute = (key: string) => string;
+
+// `## <label>` with the stable key in backticks beneath when the host labels
+// this key; the plain v1 heading otherwise.
+function routeHeading(route: string, describe?: DescribeRoute): string {
+  const label = describe?.(route);
+  return label ? `## ${label}\n\`${route}\`` : `## Route: ${route}`;
+}
+
 function tagFromCss(css: string): string {
   const last = css.split('>').pop()?.trim() ?? '';
   const tag = last.split(/[.:#[]/)[0];
@@ -120,13 +130,17 @@ function orphanSection(orphaned: Array<Comment & { reviewer?: string }>): string
   ].join('\n');
 }
 
-function bodyFromGroups(groups: RouteGroup[], withReviewer: boolean): string {
+function bodyFromGroups(
+  groups: RouteGroup[],
+  withReviewer: boolean,
+  describeRoute?: DescribeRoute,
+): string {
   return groups
     .map((g) => {
       const blocks = g.comments.map((c, i) =>
         commentBlock(c, i + 1, withReviewer ? c.reviewer : undefined),
       );
-      return [`## Route: ${g.route}`, '', blocks.join('\n\n---\n\n')].join('\n');
+      return [routeHeading(g.route, describeRoute), '', blocks.join('\n\n---\n\n')].join('\n');
     })
     .join('\n\n---\n\n');
 }
@@ -135,6 +149,7 @@ export function exportReviewer(
   store: ReviewerStore,
   meta: ExportMeta,
   isOrphaned: IsOrphaned,
+  describeRoute?: DescribeRoute,
 ): string {
   const { live, orphaned } = partitionOrphans(store.comments, isOrphaned);
   const groups = groupByRoute(live);
@@ -149,7 +164,7 @@ export function exportReviewer(
     '---',
   ].join('\n');
 
-  const parts = [header, bodyFromGroups(groups, false)];
+  const parts = [header, bodyFromGroups(groups, false, describeRoute)];
   const orphan = orphanSection(orphaned);
   if (orphan) parts.push('---', orphan);
   return parts.filter(Boolean).join('\n\n') + '\n';
@@ -182,6 +197,7 @@ export function exportBuilder(
   stores: ReviewerStore[],
   meta: ExportMeta,
   isOrphaned: IsOrphaned,
+  describeRoute?: DescribeRoute,
 ): string {
   const reviewers = stores.map((s) => s.reviewer);
   const allComments: Array<Comment & { reviewer: string }> = stores.flatMap((s) =>
@@ -207,7 +223,7 @@ export function exportBuilder(
     '---',
   ].join('\n');
 
-  const parts = [header, bodyFromGroups(groups, true)];
+  const parts = [header, bodyFromGroups(groups, true, describeRoute)];
   const orphan = orphanSection(orphaned);
   if (orphan) parts.push('---', orphan);
   return parts.filter(Boolean).join('\n\n') + '\n';

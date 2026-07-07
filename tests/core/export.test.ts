@@ -110,6 +110,29 @@ describe('exportBuilder', () => {
   });
 });
 
+describe('describeRoute frame labels', () => {
+  const meta = { generatedAt: '2026-04-15T14:45:00Z', project: 'my-prototype' };
+  const label = (key: string): string => (key === '/' ? 'Landing page' : '');
+
+  it('reviewer export renders the label heading with the key in backticks beneath', () => {
+    const md = exportReviewer(sarah, meta, () => false, label);
+    expect(md).toContain('## Landing page\n`/`');
+    expect(md).not.toContain('## Route: /\n');
+    // No label for /pricing — heading unchanged.
+    expect(md).toContain('## Route: /pricing');
+  });
+
+  it('builder export renders labels too', () => {
+    const md = exportBuilder([sarah], meta, () => false, label);
+    expect(md).toContain('## Landing page\n`/`');
+  });
+
+  it('headings are unchanged when describeRoute is not given', () => {
+    const md = exportReviewer(sarah, meta, () => false);
+    expect(md).toContain('## Route: /');
+  });
+});
+
 describe('exportFilename', () => {
   it('reviewer variant', () => {
     expect(exportFilename('p', 'Sarah', '2026-04-15T14:45:00Z')).toBe(

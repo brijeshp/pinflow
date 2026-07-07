@@ -158,6 +158,13 @@ export interface PinflowConfig {
    * per-screen grouping in exports/ingestion.
    */
   routeKey?: () => string;
+  /**
+   * Optional friendly label for a route/frame key, used in export headings
+   * (`## Section 2 — Employment details` with the stable key in backticks
+   * beneath). Return an empty string for keys without a label — those keep
+   * the plain `## Route: <key>` heading. Pairs naturally with `routeKey`.
+   */
+  describeRoute?: (key: string) => string;
   /** Activation strategy. Defaults to `{ mode: 'toggle' }` for v1 back-compat. */
   activation?: ActivationConfig;
   /** Opt-in voice annotation config. Omit for pure pin/text behavior. */

@@ -741,7 +741,7 @@ export class Annotator {
 
   private async _handleReviewerExport(): Promise<void> {
     const meta = { generatedAt: now(), project: this._deps.config.project };
-    const md = exportReviewer(this._store, meta, this._isOrphaned);
+    const md = exportReviewer(this._store, meta, this._isOrphaned, this._deps.config.describeRoute);
     const filename = exportFilename(
       this._deps.config.project,
       this._store.reviewer,
@@ -755,7 +755,7 @@ export class Annotator {
   private async _handleBuilderExport(): Promise<void> {
     const stores = loadAllStores(this._deps.storage, this._deps.config.project);
     const meta = { generatedAt: now(), project: this._deps.config.project };
-    const md = exportBuilder(stores, meta, this._isOrphaned);
+    const md = exportBuilder(stores, meta, this._isOrphaned, this._deps.config.describeRoute);
     const filename = exportFilename(this._deps.config.project, null, meta.generatedAt);
     downloadMarkdown(md, filename);
     await copyToClipboard(md);
