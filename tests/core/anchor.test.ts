@@ -39,6 +39,41 @@ describe('anchor', () => {
     expect(resolveAnchor(a, document)).toBe(btn);
   });
 
+  it('captures element context: name, role, nearest heading', () => {
+    document.body.innerHTML =
+      '<section><h2>Next section</h2><div><button>Continue</button></div></section>';
+    const btn = document.querySelector('button')!;
+    const a = buildAnchor(btn, 0, 0);
+    expect(a.context).toEqual({ name: 'Continue', role: 'button', heading: 'Next section' });
+  });
+
+  it('context prefers aria-label and explicit role', () => {
+    document.body.innerHTML = '<div role="tab" aria-label="Settings">⚙</div>';
+    const a = buildAnchor(document.querySelector('div')!, 0, 0);
+    expect(a.context?.name).toBe('Settings');
+    expect(a.context?.role).toBe('tab');
+  });
+
+  it('context heading is best-effort: absent when no heading precedes', () => {
+    document.body.innerHTML = '<main><button>Lonely</button></main>';
+    const a = buildAnchor(document.querySelector('button')!, 0, 0);
+    expect(a.context?.heading).toBeUndefined();
+    expect(a.context?.role).toBe('button');
+  });
+
+  it('context heading takes the LAST heading inside a preceding sibling and caps at 80 chars', () => {
+    const long = 'H'.repeat(120);
+    document.body.innerHTML = `<div><h1>First</h1><h3>${long}</h3></div><p><button>Go</button></p>`;
+    const a = buildAnchor(document.querySelector('button')!, 0, 0);
+    expect(a.context?.heading).toBe('H'.repeat(80));
+  });
+
+  it('context name is absent for an unnamed element', () => {
+    document.body.innerHTML = '<div><input type="text"></div>';
+    const a = buildAnchor(document.querySelector('input')!, 0, 0);
+    expect(a.context?.name).toBeUndefined();
+  });
+
   it('screen position uses element rect', () => {
     const el = document.createElement('div');
     el.getBoundingClientRect = () => ({ left: 10, top: 20, width: 100, height: 50 }) as DOMRect;

@@ -22,6 +22,12 @@ export interface Anchor {
   textFingerprint: string;
   positionPercent: PositionPercent;
   viewport: Viewport;
+  /**
+   * Best-effort human context captured at pin time: accessible name, role,
+   * and the nearest preceding/ancestor heading text (≤80 chars each) — lets
+   * exports say "the 'Continue' button under 'Next section'". Additive in v3.
+   */
+  context?: { name?: string; role?: string; heading?: string };
 }
 
 export type Modality = 'text' | 'voice';

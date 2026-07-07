@@ -110,6 +110,47 @@ describe('exportBuilder', () => {
   });
 });
 
+describe('element context in exports', () => {
+  const meta = { generatedAt: '2026-04-15T14:45:00Z', project: 'my-prototype' };
+
+  it('renders a human context line when anchor.context exists', () => {
+    const store: ReviewerStore = {
+      ...sarah,
+      comments: [
+        makeComment({
+          id: 'cmt_ctx',
+          route: '/',
+          text: 'x',
+          anchor: {
+            ...sarah.comments[0]!.anchor,
+            context: { name: 'Continue', role: 'button', heading: 'Next section' },
+          },
+        }),
+      ],
+    };
+    const md = exportReviewer(store, meta, () => false);
+    expect(md).toContain('**Context:** the ‘Continue’ button under ‘Next section’');
+  });
+
+  it('degrades without name/heading and is omitted without context', () => {
+    const store: ReviewerStore = {
+      ...sarah,
+      comments: [
+        makeComment({
+          id: 'cmt_role',
+          route: '/',
+          text: 'x',
+          anchor: { ...sarah.comments[0]!.anchor, context: { role: 'input' } },
+        }),
+        makeComment({ id: 'cmt_none', route: '/', text: 'y' }),
+      ],
+    };
+    const md = exportReviewer(store, meta, () => false);
+    expect(md).toContain('**Context:** the input\n');
+    expect(md.match(/\*\*Context:\*\*/g)).toHaveLength(1);
+  });
+});
+
 describe('describeRoute frame labels', () => {
   const meta = { generatedAt: '2026-04-15T14:45:00Z', project: 'my-prototype' };
   const label = (key: string): string => (key === '/' ? 'Landing page' : '');

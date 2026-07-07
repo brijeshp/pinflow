@@ -135,6 +135,7 @@ See [`specs/pinflow_v1_spec.md` §7](./specs/pinflow_v1_spec.md#7-markdown-expor
 - No telemetry. Ever.
 - No network calls unless you configure `onSubmit`.
 - Element text content is captured as a fingerprint — be aware of this when deploying on prototypes containing sensitive data.
+- Each pin also captures the nearest heading's text (plus the target's accessible name and role) as element context for exports — the same caution applies.
 
 ## Examples
 

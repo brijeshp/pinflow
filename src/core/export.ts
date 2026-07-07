@@ -57,12 +57,24 @@ function commentHeading(index: number, createdAt: string, reviewer?: string): st
   return `### Comment ${index} — ${reviewer ? `${reviewer}, ` : ''}${createdAt}`;
 }
 
+// "the ‘Continue’ button under ‘Next section’" — the human twin of the CSS
+// path, from the context captured at pin time. Empty when never captured (v2).
+function contextLine(comment: Comment): string {
+  const ctx = comment.anchor.context;
+  if (!ctx) return '';
+  const name = ctx.name ? `‘${ctx.name}’ ` : '';
+  const under = ctx.heading ? ` under ‘${ctx.heading}’` : '';
+  return `**Context:** the ${name}${ctx.role ?? 'element'}${under}`;
+}
+
 function commentBlock(comment: Comment, index: number, reviewer?: string): string {
   const heading = commentHeading(index, comment.createdAt, reviewer);
   const pos = comment.anchor.positionPercent;
+  const ctx = contextLine(comment);
   return [
     heading,
     `**Element:** ${elementLabel(comment)}`,
+    ...(ctx ? [ctx] : []),
     '**Selector candidates:**',
     selectorLines(comment),
     `**Position:** ${Math.round(pos.x)}% from left, ${Math.round(pos.y)}% from top of element`,
