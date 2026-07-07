@@ -167,6 +167,40 @@ export function deleteComment(store: ReviewerStore, id: string): ReviewerStore {
   return { ...store, comments: store.comments.filter((c) => c.id !== id) };
 }
 
+/**
+ * Merge a `source`-hydrated server corpus into the local one, by comment id.
+ * Pure — neither input is mutated.
+ *
+ * Semantics (the sync protocol's one subtle rule — see PROTOCOL.md):
+ * - Content: the copy with the higher `updatedAt` wins WHOLE-comment; an exact
+ *   tie resolves to the server copy (deterministic, and on a tie the two are
+ *   the same write anyway).
+ * - Disposition (`status`/`resolution`): the SERVER value always wins,
+ *   including absence — the team sets disposition through the host, a
+ *   reviewer's device never legitimately writes it, so a server copy without
+ *   one CLEARS any local one.
+ * - Server-only comments are appended (same reviewer, another device);
+ *   local-only comments are KEPT (they may simply not have synced yet).
+ * - Ordering: local order preserved, then unmatched server comments in server
+ *   order.
+ */
+export function mergeComments(local: Comment[], server: Comment[]): Comment[] {
+  const serverById = new Map(server.map((c) => [c.id, c]));
+  const merged = local.map((l) => {
+    const s = serverById.get(l.id);
+    if (!s) return l;
+    const base = l.updatedAt > s.updatedAt ? l : s;
+    const out: Comment = { ...base };
+    delete out.status;
+    delete out.resolution;
+    if (s.status !== undefined) out.status = s.status;
+    if (s.resolution !== undefined) out.resolution = s.resolution;
+    return out;
+  });
+  const localIds = new Set(local.map((c) => c.id));
+  return [...merged, ...server.filter((c) => !localIds.has(c.id))];
+}
+
 export function clearProject(storage: Storage, project: string): void {
   for (const reviewer of listReviewers(storage, project)) {
     storage.removeItem(storageKey(project, reviewer));

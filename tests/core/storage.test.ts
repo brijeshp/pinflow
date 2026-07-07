@@ -5,6 +5,7 @@ import {
   listReviewers,
   loadAllStores,
   loadStore,
+  mergeComments,
   saveStore,
   storageKey,
   upsertComment,
@@ -253,6 +254,124 @@ describe('storage v2 migration & hardening', () => {
     expect(loaded?.comments[0]).not.toHaveProperty('resolution');
     expect(loaded?.comments[1]?.status).toBe('declined');
     expect(loaded?.comments[1]?.resolution).toHaveLength(500);
+  });
+
+  it('merge: server-only comments are added, local-only comments are kept', () => {
+    const local = [makeComment({ id: 'cmt_local', text: 'not synced yet' })];
+    const server = [makeComment({ id: 'cmt_server', text: 'from another device' })];
+    const merged = mergeComments(local, server);
+    expect(merged.map((c) => c.id)).toEqual(['cmt_local', 'cmt_server']);
+  });
+
+  it('merge: higher updatedAt wins the whole comment for content', () => {
+    const localNewer = mergeComments(
+      [makeComment({ id: 'cmt_a', text: 'edited here', updatedAt: '2026-06-02T00:00:00Z' })],
+      [makeComment({ id: 'cmt_a', text: 'stale server copy', updatedAt: '2026-06-01T00:00:00Z' })],
+    );
+    expect(localNewer[0]?.text).toBe('edited here');
+
+    const serverNewer = mergeComments(
+      [makeComment({ id: 'cmt_a', text: 'stale local copy', updatedAt: '2026-06-01T00:00:00Z' })],
+      [
+        makeComment({
+          id: 'cmt_a',
+          text: 'edited on another device',
+          updatedAt: '2026-06-02T00:00:00Z',
+        }),
+      ],
+    );
+    expect(serverNewer[0]?.text).toBe('edited on another device');
+  });
+
+  it('merge: equal updatedAt resolves to the server copy (deterministic tie-break)', () => {
+    const merged = mergeComments(
+      [makeComment({ id: 'cmt_a', text: 'local' })],
+      [makeComment({ id: 'cmt_a', text: 'server' })],
+    );
+    expect(merged[0]?.text).toBe('server');
+  });
+
+  it('merge: server status/resolution always win, even when local content is newer', () => {
+    const merged = mergeComments(
+      [
+        makeComment({
+          id: 'cmt_a',
+          text: 'freshly edited',
+          updatedAt: '2026-06-09T00:00:00Z',
+          status: 'open',
+        }),
+      ],
+      [
+        makeComment({
+          id: 'cmt_a',
+          text: 'old text',
+          updatedAt: '2026-06-01T00:00:00Z',
+          status: 'done',
+          resolution: 'Fixed in build 42.',
+        }),
+      ],
+    );
+    expect(merged[0]).toMatchObject({
+      text: 'freshly edited',
+      status: 'done',
+      resolution: 'Fixed in build 42.',
+    });
+  });
+
+  it('merge: server-absent disposition CLEARS a local one (server owns disposition)', () => {
+    const merged = mergeComments(
+      [
+        makeComment({
+          id: 'cmt_a',
+          updatedAt: '2026-06-09T00:00:00Z',
+          status: 'done',
+          resolution: 'stale local disposition',
+        }),
+      ],
+      [makeComment({ id: 'cmt_a', updatedAt: '2026-06-01T00:00:00Z' })],
+    );
+    expect(merged[0]).not.toHaveProperty('status');
+    expect(merged[0]).not.toHaveProperty('resolution');
+  });
+
+  it('merge: disposition on a server-only comment survives verbatim', () => {
+    const merged = mergeComments(
+      [],
+      [makeComment({ id: 'cmt_s', status: 'declined', resolution: 'Out of scope.' })],
+    );
+    expect(merged[0]).toMatchObject({ status: 'declined', resolution: 'Out of scope.' });
+  });
+
+  it('merge: pure — neither input array nor its comments are mutated', () => {
+    const local = [
+      makeComment({
+        id: 'cmt_a',
+        text: 'local',
+        status: 'open',
+        updatedAt: '2026-06-09T00:00:00Z',
+      }),
+    ];
+    const server = [makeComment({ id: 'cmt_a', text: 'server', status: 'done' })];
+    const localSnapshot = JSON.parse(JSON.stringify(local));
+    const serverSnapshot = JSON.parse(JSON.stringify(server));
+    mergeComments(local, server);
+    expect(local).toEqual(localSnapshot);
+    expect(server).toEqual(serverSnapshot);
+  });
+
+  it('merge: preserves local ordering and appends server-only comments in server order', () => {
+    const local = [makeComment({ id: 'cmt_1' }), makeComment({ id: 'cmt_2' })];
+    const server = [
+      makeComment({ id: 'cmt_3' }),
+      makeComment({ id: 'cmt_2' }),
+      makeComment({ id: 'cmt_4' }),
+    ];
+    expect(mergeComments(local, server).map((c) => c.id)).toEqual([
+      'cmt_1',
+      'cmt_2',
+      'cmt_3',
+      'cmt_4',
+    ]);
   });
 
   it('never throws on write failure and warns exactly once per session', () => {
