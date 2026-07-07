@@ -11,6 +11,12 @@
         "dev"
       ],
       "port": 3000
+    },
+    {
+      "name": "pinflow-demo-preview",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "demo", "preview"],
+      "port": 4175
     }
   ]
 }
