@@ -323,7 +323,7 @@ export class Annotator {
 
     const bar = el('div', 'bar');
     bar.append(
-      this._makeButton('Export all', () => void this._handleBuilderExport()),
+      this._makeButton('Export all', () => this.downloadExport()),
       this._makeButton('JSON', () => this._handleBuilderJSON()),
       this._makeButton('Clear all', () => this._handleBuilderClear(), 'danger'),
     );
@@ -758,26 +758,48 @@ export class Annotator {
     );
   }
 
+  /**
+   * Markdown artifact via the same generator as the export button (builder
+   * mode aggregates all stores). Public — hosts own the submission moment
+   * (stealth has no chrome), so the handle exposes this.
+   */
+  exportMarkdown(): string {
+    return this._buildArtifact().md;
+  }
+
+  /**
+   * Download the markdown artifact + copy it to the clipboard, with NO
+   * confirmation panel — the host owns that UX. Public, on the handle.
+   */
+  downloadExport(): void {
+    const { md, filename } = this._buildArtifact();
+    download(md, filename);
+    void copyToClipboard(md);
+  }
+
+  // Single source for the markdown artifact + its filename, mode-aware.
+  private _buildArtifact(): { md: string; filename: string } {
+    const project = this._deps.config.project;
+    const meta = { generatedAt: now(), project };
+    const describe = this._deps.config.describeRoute;
+    if (this._deps.mode === 'builder') {
+      const stores = loadAllStores(this._deps.storage, project);
+      return {
+        md: exportBuilder(stores, meta, this._isOrphaned, describe),
+        filename: exportFilename(project, null, meta.generatedAt),
+      };
+    }
+    return {
+      md: exportReviewer(this._store, meta, this._isOrphaned, describe),
+      filename: exportFilename(project, this._store.reviewer, meta.generatedAt),
+    };
+  }
+
   private async _handleReviewerExport(): Promise<void> {
-    const meta = { generatedAt: now(), project: this._deps.config.project };
-    const md = exportReviewer(this._store, meta, this._isOrphaned, this._deps.config.describeRoute);
-    const filename = exportFilename(
-      this._deps.config.project,
-      this._store.reviewer,
-      meta.generatedAt,
-    );
+    const { md, filename } = this._buildArtifact();
     download(md, filename);
     const copied = await copyToClipboard(md);
     this._showConfirmation(copied);
-  }
-
-  private async _handleBuilderExport(): Promise<void> {
-    const stores = loadAllStores(this._deps.storage, this._deps.config.project);
-    const meta = { generatedAt: now(), project: this._deps.config.project };
-    const md = exportBuilder(stores, meta, this._isOrphaned, this._deps.config.describeRoute);
-    const filename = exportFilename(this._deps.config.project, null, meta.generatedAt);
-    download(md, filename);
-    await copyToClipboard(md);
   }
 
   private _handleBuilderJSON(): void {
@@ -789,16 +811,31 @@ export class Annotator {
   }
 
   // Spec §5.6: after reviewer export, show a small confirmation panel
-  // suggesting any share channel, rather than closing silently.
+  // suggesting any share channel, rather than closing silently. With
+  // config.submitTo the hand-off turns active: a primary mailto button
+  // completes the zero-backend submission channel (download + clipboard +
+  // prefilled email).
   private _showConfirmation(copied: boolean): void {
     this._closePanel();
-    const panel = this._makePanel(
-      'Saved to your downloads',
-      copied
-        ? 'Copied to clipboard too. Share however you like — email, Slack, paste into a chat.'
-        : 'Share however you like — email, Slack, paste into a chat.',
-      [this._makeButton('Done', () => this._closePanel())],
-    );
+    const submitTo = this._deps.config.submitTo;
+    const share = 'Share however you like — email, Slack, paste into a chat.';
+    let body = copied ? `Copied to clipboard too. ${share}` : share;
+    const buttons = [this._makeButton('Done', () => this._closePanel())];
+    if (submitTo) {
+      if (copied) body = 'Your feedback is copied — paste it into the email.';
+      const subject = submitTo.subject ?? `Feedback: ${this._deps.config.project}`;
+      buttons.unshift(
+        this._makeButton(
+          'Email it to the builder',
+          () => {
+            // location.href (not window.open) — mailto: never blocks on popups.
+            location.href = `mailto:${submitTo.email}?subject=${encodeURIComponent(subject)}`;
+          },
+          'primary',
+        ),
+      );
+    }
+    const panel = this._makePanel('Saved to your downloads', body, buttons);
     this._panelEl = panel;
     this._ui.root.appendChild(panel);
     this._positionPanel();

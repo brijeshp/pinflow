@@ -66,6 +66,25 @@ describe('init / destroy', () => {
     handle.destroy();
   });
 
+  it('noop handle carries the full export API returning empty artifacts', async () => {
+    const { init } = await import('../../src/core/index');
+    vi.spyOn(window, 'prompt').mockReturnValue(null);
+    const handle = init({ project: 'orphan' });
+    expect(handle.exportMarkdown()).toBe('');
+    expect(handle.exportJSON()).toBe('');
+    expect(handle.downloadExport()).toBeUndefined();
+    handle.destroy();
+  });
+
+  it('live handle exposes exportMarkdown/exportJSON for the current reviewer', async () => {
+    const { init } = await import('../../src/core/index');
+    localStorage.setItem('pinflow:r:hnd', 'Hana');
+    const handle = init({ project: 'hnd' });
+    expect(handle.exportMarkdown()).toContain('# Feedback for hnd — from Hana');
+    expect(JSON.parse(handle.exportJSON()).pinflowExport).toBe(3);
+    handle.destroy();
+  });
+
   it('builder mode works without reviewer prompt', async () => {
     const { init } = await import('../../src/core/index');
     const handle = init({ project: 'bld', mode: 'builder' });

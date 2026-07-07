@@ -51,6 +51,13 @@ export interface Handle {
    * the current reviewer's store in reviewer mode, all stores in builder mode.
    */
   exportJSON(): string;
+  /**
+   * Markdown artifact, same generator as the export button. Hosts place the
+   * submission moment themselves (stealth mode has no chrome).
+   */
+  exportMarkdown(): string;
+  /** Download the artifact + copy to clipboard — no confirmation UI; the host owns UX. */
+  downloadExport(): void;
 }
 
 // SSR and declined-identity installs return an inert handle with the full API.
@@ -59,6 +66,8 @@ function noopHandle(): Handle {
     destroy() {},
     refreshRoute() {},
     exportJSON: () => '',
+    exportMarkdown: () => '',
+    downloadExport() {},
   };
 }
 
@@ -130,6 +139,8 @@ export function init(config: PinflowConfig): Handle {
       annotator.refreshRoute();
     },
     exportJSON: () => annotator.exportJSON(),
+    exportMarkdown: () => annotator.exportMarkdown(),
+    downloadExport: () => annotator.downloadExport(),
   };
   current = handle;
   return handle;

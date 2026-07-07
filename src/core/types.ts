@@ -171,6 +171,13 @@ export interface PinflowConfig {
    * the plain `## Route: <key>` heading. Pairs naturally with `routeKey`.
    */
   describeRoute?: (key: string) => string;
+  /**
+   * Free-tier guided hand-off: the post-export confirmation gains a primary
+   * "Email it to the builder" button that opens a prefilled `mailto:` — the
+   * exported markdown is already downloaded and on the clipboard. Subject
+   * defaults to `Feedback: <project>`.
+   */
+  submitTo?: { email: string; subject?: string };
   /** Activation strategy. Defaults to `{ mode: 'toggle' }` for v1 back-compat. */
   activation?: ActivationConfig;
   /** Opt-in voice annotation config. Omit for pure pin/text behavior. */

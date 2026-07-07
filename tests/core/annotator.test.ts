@@ -378,6 +378,108 @@ describe('Annotator export API (L1.5)', () => {
   });
 });
 
+describe('Annotator submission moment (L1.6)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  function mockDownloadPlumbing(): void {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  }
+
+  function mockClipboard(ok: boolean): void {
+    Object.defineProperty(navigator, 'clipboard', {
+      value: ok ? { writeText: vi.fn().mockResolvedValue(undefined) } : undefined,
+      configurable: true,
+    });
+  }
+
+  async function exportViaPanel(submitTo?: { email: string; subject?: string }): Promise<void> {
+    seedStore(makeComment('hello'));
+    annotator = new Annotator({
+      config: { project: PROJECT, ...(submitTo ? { submitTo } : {}) },
+      reviewer: REVIEWER,
+      mode: 'reviewer',
+      storage: localStorage,
+    });
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    const exportBtn = [...shadow().querySelectorAll('button')].find(
+      (b) => b.textContent === 'Export & share',
+    );
+    exportBtn!.click();
+    await flushMicrotasks();
+  }
+
+  function findEmailButton(): HTMLButtonElement | undefined {
+    return [...shadow().querySelectorAll('button')].find(
+      (b) => b.textContent === 'Email it to the builder',
+    ) as HTMLButtonElement | undefined;
+  }
+
+  it('confirmation gains a primary mailto button when submitTo is set', async () => {
+    mockDownloadPlumbing();
+    mockClipboard(true);
+    await exportViaPanel({ email: 'dev@x.io', subject: 'Prototype feedback' });
+    const btn = findEmailButton();
+    expect(btn).toBeTruthy();
+    expect(btn!.className).toContain('primary');
+    expect(shadow().querySelector('.panel p')?.textContent).toBe(
+      'Your feedback is copied — paste it into the email.',
+    );
+    btn!.click();
+    expect(window.location.href).toBe('mailto:dev@x.io?subject=Prototype%20feedback');
+  });
+
+  it('subject defaults to "Feedback: <project>" and body text degrades without clipboard', async () => {
+    mockDownloadPlumbing();
+    mockClipboard(false);
+    await exportViaPanel({ email: 'dev@x.io' });
+    expect(shadow().querySelector('.panel p')?.textContent).toContain('Share however you like');
+    findEmailButton()!.click();
+    expect(window.location.href).toBe(
+      `mailto:dev@x.io?subject=${encodeURIComponent('Feedback: p')}`,
+    );
+  });
+
+  it('no email button without submitTo', async () => {
+    mockDownloadPlumbing();
+    mockClipboard(true);
+    await exportViaPanel();
+    expect(findEmailButton()).toBeUndefined();
+  });
+
+  it('exportMarkdown returns the reviewer artifact; downloadExport skips the confirmation', () => {
+    seedStore(makeComment('hello'));
+    annotator = makeAnnotator();
+    expect(annotator.exportMarkdown()).toContain(`# Feedback for ${PROJECT} — from ${REVIEWER}`);
+
+    mockDownloadPlumbing();
+    mockClipboard(true);
+    const create = vi.mocked(URL.createObjectURL);
+    annotator.downloadExport();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(shadow().querySelector('.panel')).toBeNull(); // no confirmation UI — host owns UX
+  });
+
+  it('exportMarkdown aggregates in builder mode', () => {
+    seedStore(makeComment('hello'));
+    annotator = new Annotator({
+      config: { project: PROJECT },
+      reviewer: '__builder__',
+      mode: 'builder',
+      storage: localStorage,
+    });
+    expect(annotator.exportMarkdown()).toContain('## Summary');
+  });
+});
+
 describe('Annotator voice host generation guards (P0.6)', () => {
   let annotator: Annotator | null = null;
 
