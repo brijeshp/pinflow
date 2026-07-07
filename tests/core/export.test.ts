@@ -246,3 +246,34 @@ describe('exportJSON', () => {
     });
   });
 });
+
+it('renders the resolution note in the comment block when present', async () => {
+  const { exportBuilder } = await import('../../src/core/export');
+  const store = {
+    reviewer: 'R1',
+    project: 'p',
+    createdAt: '2026-07-07T00:00:00.000Z',
+    comments: [
+      {
+        id: 'c_res',
+        createdAt: '2026-07-07T00:00:00.000Z',
+        updatedAt: '2026-07-07T00:00:00.000Z',
+        route: '/x',
+        fullUrl: 'https://x/x',
+        text: 'fix this',
+        modality: 'text' as const,
+        status: 'done' as const,
+        resolution: 'Shipped in v2.1.',
+        anchor: {
+          selectors: { testid: null, id: null, css: 'p', xpath: '/p' },
+          textFingerprint: '',
+          positionPercent: { x: 1, y: 2 },
+          viewport: { width: 100, height: 100 },
+        },
+      },
+    ],
+  };
+  const md = exportBuilder([store], { generatedAt: 'now', project: 'p' }, () => false);
+  expect(md).toContain('— done');
+  expect(md).toContain('**Resolution:** Shipped in v2.1.');
+});

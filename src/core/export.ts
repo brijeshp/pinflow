@@ -79,6 +79,9 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
     selectorLines(comment),
     `**Position:** ${Math.round(pos.x)}% from left, ${Math.round(pos.y)}% from top of element`,
     `**Viewport at time of comment:** ${viewportLabel(comment)}`,
+    // The team's "why" — the disposition heading suffix says WHAT happened,
+    // this line says the reason. Together they close the loop in the artifact.
+    ...(comment.resolution ? [`**Resolution:** ${comment.resolution}`] : []),
     '',
     `> ${comment.text.replace(/\r?\n/g, '\n> ')}`,
   ].join('\n');
