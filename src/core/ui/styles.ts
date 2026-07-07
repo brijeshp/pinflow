@@ -24,11 +24,19 @@ export const STYLES =
   '.pin{position:fixed;pointer-events:auto;width:24px;height:24px;border-radius:999px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);display:grid;place-items:center;font-size:11px;font-weight:600;box-shadow:0 4px 10px rgba(37,99,235,.35),0 0 0 2px #fff;cursor:pointer;transform:translate(-50%,-50%) scale(0);animation:pop .18s ease forwards;transition:transform .12s ease}' +
   '.pin:hover{transform:translate(-50%,-50%) scale(1.08)}' +
   '.pin[data-orphaned="true"]{background:#a3a3a3}' +
+  // Resolution treatment (L2.3), cheapest legible option: dispositioned pins go
+  // muted via the theme's textMuted token (distinct from orphan gray #a3a3a3);
+  // done additionally swaps the number for a ✓ (set in _renderPins), declined
+  // keeps its number struck through. One shared bg rule + one declined rule.
+  '.pin[data-status]{background:var(--pf-text-muted,#64748b)}' +
+  '.pin[data-status="declined"]{text-decoration:line-through}' +
   '@keyframes pop{to{transform:translate(-50%,-50%) scale(1)}}' +
   '@media (max-width:640px){.pin{width:32px;height:32px;font-size:13px}}' +
   '.input{position:fixed;pointer-events:auto;min-width:240px;max-width:320px;background:var(--pf-surface,#fff);color:var(--pf-text,#0f172a);border-radius:var(--pf-radius,10px);padding:10px;box-shadow:var(--pf-shadow,0 12px 32px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.08))}' +
   '.input textarea{width:100%;min-height:64px;max-height:160px;resize:none;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5}' +
   '.input .actions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--pf-text-muted,inherit)}' +
+  // Read-only disposition line in a resolved comment's popup ("✓ Done — note").
+  '.input .res{margin-top:8px;font-size:12px;color:var(--pf-text-muted,#64748b)}' +
   '.input .delete{background:transparent;border:0;color:inherit;cursor:pointer;opacity:.55;font:inherit;padding:0}' +
   '.input .delete:hover{opacity:1;color:var(--pf-danger,#dc2626)}' +
   '.input .save{background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);border:0;border-radius:8px;padding:6px 16px;min-height:30px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}' +

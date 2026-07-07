@@ -615,6 +615,107 @@ describe('Annotator source hydration (L2.1)', () => {
   });
 });
 
+describe('Annotator resolution UI (L2.3)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  function seedMany(comments: Comment[]): void {
+    saveStore(localStorage, { ...emptyStore(PROJECT, REVIEWER), comments });
+  }
+
+  it('renders status treatments: done = muted ✓, declined = muted struck number, open = stock', () => {
+    seedMany([
+      { ...makeComment('shipped'), id: 'c_done', status: 'done', resolution: 'Shipped.' },
+      { ...makeComment('rejected'), id: 'c_declined', status: 'declined' },
+      { ...makeComment('still open'), id: 'c_open', status: 'open' },
+      { ...makeComment('no status'), id: 'c_plain' },
+    ]);
+    annotator = makeAnnotator();
+
+    const pins = [...shadow().querySelectorAll<HTMLDivElement>('.pin')];
+    expect(pins).toHaveLength(4);
+    const [done, declined, open, plain] = pins;
+    expect(done?.dataset['status']).toBe('done');
+    expect(done?.textContent).toBe('✓');
+    expect(done?.title).toBe('Comment 1 — done');
+    expect(declined?.dataset['status']).toBe('declined');
+    expect(declined?.textContent).toBe('2'); // number stays, struck via CSS
+    expect(open?.dataset['status']).toBeUndefined();
+    expect(open?.textContent).toBe('3');
+    expect(plain?.dataset['status']).toBeUndefined();
+  });
+
+  it('resolved popup is frozen: readOnly textarea, no Save/Delete, resolution line shown', () => {
+    seedMany([{ ...makeComment('shipped'), status: 'done', resolution: 'Fixed in build 7.' }]);
+    annotator = makeAnnotator();
+
+    const ta = openFirstPinInput();
+    expect(ta.readOnly).toBe(true);
+    expect(ta.value).toBe('shipped'); // still selectable/copyable
+    expect(shadow().querySelector('button.save')).toBeNull();
+    expect(shadow().querySelector('button.delete')).toBeNull();
+    expect(shadow().querySelector('.input .res')?.textContent).toBe('✓ Done — Fixed in build 7.');
+  });
+
+  it('declined without a resolution note omits the dash', () => {
+    seedMany([{ ...makeComment('nope'), status: 'declined' }]);
+    annotator = makeAnnotator();
+    openFirstPinInput();
+    expect(shadow().querySelector('.input .res')?.textContent).toBe('✕ Declined');
+  });
+
+  it('an open comment keeps the editable popup (no resolution line)', () => {
+    seedMany([{ ...makeComment('editable'), status: 'open' }]);
+    annotator = makeAnnotator();
+    const ta = openFirstPinInput();
+    expect(ta.readOnly).toBe(false);
+    expect(shadow().querySelector('button.save')).not.toBeNull();
+    expect(shadow().querySelector('.input .res')).toBeNull();
+  });
+
+  it('a hydrated disposition survives a reviewer edit attempt (Cmd+Enter is inert)', async () => {
+    seedStore(makeComment('my note'));
+    const source = vi
+      .fn()
+      .mockResolvedValue([
+        { ...makeComment('my note'), status: 'done' as const, resolution: 'Done deal.' },
+      ]);
+    annotator = new Annotator({
+      config: { project: PROJECT, source },
+      reviewer: REVIEWER,
+      mode: 'reviewer',
+      storage: localStorage,
+    });
+    await flushMicrotasks();
+
+    const ta = openFirstPinInput();
+    expect(ta.readOnly).toBe(true);
+    ta.value = 'defacing the record'; // programmatic — readOnly only blocks typing
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', metaKey: true }));
+
+    const c = loadStore(localStorage, PROJECT, REVIEWER)?.comments[0];
+    expect(c).toMatchObject({ text: 'my note', status: 'done', resolution: 'Done deal.' });
+  });
+
+  it('empty-cleanup never deletes a resolved comment', () => {
+    seedMany([{ ...makeComment(''), status: 'declined', resolution: 'Duplicate.' }]);
+    annotator = makeAnnotator();
+
+    const ta = openFirstPinInput();
+    ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+
+    expect(shadow().querySelector('.input')).toBeNull();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+});
+
 describe('Annotator voice host generation guards (P0.6)', () => {
   let annotator: Annotator | null = null;
 

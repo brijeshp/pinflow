@@ -60,4 +60,10 @@ describe('theme tokens (A1)', () => {
     expect(hostRule).not.toContain('var(--pf-font-family');
     expect(STYLES).toMatch(/\.root\{[^}]*font-family:var\(--pf-font-family,inherit\)/);
   });
+
+  it('resolution treatments ride the textMuted token (L2.3)', () => {
+    expect(STYLES).toMatch(/\.pin\[data-status\]\{background:var\(--pf-text-muted,#64748b\)\}/);
+    expect(STYLES).toMatch(/\.pin\[data-status="declined"\]\{text-decoration:line-through\}/);
+    expect(STYLES).toMatch(/\.input \.res\{[^}]*color:var\(--pf-text-muted,#64748b\)/);
+  });
 });

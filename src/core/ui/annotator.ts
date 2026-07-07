@@ -38,6 +38,13 @@ import { createUIRoot, el, flipPosition, place, type UIRoot } from './dom';
 const LONG_PRESS_MS = 500;
 const MOVE_THRESHOLD_PX = 10;
 
+// Dispositioned by the team (via hydration) — a shared record, not the
+// reviewer's draft: frozen in the UI (no edit/delete, exempt from
+// empty-cleanup). `open` is NOT resolved; it stays fully editable.
+function isResolved(c: Comment): boolean {
+  return c.status === 'done' || c.status === 'declined';
+}
+
 interface AnnotatorDeps {
   config: Required<Pick<PinflowConfig, 'project'>> & PinflowConfig;
   /** null = stealth mode with identity deferred to the first activation. */
@@ -610,6 +617,15 @@ export class Annotator {
       this._anchorCache.set(c.id, target);
       const pin = el('div', 'pin', String(i + 1));
       if (!target) pin.dataset['orphaned'] = 'true';
+      // L2.3: dispositioned pins render muted (styles.ts); done swaps the
+      // number for a ✓, with the index preserved in the title.
+      if (isResolved(c) && c.status) {
+        pin.dataset['status'] = c.status;
+        if (c.status === 'done') {
+          pin.textContent = '✓';
+          pin.title = `Comment ${i + 1} — done`;
+        }
+      }
       if (c.reviewer) pin.title = c.reviewer;
       pin.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -662,23 +678,26 @@ export class Annotator {
     this._closeActiveInput();
     const comment = this._store.comments.find((c) => c.id === commentId);
     if (!comment) return;
+    // A resolved comment opens as a frozen read-only view: readOnly textarea
+    // (text stays selectable/copyable), a muted disposition line in place of
+    // the Save/Delete row. Esc/outside-click still close it.
+    const frozen = isResolved(comment);
     const wrap = el('div', 'input');
     const ta = el('textarea');
     ta.placeholder = "What's on your mind?";
     ta.value = comment.text;
     ta.rows = 3;
-    const actions = el('div', 'actions');
-    const del = el('button', 'delete', 'Delete');
-    del.type = 'button';
-    const saveBtn = el('button', 'save', 'Save');
-    saveBtn.type = 'button';
-    actions.append(del, saveBtn);
-    wrap.append(ta, actions);
+    ta.readOnly = frozen;
+    wrap.appendChild(ta);
+    if (frozen) {
+      const mark = comment.status === 'done' ? '✓ Done' : '✕ Declined';
+      const note = comment.resolution ? ` — ${comment.resolution}` : '';
+      wrap.appendChild(el('div', 'res', mark + note));
+    }
     this._ui.root.appendChild(wrap);
-    this._positionInputNearPin(wrap, commentId);
 
     const save = (): void => {
-      if (this._destroyed) return;
+      if (this._destroyed || frozen) return;
       const persisted = this._store.comments.find((c) => c.id === commentId);
       if (persisted && ta.value !== persisted.text) {
         // Hand-correcting a voice transcript flags the meta as edited (immutably).
@@ -716,15 +735,25 @@ export class Annotator {
       () => document.addEventListener('pointerdown', onOutside, true),
       0,
     );
-    saveBtn.addEventListener('click', save);
-    del.addEventListener('click', () => {
-      const removed = this._store.comments.find((c) => c.id === commentId);
-      this._store = deleteCommentFromStore(this._store, commentId);
-      this._persist();
-      if (removed) this._emitChange('delete', removed);
-      this._closeActiveInput(false); // already gone — nothing to clean up
-      this._renderPins();
-    });
+    if (!frozen) {
+      const actions = el('div', 'actions');
+      const del = el('button', 'delete', 'Delete');
+      del.type = 'button';
+      del.addEventListener('click', () => {
+        const removed = this._store.comments.find((c) => c.id === commentId);
+        this._store = deleteCommentFromStore(this._store, commentId);
+        this._persist();
+        if (removed) this._emitChange('delete', removed);
+        this._closeActiveInput(false); // already gone — nothing to clean up
+        this._renderPins();
+      });
+      const saveBtn = el('button', 'save', 'Save');
+      saveBtn.type = 'button';
+      saveBtn.addEventListener('click', save);
+      actions.append(del, saveBtn);
+      wrap.appendChild(actions);
+    }
+    this._positionInputNearPin(wrap, commentId);
     ta.focus();
     this._activeInput = {
       wrap,
@@ -761,7 +790,9 @@ export class Annotator {
     input.wrap.remove();
     if (!cleanupEmpty || this._destroyed) return;
     const c = this._store.comments.find((x) => x.id === input.commentId);
-    if (c && c.text === '') {
+    // Resolved comments are exempt: they can't be empty in practice (the team
+    // dispositioned real feedback) but a shared record must never self-delete.
+    if (c && c.text === '' && !isResolved(c)) {
       this._store = deleteCommentFromStore(this._store, input.commentId);
       this._persist();
       this._emitChange('delete', c);
