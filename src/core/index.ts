@@ -145,5 +145,9 @@ export function destroy(): void {
   current = null;
 }
 
-export { exportJSON } from './export';
+// The full artifact toolkit is public: all four are DOM-free pure functions,
+// usable server-side (the sensavera hub renders collated exports from backend
+// rows with these — no widget, no DOM). Tree-shaken away for widget-only use.
+export { exportBuilder, exportFilename, exportJSON, exportReviewer } from './export';
+export type { DescribeRoute, ExportMeta, IsOrphaned } from './export';
 export { routeOf };

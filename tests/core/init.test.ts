@@ -224,3 +224,13 @@ describe('init / destroy', () => {
     });
   });
 });
+
+describe('public artifact toolkit (L3 API polish)', () => {
+  it('re-exports the DOM-free export helpers from the package entry', async () => {
+    const mod = await import('../../src/core/index');
+    expect(typeof mod.exportReviewer).toBe('function');
+    expect(typeof mod.exportBuilder).toBe('function');
+    expect(typeof mod.exportFilename).toBe('function');
+    expect(typeof mod.exportJSON).toBe('function');
+  });
+});
