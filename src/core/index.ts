@@ -60,15 +60,11 @@ export interface Handle {
   downloadExport(): void;
 }
 
-// SSR and declined-identity installs return an inert handle with the full API.
+// SSR and declined-identity installs return an inert handle with the full API
+// (one shared noop: '' for the export getters, ignored for the void methods).
 function noopHandle(): Handle {
-  return {
-    destroy() {},
-    refreshRoute() {},
-    exportJSON: () => '',
-    exportMarkdown: () => '',
-    downloadExport() {},
-  };
+  const n = (): '' => '';
+  return { destroy: n, refreshRoute: n, exportJSON: n, exportMarkdown: n, downloadExport: n };
 }
 
 let current: Handle | null = null;
@@ -81,13 +77,11 @@ export function init(config: PinflowConfig): Handle {
   // promises "throws at init"). token.ts re-checks lazily as defense in depth.
   if (config.voice?.devOnlyToken && !isLocalOrigin(window.location.hostname)) {
     throw new Error(
-      'pinflow: voice.devOnlyToken is only allowed on a local origin; use voice.tokenEndpoint (or voice.getToken) in production',
+      'pinflow: voice.devOnlyToken needs a local origin — use voice.tokenEndpoint in production',
     );
   }
   if (current) {
-    console.warn(
-      '[pinflow] init() called while another instance is active — destroying the previous instance',
-    );
+    console.warn('[pinflow] another instance is active — replacing it');
     current.destroy();
   }
 

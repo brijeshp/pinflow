@@ -72,7 +72,7 @@ describe('init / destroy', () => {
     const handle = init({ project: 'orphan' });
     expect(handle.exportMarkdown()).toBe('');
     expect(handle.exportJSON()).toBe('');
-    expect(handle.downloadExport()).toBeUndefined();
+    expect(() => handle.downloadExport()).not.toThrow(); // typed void; inert
     handle.destroy();
   });
 

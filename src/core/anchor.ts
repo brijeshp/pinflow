@@ -21,13 +21,15 @@ export function clickToPositionPercent(
   };
 }
 
+const HEADINGS = 'h1,h2,h3,h4,h5,h6';
+
 // Nearest heading above the element, cheaply: walk ancestors; at each level
 // scan preceding siblings closest-first, taking the sibling itself if it is a
 // heading, else the LAST heading inside it (the one nearest the element).
 function nearestHeading(el: Element): string | undefined {
-  for (let cur: Element | null = el; cur && cur !== document.body; cur = cur.parentElement) {
+  for (let cur: Element | null = el; cur; cur = cur.parentElement) {
     for (let sib = cur.previousElementSibling; sib; sib = sib.previousElementSibling) {
-      const hs = /^H[1-6]$/.test(sib.tagName) ? [sib] : sib.querySelectorAll('h1,h2,h3,h4,h5,h6');
+      const hs = sib.matches(HEADINGS) ? [sib] : sib.querySelectorAll(HEADINGS);
       const hit = hs[hs.length - 1];
       if (hit) return getTextFingerprint(hit);
     }
@@ -35,24 +37,23 @@ function nearestHeading(el: Element): string | undefined {
   return undefined;
 }
 
-function elementContext(el: Element): NonNullable<Anchor['context']> {
-  const ctx: NonNullable<Anchor['context']> = {
+export function buildAnchor(el: Element, clientX: number, clientY: number): Anchor {
+  const fingerprint = getTextFingerprint(el);
+  // Best-effort human context (accessible name, role, nearest heading) —
+  // exports render "the 'Continue' button under 'Next section'" from it.
+  const context: NonNullable<Anchor['context']> = {
     role: el.getAttribute('role') ?? el.tagName.toLowerCase(),
   };
-  const name = el.getAttribute('aria-label') ?? getTextFingerprint(el);
-  if (name) ctx.name = name;
+  const name = el.getAttribute('aria-label') ?? fingerprint;
+  if (name) context.name = name;
   const heading = nearestHeading(el);
-  if (heading) ctx.heading = heading;
-  return ctx;
-}
-
-export function buildAnchor(el: Element, clientX: number, clientY: number): Anchor {
+  if (heading) context.heading = heading;
   return {
     selectors: buildSelectors(el),
-    textFingerprint: getTextFingerprint(el),
+    textFingerprint: fingerprint,
     positionPercent: clickToPositionPercent(el, clientX, clientY),
     viewport: currentViewport(),
-    context: elementContext(el),
+    context,
   };
 }
 

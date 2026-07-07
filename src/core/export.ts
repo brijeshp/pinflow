@@ -15,13 +15,6 @@ export type IsOrphaned = (comment: Comment) => boolean;
 /** Optional host-provided friendly label for a route/frame key (config.describeRoute). */
 export type DescribeRoute = (key: string) => string;
 
-// `## <label>` with the stable key in backticks beneath when the host labels
-// this key; the plain v1 heading otherwise.
-function routeHeading(route: string, describe?: DescribeRoute): string {
-  const label = describe?.(route);
-  return label ? `## ${label}\n\`${route}\`` : `## Route: ${route}`;
-}
-
 function tagFromCss(css: string): string {
   const last = css.split('>').pop()?.trim() ?? '';
   const tag = last.split(/[.:#[]/)[0];
@@ -59,8 +52,8 @@ function viewportLabel(comment: Comment): string {
 // the team's disposition — only when one exists, so backendless exports stay
 // noise-free.
 function commentHeading(comment: Comment, index: number, reviewer?: string): string {
-  const disp =
-    comment.status === 'done' || comment.status === 'declined' ? ` — ${comment.status}` : '';
+  const s = comment.status;
+  const disp = s === 'done' || s === 'declined' ? ` — ${s}` : '';
   return `### [${comment.id}] Comment ${index} — ${reviewer ? `${reviewer}, ` : ''}${comment.createdAt}${disp}`;
 }
 
@@ -69,9 +62,9 @@ function commentHeading(comment: Comment, index: number, reviewer?: string): str
 function contextLine(comment: Comment): string {
   const ctx = comment.anchor.context;
   if (!ctx) return '';
-  const name = ctx.name ? `‘${ctx.name}’ ` : '';
-  const under = ctx.heading ? ` under ‘${ctx.heading}’` : '';
-  return `**Context:** the ${name}${ctx.role ?? 'element'}${under}`;
+  return `**Context:** the ${ctx.name ? `‘${ctx.name}’ ` : ''}${ctx.role ?? 'element'}${
+    ctx.heading ? ` under ‘${ctx.heading}’` : ''
+  }`;
 }
 
 function commentBlock(comment: Comment, index: number, reviewer?: string): string {
@@ -143,7 +136,7 @@ function orphanSection(orphaned: Array<Comment & { reviewer?: string }>): string
   return [
     '## Orphaned comments',
     '',
-    'The following comments were left on elements that no longer exist in the current DOM. They are preserved here for context.',
+    'Their elements no longer exist in the DOM.',
     '',
     blocks,
   ].join('\n');
@@ -159,7 +152,11 @@ function bodyFromGroups(
       const blocks = g.comments.map((c, i) =>
         commentBlock(c, i + 1, withReviewer ? c.reviewer : undefined),
       );
-      return [routeHeading(g.route, describeRoute), '', blocks.join('\n\n---\n\n')].join('\n');
+      // `## <label>` with the stable key in backticks beneath when the host
+      // labels this key; the plain v1 heading otherwise.
+      const label = describeRoute?.(g.route);
+      const heading = label ? `## ${label}\n\`${g.route}\`` : `## Route: ${g.route}`;
+      return [heading, '', blocks.join('\n\n---\n\n')].join('\n');
     })
     .join('\n\n---\n\n');
 }
@@ -256,9 +253,8 @@ export function exportFilename(
   ext = 'md',
 ): string {
   const ts = timestamp.replace(/[:.]/g, '-');
-  return reviewer
-    ? `pinflow-feedback-${reviewer}-${project}-${ts}.${ext}`
-    : `pinflow-feedback-${project}-aggregate-${ts}.${ext}`;
+  const who = reviewer ? `${reviewer}-${project}` : `${project}-aggregate`;
+  return `pinflow-feedback-${who}-${ts}.${ext}`;
 }
 
 /**

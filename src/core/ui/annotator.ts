@@ -279,7 +279,7 @@ export class Annotator {
     const count = this._store.comments.length;
     const panel = this._makePanel(
       `You have ${count} comment${count === 1 ? '' : 's'}`,
-      'Click the button below, then tap any element on the page to pin a comment.',
+      'Click below, then tap any element to pin a comment.',
       [
         this._makeButton(
           this._annotating ? 'Stop' : 'Add comment',
@@ -301,7 +301,7 @@ export class Annotator {
   // Built imperatively to keep reviewer names out of innerHTML.
   private _renderBuilderPanel(): HTMLDivElement {
     const drawer = el('div', 'drawer');
-    const stores = loadAllStores(this._deps.storage, this._deps.config.project);
+    const stores = this._allStores();
     drawer.appendChild(el('h3', undefined, 'Builder mode'));
 
     if (stores.length === 0) {
@@ -324,7 +324,13 @@ export class Annotator {
     const bar = el('div', 'bar');
     bar.append(
       this._makeButton('Export all', () => this.downloadExport()),
-      this._makeButton('JSON', () => this._handleBuilderJSON()),
+      this._makeButton('JSON', () =>
+        download(
+          this.exportJSON(),
+          exportFilename(this._deps.config.project, null, now(), 'json'),
+          'application/json',
+        ),
+      ),
       this._makeButton('Clear all', () => this._handleBuilderClear(), 'danger'),
     );
     drawer.appendChild(bar);
@@ -559,7 +565,7 @@ export class Annotator {
     const route = this._routeKey();
     this._visibleCache =
       this._deps.mode === 'builder'
-        ? loadAllStores(this._deps.storage, this._deps.config.project).flatMap((s) =>
+        ? this._allStores().flatMap((s) =>
             s.comments
               .filter((c) => c.route === route)
               .map((c) => ({ ...c, reviewer: s.reviewer })),
@@ -751,11 +757,11 @@ export class Annotator {
    * Public — exposed on the init() handle for host-owned pipelines.
    */
   exportJSON(): string {
-    return exportStoresJSON(
-      this._deps.mode === 'builder'
-        ? loadAllStores(this._deps.storage, this._deps.config.project)
-        : this._store,
-    );
+    return exportStoresJSON(this._deps.mode === 'builder' ? this._allStores() : this._store);
+  }
+
+  private _allStores(): ReviewerStore[] {
+    return loadAllStores(this._deps.storage, this._deps.config.project);
   }
 
   /**
@@ -764,7 +770,7 @@ export class Annotator {
    * (stealth has no chrome), so the handle exposes this.
    */
   exportMarkdown(): string {
-    return this._buildArtifact().md;
+    return this._buildArtifact()[0];
   }
 
   /**
@@ -772,42 +778,29 @@ export class Annotator {
    * confirmation panel — the host owns that UX. Public, on the handle.
    */
   downloadExport(): void {
-    const { md, filename } = this._buildArtifact();
+    const [md, filename] = this._buildArtifact();
     download(md, filename);
     void copyToClipboard(md);
   }
 
   // Single source for the markdown artifact + its filename, mode-aware.
-  private _buildArtifact(): { md: string; filename: string } {
-    const project = this._deps.config.project;
+  private _buildArtifact(): [md: string, filename: string] {
+    const { project, describeRoute } = this._deps.config;
     const meta = { generatedAt: now(), project };
-    const describe = this._deps.config.describeRoute;
-    if (this._deps.mode === 'builder') {
-      const stores = loadAllStores(this._deps.storage, project);
-      return {
-        md: exportBuilder(stores, meta, this._isOrphaned, describe),
-        filename: exportFilename(project, null, meta.generatedAt),
-      };
-    }
-    return {
-      md: exportReviewer(this._store, meta, this._isOrphaned, describe),
-      filename: exportFilename(project, this._store.reviewer, meta.generatedAt),
-    };
+    const builder = this._deps.mode === 'builder';
+    return [
+      builder
+        ? exportBuilder(this._allStores(), meta, this._isOrphaned, describeRoute)
+        : exportReviewer(this._store, meta, this._isOrphaned, describeRoute),
+      exportFilename(project, builder ? null : this._store.reviewer, meta.generatedAt),
+    ];
   }
 
   private async _handleReviewerExport(): Promise<void> {
-    const { md, filename } = this._buildArtifact();
+    const [md, filename] = this._buildArtifact();
     download(md, filename);
     const copied = await copyToClipboard(md);
     this._showConfirmation(copied);
-  }
-
-  private _handleBuilderJSON(): void {
-    download(
-      this.exportJSON(),
-      exportFilename(this._deps.config.project, null, now(), 'json'),
-      'application/json',
-    );
   }
 
   // Spec §5.6: after reviewer export, show a small confirmation panel
@@ -818,18 +811,19 @@ export class Annotator {
   private _showConfirmation(copied: boolean): void {
     this._closePanel();
     const submitTo = this._deps.config.submitTo;
-    const share = 'Share however you like — email, Slack, paste into a chat.';
+    const share = 'Share however you like.';
     let body = copied ? `Copied to clipboard too. ${share}` : share;
     const buttons = [this._makeButton('Done', () => this._closePanel())];
     if (submitTo) {
       if (copied) body = 'Your feedback is copied — paste it into the email.';
-      const subject = submitTo.subject ?? `Feedback: ${this._deps.config.project}`;
       buttons.unshift(
         this._makeButton(
           'Email it to the builder',
           () => {
             // location.href (not window.open) — mailto: never blocks on popups.
-            location.href = `mailto:${submitTo.email}?subject=${encodeURIComponent(subject)}`;
+            location.href = `mailto:${submitTo.email}?subject=${encodeURIComponent(
+              submitTo.subject ?? `Feedback: ${this._deps.config.project}`,
+            )}`;
           },
           'primary',
         ),
@@ -842,7 +836,7 @@ export class Annotator {
   }
 
   private _handleBuilderClear(): void {
-    if (!window.confirm('Clear all comments for this project from this browser?')) return;
+    if (!window.confirm('Clear all comments for this project?')) return;
     clearProject(this._deps.storage, this._deps.config.project);
     this._renderPins();
     this._closePanel();
