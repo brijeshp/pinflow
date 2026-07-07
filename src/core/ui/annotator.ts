@@ -15,6 +15,7 @@ import {
   emptyStore,
   loadAllStores,
   loadStore,
+  mergeComments,
   saveStore,
   upsertComment,
 } from '../storage';
@@ -113,8 +114,32 @@ export class Annotator {
     this._renderControl();
     this._renderPins();
     this._startGesture();
+    this._hydrateFromSource();
     window.addEventListener('resize', this._onReflow);
     window.addEventListener('scroll', this._onReflow, { passive: true });
+  }
+
+  // L2.1: the read half of the sync protocol, fetched once per resolved
+  // identity — i.e. wherever the store becomes real: the constructor when the
+  // reviewer is known at init, or _ensureIdentity when stealth's deferred
+  // identity resolves. Reviewer mode only (`source` is scoped to the current
+  // reviewer; builder-mode all-reviewer hydration is a later slice).
+  // Generation + destroyed guards follow _startVoiceDot: a fetch resolving
+  // after destroy()/refreshRoute() must not write into the stale world.
+  // Never emits onChange — hydration is the host's own data coming back.
+  private _hydrateFromSource(): void {
+    const source = this._deps.config.source;
+    if (!source || this._deps.mode !== 'reviewer' || this._reviewer === null) return;
+    const myGen = this._generation;
+    void source().then(
+      (server) => {
+        if (this._destroyed || myGen !== this._generation) return;
+        this._store = { ...this._store, comments: mergeComments(this._store.comments, server) };
+        this._persist();
+        this._renderPins();
+      },
+      (err) => this._voiceLogger.warn('source hydration failed — using local store', err),
+    );
   }
 
   destroy(): void {
@@ -407,6 +432,7 @@ export class Annotator {
       loadStore(this._deps.storage, this._deps.config.project, name) ??
       emptyStore(this._deps.config.project, name);
     this._renderPins();
+    this._hydrateFromSource(); // the store just became real — sync it (L2.1)
     return true;
   }
 

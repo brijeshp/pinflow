@@ -480,6 +480,141 @@ describe('Annotator submission moment (L1.6)', () => {
   });
 });
 
+describe('Annotator source hydration (L2.1)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  function serverComment(overrides: Partial<Comment> = {}): Comment {
+    return { ...makeComment(''), id: 'c_server', text: 'from the server', ...overrides };
+  }
+
+  function makeWithSource(
+    source: () => Promise<Comment[]>,
+    extra?: { onChange?: () => void; mode?: 'reviewer' | 'builder' },
+  ): Annotator {
+    return new Annotator({
+      config: {
+        project: PROJECT,
+        source,
+        ...(extra?.onChange ? { onChange: extra.onChange } : {}),
+      },
+      reviewer: extra?.mode === 'builder' ? '__builder__' : REVIEWER,
+      mode: extra?.mode ?? 'reviewer',
+      storage: localStorage,
+    });
+  }
+
+  it('fetches once at init, merges by id, persists, and renders the pins', async () => {
+    seedStore({ ...makeComment('local only'), id: 'c_local' });
+    const source = vi.fn().mockResolvedValue([serverComment()]);
+    annotator = makeWithSource(source);
+    await flushMicrotasks();
+
+    expect(source).toHaveBeenCalledTimes(1);
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments.map((c) => c.id)).toEqual(['c_local', 'c_server']);
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(2);
+  });
+
+  it('server disposition lands on an existing local comment (status/resolution win)', async () => {
+    seedStore(makeComment('my note')); // id c1
+    const source = vi
+      .fn()
+      .mockResolvedValue([
+        { ...makeComment('my note'), status: 'done' as const, resolution: 'Shipped.' },
+      ]);
+    annotator = makeWithSource(source);
+    await flushMicrotasks();
+
+    const c = loadStore(localStorage, PROJECT, REVIEWER)?.comments[0];
+    expect(c).toMatchObject({ status: 'done', resolution: 'Shipped.' });
+  });
+
+  it('never emits onChange for hydration-applied changes', async () => {
+    seedStore(makeComment('mine'));
+    const onChange = vi.fn();
+    annotator = makeWithSource(vi.fn().mockResolvedValue([serverComment()]), { onChange });
+    await flushMicrotasks();
+
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('a late resolution after destroy() writes nothing', async () => {
+    seedStore(makeComment('mine'));
+    let resolve!: (v: Comment[]) => void;
+    annotator = makeWithSource(() => new Promise<Comment[]>((r) => (resolve = r)));
+    const rawBefore = localStorage.getItem(storageKey(PROJECT, REVIEWER));
+
+    annotator.destroy();
+    annotator = null;
+    resolve([serverComment()]);
+    await flushMicrotasks();
+
+    expect(localStorage.getItem(storageKey(PROJECT, REVIEWER))).toBe(rawBefore);
+    expect(document.querySelector('[data-pinflow-root]')).toBeNull();
+  });
+
+  it('a late resolution after refreshRoute() is dropped (generation guard)', async () => {
+    seedStore(makeComment('mine'));
+    let resolve!: (v: Comment[]) => void;
+    annotator = makeWithSource(() => new Promise<Comment[]>((r) => (resolve = r)));
+
+    annotator.refreshRoute();
+    resolve([serverComment()]);
+    await flushMicrotasks();
+
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments.map((c) => c.id)).toEqual(['c1']);
+  });
+
+  it('a rejected source warns and leaves localStorage authoritative', async () => {
+    seedStore(makeComment('mine'));
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    annotator = makeWithSource(vi.fn().mockRejectedValue(new Error('offline')));
+    await flushMicrotasks();
+
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('[pinflow]'), expect.any(Error));
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('mine');
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(1);
+  });
+
+  it('builder mode never calls source (per-reviewer scope; builder slice is later)', async () => {
+    const source = vi.fn().mockResolvedValue([]);
+    annotator = makeWithSource(source, { mode: 'builder' });
+    await flushMicrotasks();
+    expect(source).not.toHaveBeenCalled();
+  });
+
+  it('deferred (stealth) identity hydrates only after the identity resolves', async () => {
+    const source = vi.fn().mockResolvedValue([serverComment()]);
+    annotator = new Annotator({
+      config: { project: PROJECT, source, activation: { mode: 'stealth' } },
+      reviewer: null,
+      mode: 'reviewer',
+      storage: localStorage,
+      resolveIdentity: () => 'Ghost',
+    });
+    await flushMicrotasks();
+    expect(source).not.toHaveBeenCalled();
+
+    (
+      annotator as unknown as { _placeCommentAt(x: number, y: number, t: Element): void }
+    )._placeCommentAt(10, 10, document.body);
+    await flushMicrotasks();
+
+    expect(source).toHaveBeenCalledTimes(1);
+    const store = loadStore(localStorage, PROJECT, 'Ghost');
+    expect(store?.comments.some((c) => c.id === 'c_server')).toBe(true);
+  });
+});
+
 describe('Annotator voice host generation guards (P0.6)', () => {
   let annotator: Annotator | null = null;
 

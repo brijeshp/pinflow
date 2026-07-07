@@ -152,6 +152,27 @@ export interface PinflowConfig {
     store: ReviewerStore,
     change: { type: 'add' | 'update' | 'delete'; comment: Comment },
   ) => void;
+  /**
+   * Read half of the sync protocol (PROTOCOL.md); `onChange` is the write
+   * half. Fetched ONCE when the reviewer identity resolves — at init, or at
+   * first activation in stealth mode (hosts refresh by re-init; localStorage
+   * makes re-init lossless). The result is merged into the local store by
+   * comment id: higher `updatedAt` wins whole-comment for content, but the
+   * server ALWAYS wins for `status`/`resolution` — including clearing them —
+   * because disposition is team-set, never device-set. Local comments absent
+   * from the server are kept (they may not have synced yet).
+   *
+   * Scope rule: in reviewer mode this returns only the CURRENT reviewer's
+   * comments. The host authenticates that however it likes (session, link
+   * possession, real auth) — pinflow never enforces identity; `reviewer` is a
+   * display label. Builder-mode all-reviewer hydration is a later slice.
+   *
+   * A rejection is silent (dev-visible warn); localStorage stays
+   * authoritative. Hydration-applied changes do NOT emit `onChange` — that
+   * callback reports reviewer mutations, and echoing the host's own data back
+   * at it would loop.
+   */
+  source?: () => Promise<Comment[]>;
   /** Visual design tokens; applied once at init. See {@link PinflowTheme}. */
   theme?: PinflowTheme;
   /**
