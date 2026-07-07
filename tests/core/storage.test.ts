@@ -122,7 +122,7 @@ describe('storage v2 migration & hardening', () => {
     expect(loaded?.comments[0]?.modality).toBe('text');
   });
 
-  it('re-saving a migrated store stamps schemaVersion 2 and is idempotent', () => {
+  it('re-saving a migrated store stamps schemaVersion 3 and is idempotent', () => {
     localStorage.setItem(
       'pinflow:c:p:sarah',
       JSON.stringify({
@@ -137,15 +137,15 @@ describe('storage v2 migration & hardening', () => {
     expect(first).not.toBeNull();
     saveStore(localStorage, first!);
     const raw = JSON.parse(localStorage.getItem('pinflow:c:p:sarah') as string);
-    expect(raw.schemaVersion).toBe(2);
+    expect(raw.schemaVersion).toBe(3);
     // Loading again yields a structurally stable result.
     expect(loadStore(localStorage, 'p', 'sarah')).toEqual(first);
   });
 
-  it('saveStore persists v2', () => {
+  it('saveStore persists v3', () => {
     saveStore(localStorage, emptyStore('p', 'sarah'));
     const raw = JSON.parse(localStorage.getItem('pinflow:c:p:sarah') as string);
-    expect(raw.schemaVersion).toBe(2);
+    expect(raw.schemaVersion).toBe(3);
   });
 
   it('discards a corrupt blob on load', () => {
@@ -202,6 +202,57 @@ describe('storage v2 migration & hardening', () => {
     );
     const loaded = loadStore(localStorage, 'p', 'sarah');
     expect(loaded?.comments.map((c) => c.id)).toEqual(['cmt_good']);
+  });
+
+  it('loads a v2 store unchanged under schema v3 (status/resolution simply absent)', () => {
+    localStorage.setItem(
+      'pinflow:c:p:sarah',
+      JSON.stringify({
+        schemaVersion: 2,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [makeComment({ id: 'cmt_v2' })],
+      }),
+    );
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments).toHaveLength(1);
+    expect(loaded?.comments[0]).not.toHaveProperty('status');
+    expect(loaded?.comments[0]).not.toHaveProperty('resolution');
+  });
+
+  it('round-trips v3 status and resolution', () => {
+    const store = upsertComment(
+      emptyStore('p', 'sarah'),
+      makeComment({ id: 'cmt_r', status: 'done', resolution: 'Shipped in v2.' }),
+    );
+    saveStore(localStorage, store);
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments[0]).toMatchObject({ status: 'done', resolution: 'Shipped in v2.' });
+  });
+
+  it('drops an invalid status and non-string resolution; caps resolution at 500 chars', () => {
+    const invalid = { ...makeComment({ id: 'cmt_x' }), status: 'wontfix', resolution: 42 };
+    const long = {
+      ...makeComment({ id: 'cmt_y' }),
+      status: 'declined',
+      resolution: 'z'.repeat(600),
+    };
+    localStorage.setItem(
+      'pinflow:c:p:sarah',
+      JSON.stringify({
+        schemaVersion: 3,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [invalid, long],
+      }),
+    );
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments[0]).not.toHaveProperty('status');
+    expect(loaded?.comments[0]).not.toHaveProperty('resolution');
+    expect(loaded?.comments[1]?.status).toBe('declined');
+    expect(loaded?.comments[1]?.resolution).toHaveLength(500);
   });
 
   it('never throws on write failure and warns exactly once per session', () => {

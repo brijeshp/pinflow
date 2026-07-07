@@ -53,6 +53,13 @@ export interface Comment {
   modality: Modality;
   /** Present iff `modality === 'voice'`. */
   voice?: VoiceMeta;
+  /**
+   * Lifecycle disposition, set by the TEAM via the host — never the reviewer.
+   * Server-owned; delivered through hydration. Absent = open.
+   */
+  status?: 'open' | 'done' | 'declined';
+  /** Team's one-line resolution note (≤500 chars). Server-owned, like `status`. */
+  resolution?: string;
 }
 
 export interface ReviewerStore {
