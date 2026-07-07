@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { exportBuilder, exportFilename, exportReviewer } from '../../src/core/export';
+import { exportBuilder, exportFilename, exportJSON, exportReviewer } from '../../src/core/export';
 import type { Comment, ReviewerStore } from '../../src/core/types';
 
 function makeComment(partial: Partial<Comment> & Pick<Comment, 'id' | 'route' | 'text'>): Comment {
@@ -205,5 +205,44 @@ describe('exportFilename', () => {
     expect(exportFilename('p', null, '2026-04-15T14:45:00Z')).toBe(
       'pinflow-feedback-p-aggregate-2026-04-15T14-45-00Z.md',
     );
+  });
+  it('custom extension', () => {
+    expect(exportFilename('p', null, '2026-04-15T14:45:00Z', 'json')).toBe(
+      'pinflow-feedback-p-aggregate-2026-04-15T14-45-00Z.json',
+    );
+  });
+});
+
+describe('exportJSON', () => {
+  const mike: ReviewerStore = {
+    reviewer: 'Mike',
+    project: 'my-prototype',
+    createdAt: '2026-04-15T14:20:00Z',
+    comments: [makeComment({ id: 'cmt_m1', route: '/signup', text: 'Form has too many fields.' })],
+  };
+
+  it('emits a versioned, flattened corpus for an array of stores', () => {
+    const parsed = JSON.parse(exportJSON([sarah, mike]));
+    expect(parsed.pinflowExport).toBe(3);
+    expect(typeof parsed.generatedAt).toBe('string');
+    expect(parsed.comments).toHaveLength(4);
+    expect(parsed.comments[0]).toMatchObject({ id: 'cmt_1', reviewer: 'Sarah' });
+    expect(parsed.comments[3]).toMatchObject({ id: 'cmt_m1', reviewer: 'Mike' });
+  });
+
+  it('accepts a single store and carries disposition fields through', () => {
+    const store: ReviewerStore = {
+      ...sarah,
+      comments: [
+        makeComment({ id: 'cmt_d', route: '/', text: 'a', status: 'done', resolution: 'Fixed.' }),
+      ],
+    };
+    const parsed = JSON.parse(exportJSON(store));
+    expect(parsed.comments).toHaveLength(1);
+    expect(parsed.comments[0]).toMatchObject({
+      reviewer: 'Sarah',
+      status: 'done',
+      resolution: 'Fixed.',
+    });
   });
 });

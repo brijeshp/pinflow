@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyToClipboard, downloadMarkdown } from '../../src/core/download';
+import { copyToClipboard, download } from '../../src/core/download';
 
-describe('downloadMarkdown', () => {
+describe('download', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
@@ -26,7 +26,7 @@ describe('downloadMarkdown', () => {
     vi.spyOn(document.body, 'appendChild').mockImplementation((n) => n);
     vi.spyOn(document.body, 'removeChild').mockImplementation((n) => n);
 
-    downloadMarkdown('# Hello', 'test.md');
+    download('# Hello', 'test.md');
     expect(createUrl).toHaveBeenCalled();
     expect(clickSpy).toHaveBeenCalled();
   });

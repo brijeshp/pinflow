@@ -1,6 +1,11 @@
 import { anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
-import { copyToClipboard, downloadMarkdown } from '../download';
-import { exportBuilder, exportFilename, exportReviewer } from '../export';
+import { copyToClipboard, download } from '../download';
+import {
+  exportBuilder,
+  exportFilename,
+  exportJSON as exportStoresJSON,
+  exportReviewer,
+} from '../export';
 import { createId } from '../id';
 import { now } from '../time';
 import { routeKey } from '../route-key';
@@ -319,6 +324,7 @@ export class Annotator {
     const bar = el('div', 'bar');
     bar.append(
       this._makeButton('Export all', () => void this._handleBuilderExport()),
+      this._makeButton('JSON', () => this._handleBuilderJSON()),
       this._makeButton('Clear all', () => this._handleBuilderClear(), 'danger'),
     );
     drawer.appendChild(bar);
@@ -739,6 +745,19 @@ export class Annotator {
     return resolveAnchor(c.anchor) === null;
   };
 
+  /**
+   * Current corpus as versioned JSON (`{ pinflowExport, generatedAt, comments }`):
+   * this reviewer's store in reviewer mode, every reviewer's in builder mode.
+   * Public — exposed on the init() handle for host-owned pipelines.
+   */
+  exportJSON(): string {
+    return exportStoresJSON(
+      this._deps.mode === 'builder'
+        ? loadAllStores(this._deps.storage, this._deps.config.project)
+        : this._store,
+    );
+  }
+
   private async _handleReviewerExport(): Promise<void> {
     const meta = { generatedAt: now(), project: this._deps.config.project };
     const md = exportReviewer(this._store, meta, this._isOrphaned, this._deps.config.describeRoute);
@@ -747,7 +766,7 @@ export class Annotator {
       this._store.reviewer,
       meta.generatedAt,
     );
-    downloadMarkdown(md, filename);
+    download(md, filename);
     const copied = await copyToClipboard(md);
     this._showConfirmation(copied);
   }
@@ -757,8 +776,16 @@ export class Annotator {
     const meta = { generatedAt: now(), project: this._deps.config.project };
     const md = exportBuilder(stores, meta, this._isOrphaned, this._deps.config.describeRoute);
     const filename = exportFilename(this._deps.config.project, null, meta.generatedAt);
-    downloadMarkdown(md, filename);
+    download(md, filename);
     await copyToClipboard(md);
+  }
+
+  private _handleBuilderJSON(): void {
+    download(
+      this.exportJSON(),
+      exportFilename(this._deps.config.project, null, now(), 'json'),
+      'application/json',
+    );
   }
 
   // Spec §5.6: after reviewer export, show a small confirmation panel

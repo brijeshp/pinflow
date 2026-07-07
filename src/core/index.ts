@@ -46,13 +46,27 @@ export interface Handle {
    * whenever their logical screen changes without a URL change.
    */
   refreshRoute(): void;
+  /**
+   * Current corpus as versioned JSON (`{ pinflowExport, generatedAt, comments }`):
+   * the current reviewer's store in reviewer mode, all stores in builder mode.
+   */
+  exportJSON(): string;
+}
+
+// SSR and declined-identity installs return an inert handle with the full API.
+function noopHandle(): Handle {
+  return {
+    destroy() {},
+    refreshRoute() {},
+    exportJSON: () => '',
+  };
 }
 
 let current: Handle | null = null;
 
 export function init(config: PinflowConfig): Handle {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
-    return { destroy() {}, refreshRoute() {} };
+    return noopHandle();
   }
   // The devOnlyToken guardrail is a LOUD, EARLY failure by design (types.ts
   // promises "throws at init"). token.ts re-checks lazily as defense in depth.
@@ -85,7 +99,7 @@ export function init(config: PinflowConfig): Handle {
     }) ??
     (mode === 'builder' ? '__builder__' : null);
 
-  if (!reviewer && !stealth) return { destroy() {}, refreshRoute() {} };
+  if (!reviewer && !stealth) return noopHandle();
 
   const annotator = new Annotator({
     config,
@@ -115,6 +129,7 @@ export function init(config: PinflowConfig): Handle {
     refreshRoute() {
       annotator.refreshRoute();
     },
+    exportJSON: () => annotator.exportJSON(),
   };
   current = handle;
   return handle;
@@ -125,4 +140,5 @@ export function destroy(): void {
   current = null;
 }
 
+export { exportJSON } from './export';
 export { routeOf };

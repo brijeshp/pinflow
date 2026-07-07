@@ -1,3 +1,5 @@
+import { SCHEMA_VERSION } from './storage';
+import { now } from './time';
 import type { Comment, ReviewerStore } from './types';
 
 export interface ExportMeta {
@@ -251,9 +253,25 @@ export function exportFilename(
   project: string,
   reviewer: string | null,
   timestamp: string,
+  ext = 'md',
 ): string {
   const ts = timestamp.replace(/[:.]/g, '-');
   return reviewer
-    ? `pinflow-feedback-${reviewer}-${project}-${ts}.md`
-    : `pinflow-feedback-${project}-aggregate-${ts}.md`;
+    ? `pinflow-feedback-${reviewer}-${project}-${ts}.${ext}`
+    : `pinflow-feedback-${project}-aggregate-${ts}.${ext}`;
+}
+
+/**
+ * Machine-readable twin of the markdown export (markdown for humans/agents,
+ * JSON for pipelines). `pinflowExport` shares the storage schema version
+ * namespace — "v3" means one thing everywhere. Pure and DOM-free by contract:
+ * hosts run it server-side too.
+ */
+export function exportJSON(stores: ReviewerStore[] | ReviewerStore): string {
+  const list = Array.isArray(stores) ? stores : [stores];
+  return JSON.stringify({
+    pinflowExport: SCHEMA_VERSION,
+    generatedAt: now(),
+    comments: list.flatMap((s) => s.comments.map((c) => ({ ...c, reviewer: s.reviewer }))),
+  });
 }

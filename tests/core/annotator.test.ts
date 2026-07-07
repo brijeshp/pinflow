@@ -317,6 +317,67 @@ describe('Annotator deferred identity (P4.3)', () => {
   });
 });
 
+describe('Annotator export API (L1.5)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  function seedOther(): void {
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, 'Other'),
+      comments: [{ ...makeComment('theirs'), id: 'c2' }],
+    });
+  }
+
+  function makeBuilder(): Annotator {
+    return new Annotator({
+      config: { project: PROJECT },
+      reviewer: '__builder__',
+      mode: 'builder',
+      storage: localStorage,
+    });
+  }
+
+  it('exportJSON returns only the current reviewer corpus in reviewer mode', () => {
+    seedStore(makeComment('mine'));
+    seedOther();
+    annotator = makeAnnotator();
+    const parsed = JSON.parse(annotator.exportJSON());
+    expect(parsed.pinflowExport).toBe(3);
+    expect(parsed.comments.map((c: { reviewer: string }) => c.reviewer)).toEqual([REVIEWER]);
+  });
+
+  it('exportJSON aggregates every reviewer in builder mode', () => {
+    seedStore(makeComment('mine'));
+    seedOther();
+    annotator = makeBuilder();
+    const parsed = JSON.parse(annotator.exportJSON());
+    expect(parsed.comments).toHaveLength(2);
+  });
+
+  it('builder drawer has a JSON button that downloads application/json', () => {
+    seedStore(makeComment('mine'));
+    annotator = makeBuilder();
+    let blobType = '';
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((b) => {
+      blobType = (b as Blob).type;
+      return 'blob:mock';
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    const jsonBtn = [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'JSON');
+    expect(jsonBtn).toBeTruthy();
+    jsonBtn!.click();
+    expect(blobType).toContain('json');
+  });
+});
+
 describe('Annotator voice host generation guards (P0.6)', () => {
   let annotator: Annotator | null = null;
 

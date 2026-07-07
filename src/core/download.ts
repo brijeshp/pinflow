@@ -1,5 +1,9 @@
-export function downloadMarkdown(content: string, filename: string): void {
-  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+export function download(
+  content: string,
+  filename: string,
+  type = 'text/markdown;charset=utf-8',
+): void {
+  const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
