@@ -556,6 +556,28 @@ describe('Annotator source hydration (L2.1)', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
+  it('reconciles a stale server copy: local newer updatedAt re-announces as update (codex r16 P1)', async () => {
+    seedStore({
+      ...makeComment('locally saved newer text'),
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+    const onChange = vi.fn();
+    annotator = makeWithSource(
+      vi.fn().mockResolvedValue([
+        { ...makeComment(''), updatedAt: '2026-05-01T00:00:00.000Z' }, // same id c1, stale empty server text
+      ]),
+      { onChange },
+    );
+    await flushMicrotasks();
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const [, change] = onChange.mock.calls[0]!;
+    expect(change).toMatchObject({
+      type: 'update',
+      comment: { id: 'c1', text: 'locally saved newer text' },
+    });
+  });
+
   it('reconciles local-only comments: one add per comment the server list lacks (finding C)', async () => {
     seedStore(makeComment('mine')); // id c1 — never reached the server
     const onChange = vi.fn();

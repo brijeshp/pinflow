@@ -145,12 +145,26 @@ export class Annotator {
     void source().then(
       (server) => {
         if (this._destroyed || myGen !== this._generation) return;
-        const serverIds = new Set(server.map((c) => c.id));
-        const localOnly = this._store.comments.filter((c) => !serverIds.has(c.id));
+        // Two repair cases (codex r16): an id the server LACKS re-announces
+        // as 'add'; an id the server has but with an older updatedAt (a lost
+        // update — the merge keeps the local content) re-announces as
+        // 'update'. Server-newer/tie stays silent (no-echo rule).
+        const serverById = new Map(server.map((c) => [c.id, c.updatedAt]));
+        const repair = this._store.comments
+          .map((c) => {
+            const serverUpdatedAt = serverById.get(c.id);
+            if (serverUpdatedAt === undefined) return { type: 'add' as const, id: c.id };
+            if (c.updatedAt > serverUpdatedAt) return { type: 'update' as const, id: c.id };
+            return null;
+          })
+          .filter((r) => r !== null);
         this._store = { ...this._store, comments: mergeComments(this._store.comments, server) };
         this._persist();
         this._renderPins();
-        for (const c of localOnly) this._emitChange('add', c);
+        for (const r of repair) {
+          const merged = this._store.comments.find((c) => c.id === r.id);
+          if (merged) this._emitChange(r.type, merged);
+        }
       },
       (err) => this._voiceLogger.warn('source hydration failed — using local store', err),
     );

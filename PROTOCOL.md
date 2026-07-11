@@ -84,7 +84,9 @@ it would loop.
 
 **Reconcile-on-load** is the one deliberate exception: after a successful
 hydration merge, each local comment whose `id` is absent from the server list
-is re-announced as an `add` change. A local-only comment either never synced
+is re-announced as an `add` change, and each local comment whose
+`updatedAt` beats the server copy's (a lost update) is re-announced as an
+`update`. A local-only comment either never synced
 (a transient write failure the fire-and-forget pipe won't retry) or predates
 sync — the re-announce routes it back through the host's write pipe and
 repairs the gap. Safe because upserts are idempotent by `id`, and the server
