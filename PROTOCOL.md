@@ -78,8 +78,19 @@ Hydrated comments merge into the local store by `id`
 - Server-only comments are added; local-only comments are **kept** (they may
   not have synced yet).
 
-Hydration never re-emits through `onChange` — that callback reports reviewer
-mutations, and echoing the host's own data back at it would loop.
+Hydration-**applied** changes never re-emit through `onChange` — that
+callback reports reviewer mutations, and echoing the host's own data back at
+it would loop.
+
+**Reconcile-on-load** is the one deliberate exception: after a successful
+hydration merge, each local comment whose `id` is absent from the server list
+is re-announced as an `add` change. A local-only comment either never synced
+(a transient write failure the fire-and-forget pipe won't retry) or predates
+sync — the re-announce routes it back through the host's write pipe and
+repairs the gap. Safe because upserts are idempotent by `id`, and the server
+can't have deleted it (backends have no member-comment delete in v3; the team
+sets disposition, not existence). Backends need nothing new: a reconcile
+`add` is indistinguishable from a slow first sync.
 
 ## Scope rules
 

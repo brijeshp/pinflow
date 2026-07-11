@@ -537,13 +537,36 @@ describe('Annotator source hydration (L2.1)', () => {
     expect(c).toMatchObject({ status: 'done', resolution: 'Shipped.' });
   });
 
-  it('never emits onChange for hydration-applied changes', async () => {
-    seedStore(makeComment('mine'));
+  it('never emits onChange for hydration-APPLIED changes (shared and server-new ids)', async () => {
+    seedStore(makeComment('mine')); // id c1
+    const onChange = vi.fn();
+    annotator = makeWithSource(
+      vi
+        .fn()
+        .mockResolvedValue([
+          { ...makeComment('server-updated c1'), updatedAt: '2027-01-01T00:00:00.000Z' },
+          serverComment(),
+        ]),
+      { onChange },
+    );
+    await flushMicrotasks();
+
+    // c1 was updated FROM the server, c_server added from the server — the
+    // host's own data coming back must never echo into onChange.
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it('reconciles local-only comments: one add per comment the server list lacks (finding C)', async () => {
+    seedStore(makeComment('mine')); // id c1 — never reached the server
     const onChange = vi.fn();
     annotator = makeWithSource(vi.fn().mockResolvedValue([serverComment()]), { onChange });
     await flushMicrotasks();
 
-    expect(onChange).not.toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const [store, change] = onChange.mock.calls[0]!;
+    expect(change).toMatchObject({ type: 'add', comment: { id: 'c1', text: 'mine' } });
+    // Store snapshot handed to the host is post-merge (server comment present).
+    expect(store.comments.map((c: Comment) => c.id).sort()).toEqual(['c1', 'c_server']);
   });
 
   it('a late resolution after destroy() writes nothing', async () => {

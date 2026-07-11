@@ -133,7 +133,11 @@ export class Annotator {
   // reviewer; builder-mode all-reviewer hydration is a later slice).
   // Generation + destroyed guards follow _startVoiceDot: a fetch resolving
   // after destroy()/refreshRoute() must not write into the stale world.
-  // Never emits onChange — hydration is the host's own data coming back.
+  // Hydration-APPLIED changes never echo into onChange (they're the host's
+  // own data coming back). The one exception is reconciliation: a local
+  // comment ABSENT from the server list either never synced (transient write
+  // failure) or predates sync — re-announce it as an 'add' so the host's
+  // write pipe repairs the gap (idempotent: PROTOCOL upserts by id).
   private _hydrateFromSource(): void {
     const source = this._deps.config.source;
     if (!source || this._deps.mode !== 'reviewer' || this._reviewer === null) return;
@@ -141,9 +145,12 @@ export class Annotator {
     void source().then(
       (server) => {
         if (this._destroyed || myGen !== this._generation) return;
+        const serverIds = new Set(server.map((c) => c.id));
+        const localOnly = this._store.comments.filter((c) => !serverIds.has(c.id));
         this._store = { ...this._store, comments: mergeComments(this._store.comments, server) };
         this._persist();
         this._renderPins();
+        for (const c of localOnly) this._emitChange('add', c);
       },
       (err) => this._voiceLogger.warn('source hydration failed — using local store', err),
     );
