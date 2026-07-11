@@ -68,8 +68,10 @@ export function buildAnchor(el: Element, clientX: number, clientY: number): Anch
     role: el.getAttribute('role') ?? el.tagName.toLowerCase(),
   };
   // Accessible-name ladder: aria-label → img alt → text fingerprint.
+  // Capped ≤80 like every context field (types.ts promise) — a CMS-length
+  // alt must never balloon the anchor toward the host's payload bound.
   const name = el.getAttribute('aria-label') ?? el.getAttribute('alt') ?? fingerprint;
-  if (name) context.name = name;
+  if (name) context.name = name.slice(0, 80);
   const heading = nearestHeading(el);
   if (heading) context.heading = heading;
   const src = el instanceof HTMLImageElement ? el.src : el.getAttribute('src');

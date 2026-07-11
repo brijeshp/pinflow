@@ -108,10 +108,12 @@ sets disposition, not existence). Backends need nothing new: a reconcile
 
 ## Privacy expectations
 
-A `Comment` carries page-derived text: the anchor's text fingerprint,
-accessible name, and nearest heading. Backends store what reviewers saw —
-apply the same handling you would to user-generated content, and mind the
-README's privacy note when prototypes show sensitive data.
+A `Comment` carries page-derived data: the anchor's text fingerprint,
+accessible name, nearest heading, a computed-style snapshot, and image URLs —
+including CSS `background-image` URLs, which may embed signed/tokenized CDN
+links. Backends store what reviewers saw — apply the same handling you would
+to user-generated content, and mind the README's privacy note when prototypes
+show sensitive data.
 
 ## Versioning
 

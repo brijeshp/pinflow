@@ -170,7 +170,7 @@ The `— done` suffix appears only when the team has set a disposition, so backe
 - No telemetry. Ever.
 - No network calls unless you configure them: `onSubmit`, `onChange`, `source`, or voice transcription (`voice.tokenEndpoint`).
 - Element text content is captured as a fingerprint — be aware of this when deploying on prototypes containing sensitive data.
-- Each pin also captures the nearest heading's text (plus the target's accessible name and role), a small computed-style snapshot (background/color/font/radius), and the image URL for image pins — element context so agents know what is pinned. The same caution applies.
+- Each pin also captures the nearest heading's text (plus the target's accessible name and role), a small computed-style snapshot (background/color/font/radius), and image URLs — both `<img src>` for image pins and CSS `background-image` URLs, which may include signed/tokenized CDN links — as element context so agents know what is pinned. The same caution applies.
 
 ## Examples
 

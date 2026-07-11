@@ -320,3 +320,40 @@ it('renders the visual snapshot (Computed/Image lines) in comment blocks', async
   );
   expect(md).toContain('**Image:** https://cdn.example.com/hero.jpg');
 });
+
+it('orphaned comments keep their context and visual snapshot (codex r18)', async () => {
+  const { exportReviewer } = await import('../../src/core/export');
+  const store = {
+    reviewer: 'R1',
+    project: 'p',
+    createdAt: '2026-07-11T00:00:00.000Z',
+    comments: [
+      {
+        id: 'c_orphan',
+        createdAt: '2026-07-11T00:00:00.000Z',
+        updatedAt: '2026-07-11T00:00:00.000Z',
+        route: '/x',
+        fullUrl: 'https://x/x',
+        text: 'the removed hero looked wrong',
+        modality: 'text' as const,
+        anchor: {
+          selectors: { testid: null, id: null, css: 'div.gone', xpath: '/div' },
+          textFingerprint: '',
+          positionPercent: { x: 10, y: 10 },
+          viewport: { width: 1280, height: 800 },
+          context: {
+            role: 'img',
+            heading: 'Welcome',
+            src: 'https://cdn.example.com/gone.jpg',
+            styles: { background: 'rgb(1, 2, 3)' },
+          },
+        },
+      },
+    ],
+  };
+  const md = exportReviewer(store, { generatedAt: 'now', project: 'p' }, () => true); // all orphaned
+  expect(md).toContain('Orphaned');
+  expect(md).toContain('**Computed:** background rgb(1, 2, 3)');
+  expect(md).toContain('**Image:** https://cdn.example.com/gone.jpg');
+  expect(md).toContain('under ‘Welcome’');
+});

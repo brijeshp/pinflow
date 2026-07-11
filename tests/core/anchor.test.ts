@@ -109,6 +109,12 @@ describe('visual context capture (agent blast radius)', () => {
     expect(styles).not.toHaveProperty('radius'); // 0px default
   });
 
+  it('caps the accessible name at 80 chars even for CMS-length alt text (codex r18)', () => {
+    document.body.innerHTML = `<img id="long" alt="${'a'.repeat(300)}" src="/x.jpg">`;
+    const anchor = buildAnchor(document.getElementById('long')!, 5, 5);
+    expect(anchor.context?.name?.length).toBe(80);
+  });
+
   it('captures a truncated src for image pins; alt still flows via accessible name', () => {
     document.body.innerHTML = `<img id="pic" alt="Team photo" src="https://cdn.example.com/${'x'.repeat(300)}.jpg">`;
     const anchor = buildAnchor(document.getElementById('pic')!, 5, 5);

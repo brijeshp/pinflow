@@ -109,9 +109,15 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
 }
 
 function orphanBlock(comment: Comment & { reviewer?: string }, index: number): string {
+  // Orphans keep their human context and visual snapshot — the element is
+  // GONE, so the last-known name/heading/colors are exactly what an agent
+  // has left to work with (codex r18).
+  const ctx = contextLine(comment);
   return [
     commentHeading(comment, index, comment.reviewer),
     `**Last known element:** ${elementLabel(comment)}`,
+    ...(ctx ? [ctx] : []),
+    ...visualLines(comment),
     `**Last known selector:** \`${comment.anchor.selectors.css}\``,
     `**Route:** ${comment.route}`,
     '',
