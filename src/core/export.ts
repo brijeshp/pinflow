@@ -67,6 +67,26 @@ function contextLine(comment: Comment): string {
   }`;
 }
 
+// "**Computed:** background rgb(...), text rgb(...), font 17px DM Sans" — the
+// pin-time visual snapshot, so an agent knows WHAT is being pinned (a color,
+// a font, an image) and its current value, not just where it sits.
+function visualLines(comment: Comment): string[] {
+  const ctx = comment.anchor.context;
+  if (!ctx) return [];
+  const s = ctx.styles;
+  const parts: string[] = [];
+  if (s?.background) parts.push(`background ${s.background}`);
+  if (s?.color) parts.push(`text ${s.color}`);
+  if (s?.fontSize || s?.fontFamily)
+    parts.push(`font ${[s.fontSize, s.fontFamily].filter(Boolean).join(' ')}`);
+  if (s?.radius) parts.push(`radius ${s.radius}`);
+  if (s?.backgroundImage) parts.push(`bg-image ${s.backgroundImage}`);
+  const lines: string[] = [];
+  if (parts.length) lines.push(`**Computed:** ${parts.join(', ')}`);
+  if (ctx.src) lines.push(`**Image:** ${ctx.src}`);
+  return lines;
+}
+
 function commentBlock(comment: Comment, index: number, reviewer?: string): string {
   const heading = commentHeading(comment, index, reviewer);
   const pos = comment.anchor.positionPercent;
@@ -75,6 +95,7 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
     heading,
     `**Element:** ${elementLabel(comment)}`,
     ...(ctx ? [ctx] : []),
+    ...visualLines(comment),
     '**Selector candidates:**',
     selectorLines(comment),
     `**Position:** ${Math.round(pos.x)}% from left, ${Math.round(pos.y)}% from top of element`,

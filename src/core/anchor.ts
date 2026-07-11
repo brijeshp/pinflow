@@ -37,6 +37,29 @@ function nearestHeading(el: Element): string | undefined {
   return undefined;
 }
 
+// Computed-style micro-snapshot: the handful of properties feedback is
+// usually ABOUT, captured at pin time (what the reviewer saw). Text color and
+// font always have meaningful computed values (inherited counts) and ship on
+// every pin (~60 B); bg/radius/bg-image are omitted at their defaults.
+function visualSnapshot(el: Element): NonNullable<Anchor['context']>['styles'] | undefined {
+  const cs = window.getComputedStyle(el);
+  const styles: NonNullable<NonNullable<Anchor['context']>['styles']> = {};
+  const bg = cs.backgroundColor;
+  if (bg && bg !== 'transparent' && bg !== 'rgba(0, 0, 0, 0)') styles.background = bg;
+  const bgImg = cs.backgroundImage;
+  if (bgImg && bgImg !== 'none') styles.backgroundImage = bgImg.slice(0, 200);
+  if (cs.color) styles.color = cs.color;
+  if (cs.fontSize) styles.fontSize = cs.fontSize;
+  const family = cs.fontFamily
+    .split(',')[0]
+    ?.trim()
+    .replace(/^["']|["']$/g, '');
+  if (family) styles.fontFamily = family;
+  const radius = cs.borderRadius;
+  if (radius && radius !== '0px') styles.radius = radius;
+  return Object.keys(styles).length ? styles : undefined;
+}
+
 export function buildAnchor(el: Element, clientX: number, clientY: number): Anchor {
   const fingerprint = getTextFingerprint(el);
   // Best-effort human context (accessible name, role, nearest heading) —
@@ -44,10 +67,15 @@ export function buildAnchor(el: Element, clientX: number, clientY: number): Anch
   const context: NonNullable<Anchor['context']> = {
     role: el.getAttribute('role') ?? el.tagName.toLowerCase(),
   };
-  const name = el.getAttribute('aria-label') ?? fingerprint;
+  // Accessible-name ladder: aria-label → img alt → text fingerprint.
+  const name = el.getAttribute('aria-label') ?? el.getAttribute('alt') ?? fingerprint;
   if (name) context.name = name;
   const heading = nearestHeading(el);
   if (heading) context.heading = heading;
+  const src = el instanceof HTMLImageElement ? el.src : el.getAttribute('src');
+  if (src) context.src = src.slice(0, 200);
+  const styles = visualSnapshot(el);
+  if (styles) context.styles = styles;
   return {
     selectors: buildSelectors(el),
     textFingerprint: fingerprint,

@@ -277,3 +277,46 @@ it('renders the resolution note in the comment block when present', async () => 
   expect(md).toContain('— done');
   expect(md).toContain('**Resolution:** Shipped in v2.1.');
 });
+
+it('renders the visual snapshot (Computed/Image lines) in comment blocks', async () => {
+  const { exportReviewer } = await import('../../src/core/export');
+  const store = {
+    reviewer: 'R1',
+    project: 'p',
+    createdAt: '2026-07-11T00:00:00.000Z',
+    comments: [
+      {
+        id: 'c_vis',
+        createdAt: '2026-07-11T00:00:00.000Z',
+        updatedAt: '2026-07-11T00:00:00.000Z',
+        route: '/x',
+        fullUrl: 'https://x/x',
+        text: 'this background feels muddy',
+        modality: 'text' as const,
+        anchor: {
+          selectors: { testid: null, id: null, css: 'div.hero', xpath: '/div' },
+          textFingerprint: '',
+          positionPercent: { x: 40, y: 20 },
+          viewport: { width: 1280, height: 800 },
+          context: {
+            role: 'img',
+            heading: 'Welcome',
+            src: 'https://cdn.example.com/hero.jpg',
+            styles: {
+              background: 'rgb(241, 250, 238)',
+              color: 'rgb(26, 35, 50)',
+              fontSize: '17px',
+              fontFamily: 'DM Sans',
+              radius: '14px',
+            },
+          },
+        },
+      },
+    ],
+  };
+  const md = exportReviewer(store, { generatedAt: 'now', project: 'p' }, () => false);
+  expect(md).toContain(
+    '**Computed:** background rgb(241, 250, 238), text rgb(26, 35, 50), font 17px DM Sans, radius 14px',
+  );
+  expect(md).toContain('**Image:** https://cdn.example.com/hero.jpg');
+});

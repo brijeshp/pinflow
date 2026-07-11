@@ -26,8 +26,30 @@ export interface Anchor {
    * Best-effort human context captured at pin time: accessible name, role,
    * and the nearest preceding/ancestor heading text (≤80 chars each) — lets
    * exports say "the 'Continue' button under 'Next section'". Additive in v3.
+   *
+   * `styles` is a computed-style micro-snapshot of the properties feedback is
+   * usually ABOUT (background, color, font, radius — captured at pin time, so
+   * it reflects what the reviewer saw); `src` is the truncated image URL for
+   * image pins. Together they give an agent the "what is being pinned"
+   * blast radius without screenshots.
    */
-  context?: { name?: string; role?: string; heading?: string };
+  context?: {
+    name?: string;
+    role?: string;
+    heading?: string;
+    /** Truncated (≤200 chars) `src` when the pinned element is an image. */
+    src?: string;
+    /** Only meaningful values are captured; defaults (transparent bg, 0 radius) are omitted. */
+    styles?: {
+      background?: string;
+      backgroundImage?: string;
+      color?: string;
+      fontSize?: string;
+      /** First family only, quotes stripped. */
+      fontFamily?: string;
+      radius?: string;
+    };
+  };
 }
 
 export type Modality = 'text' | 'voice';

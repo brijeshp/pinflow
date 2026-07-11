@@ -13,19 +13,19 @@ The wire shape is the `Comment` interface in
 [`src/core/types.ts`](./src/core/types.ts) — that file is normative; this
 table is a summary.
 
-| Field        | Type                              | Notes                                                      |
-| ------------ | --------------------------------- | ---------------------------------------------------------- |
-| `id`         | `string`                          | Stable, client-generated. The sync key for every verb.     |
-| `createdAt`  | `string` (ISO 8601)               |                                                            |
-| `updatedAt`  | `string` (ISO 8601)               | Drives content merge (see below).                          |
-| `route`      | `string`                          | Logical screen key (`routeKey`); groups exports.           |
-| `fullUrl`    | `string`                          |                                                            |
-| `text`       | `string`                          | The comment body (or voice transcript).                    |
-| `anchor`     | `Anchor`                          | Selector candidates + position + optional element context. |
-| `modality`   | `'text' \| 'voice'`               |                                                            |
-| `voice`      | `VoiceMeta?`                      | Present iff `modality === 'voice'`.                        |
-| `status`     | `'open' \| 'done' \| 'declined'?` | **Server-owned.** Absent = open.                           |
-| `resolution` | `string?` (≤500 chars)            | **Server-owned.** Team's one-line disposition note.        |
+| Field        | Type                              | Notes                                                                                           |
+| ------------ | --------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `id`         | `string`                          | Stable, client-generated. The sync key for every verb.                                          |
+| `createdAt`  | `string` (ISO 8601)               |                                                                                                 |
+| `updatedAt`  | `string` (ISO 8601)               | Drives content merge (see below).                                                               |
+| `route`      | `string`                          | Logical screen key (`routeKey`); groups exports.                                                |
+| `fullUrl`    | `string`                          |                                                                                                 |
+| `text`       | `string`                          | The comment body (or voice transcript).                                                         |
+| `anchor`     | `Anchor`                          | Selectors + position + element context (name/role/heading, computed-style snapshot, image src). |
+| `modality`   | `'text' \| 'voice'`               |                                                                                                 |
+| `voice`      | `VoiceMeta?`                      | Present iff `modality === 'voice'`.                                                             |
+| `status`     | `'open' \| 'done' \| 'declined'?` | **Server-owned.** Absent = open.                                                                |
+| `resolution` | `string?` (≤500 chars)            | **Server-owned.** Team's one-line disposition note.                                             |
 
 Fields are additive across versions; unknown fields must be preserved or
 ignored, never rejected.

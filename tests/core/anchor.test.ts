@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import {
   anchorToScreen,
   buildAnchor,
@@ -44,7 +44,8 @@ describe('anchor', () => {
       '<section><h2>Next section</h2><div><button>Continue</button></div></section>';
     const btn = document.querySelector('button')!;
     const a = buildAnchor(btn, 0, 0);
-    expect(a.context).toEqual({ name: 'Continue', role: 'button', heading: 'Next section' });
+    // toMatchObject: the visual snapshot (color/font, always computed) rides alongside.
+    expect(a.context).toMatchObject({ name: 'Continue', role: 'button', heading: 'Next section' });
   });
 
   it('context prefers aria-label and explicit role', () => {
@@ -78,5 +79,42 @@ describe('anchor', () => {
     const el = document.createElement('div');
     el.getBoundingClientRect = () => ({ left: 10, top: 20, width: 100, height: 50 }) as DOMRect;
     expect(anchorToScreen(el, { x: 50, y: 50 })).toEqual({ left: 60, top: 45 });
+  });
+});
+
+describe('visual context capture (agent blast radius)', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('captures the computed-style micro-snapshot for styled elements', () => {
+    document.body.innerHTML =
+      '<div id="hero" style="background-color: rgb(241, 250, 238); color: rgb(26, 35, 50); font-size: 17px; font-family: \'DM Sans\', sans-serif; border-radius: 14px">Hero</div>';
+    const el = document.getElementById('hero')!;
+    const anchor = buildAnchor(el, 10, 10);
+    expect(anchor.context?.styles).toMatchObject({
+      background: 'rgb(241, 250, 238)',
+      color: 'rgb(26, 35, 50)',
+      fontSize: '17px',
+      fontFamily: 'DM Sans',
+      radius: '14px',
+    });
+  });
+
+  it('omits default/empty style values instead of shipping noise', () => {
+    document.body.innerHTML = '<p id="plain">Plain text</p>';
+    const anchor = buildAnchor(document.getElementById('plain')!, 5, 5);
+    const styles = anchor.context?.styles ?? {};
+    expect(styles).not.toHaveProperty('background'); // transparent default
+    expect(styles).not.toHaveProperty('radius'); // 0px default
+  });
+
+  it('captures a truncated src for image pins; alt still flows via accessible name', () => {
+    document.body.innerHTML = `<img id="pic" alt="Team photo" src="https://cdn.example.com/${'x'.repeat(300)}.jpg">`;
+    const anchor = buildAnchor(document.getElementById('pic')!, 5, 5);
+    expect(anchor.context?.src).toBeDefined();
+    expect(anchor.context!.src!.length).toBeLessThanOrEqual(200);
+    expect(anchor.context!.src!.startsWith('https://cdn.example.com/')).toBe(true);
+    expect(anchor.context?.name).toBe('Team photo');
   });
 });
