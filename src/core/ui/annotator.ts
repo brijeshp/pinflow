@@ -744,18 +744,41 @@ export class Annotator {
       }
     };
     ta.addEventListener('keydown', onKey);
-    // Clicking anywhere outside dismisses. composedPath (not target) because
-    // document-level listeners see shadow-internal events retargeted to the
-    // host. Armed on the next task so the gesture that opened the popup can't
-    // instantly close it.
-    const onOutside = (e: Event): void => {
+    // Dismissal requires a COMPLETED outside tap: armed on pointerdown, fired
+    // on the matching pointerup. A second finger joining (pinch — on iOS the
+    // recovery gesture after input auto-zoom) or the browser stealing the
+    // gesture (pointercancel: touch scroll, pinch-zoom) aborts instead of
+    // discarding the draft. composedPath (not target) because document-level
+    // listeners see shadow-internal events retargeted to the host. Armed on
+    // the next task so the gesture that opened the popup can't instantly
+    // close it. isPrimary is only ever false on real multi-touch — plain
+    // events (jsdom, synthetic) count as primary.
+    let pendingTap: number | null = null;
+    const onOutsideDown = (e: Event): void => {
+      const p = e as PointerEvent;
+      if (p.isPrimary === false) {
+        // A second finger ANYWHERE (even on the popup) makes this a pinch,
+        // so the containment check must come after — codex r20.
+        pendingTap = null;
+        return;
+      }
       if (e.composedPath().includes(wrap)) return;
+      pendingTap = p.pointerId ?? 0;
+    };
+    const onOutsideUp = (e: Event): void => {
+      if (pendingTap === null || ((e as PointerEvent).pointerId ?? 0) !== pendingTap) return;
+      pendingTap = null;
+      if (e.composedPath().includes(wrap)) return; // released back inside
       this._closeActiveInput();
     };
-    const arm = window.setTimeout(
-      () => document.addEventListener('pointerdown', onOutside, true),
-      0,
-    );
+    const onOutsideCancel = (e: Event): void => {
+      if (((e as PointerEvent).pointerId ?? 0) === pendingTap) pendingTap = null;
+    };
+    const arm = window.setTimeout(() => {
+      document.addEventListener('pointerdown', onOutsideDown, true);
+      document.addEventListener('pointerup', onOutsideUp, true);
+      document.addEventListener('pointercancel', onOutsideCancel, true);
+    }, 0);
     if (!frozen) {
       const actions = el('div', 'actions');
       const del = el('button', 'delete', 'Delete');
@@ -781,7 +804,9 @@ export class Annotator {
       commentId,
       cleanup: () => {
         window.clearTimeout(arm);
-        document.removeEventListener('pointerdown', onOutside, true);
+        document.removeEventListener('pointerdown', onOutsideDown, true);
+        document.removeEventListener('pointerup', onOutsideUp, true);
+        document.removeEventListener('pointercancel', onOutsideCancel, true);
       },
     };
   }

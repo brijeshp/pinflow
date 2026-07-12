@@ -62,6 +62,14 @@ function flushMicrotasks(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
+// jsdom has no PointerEvent; a plain Event with pointer fields assigned is what
+// the annotator's document-level listeners actually receive in tests.
+function pointer(type: string, props: Record<string, unknown> = {}): Event {
+  const e = new Event(type, { bubbles: true, composed: true });
+  Object.assign(e, props);
+  return e;
+}
+
 describe('Annotator explicit-save lifecycle', () => {
   let annotator: Annotator | null = null;
 
@@ -107,17 +115,78 @@ describe('Annotator explicit-save lifecycle', () => {
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('original');
   });
 
-  it('clicking outside the popup dismisses without saving', async () => {
+  it('a completed outside tap (down then up) dismisses without saving', async () => {
     seedStore(makeComment('original'));
     annotator = makeAnnotator();
 
     const ta = openFirstPinInput();
     ta.value = 'typed then clicked away';
     await flushMicrotasks(); // arm the outside-dismiss listener (next task)
-    document.body.dispatchEvent(new Event('pointerdown', { bubbles: true, composed: true }));
+    document.body.dispatchEvent(pointer('pointerdown'));
+    document.body.dispatchEvent(pointer('pointerup'));
 
     expect(shadow().querySelector('.input')).toBeNull();
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('original');
+  });
+
+  it('an outside pointerdown alone does not dismiss — touch scroll keeps the draft', async () => {
+    seedStore(makeComment('original'));
+    annotator = makeAnnotator();
+
+    openFirstPinInput();
+    await flushMicrotasks();
+    // Touch scroll/pan: down, then the browser takes the gesture (pointercancel).
+    document.body.dispatchEvent(pointer('pointerdown', { pointerId: 7 }));
+    expect(shadow().querySelector('.input')).not.toBeNull();
+    document.body.dispatchEvent(pointer('pointercancel', { pointerId: 7 }));
+    // A pointerup that never had a live down must not dismiss either.
+    document.body.dispatchEvent(pointer('pointerup', { pointerId: 7 }));
+
+    expect(shadow().querySelector('.input')).not.toBeNull();
+  });
+
+  it('a pinch (second finger joins) never dismisses the draft', async () => {
+    seedStore(makeComment('original'));
+    annotator = makeAnnotator();
+
+    openFirstPinInput();
+    await flushMicrotasks();
+    // iOS pinch-out to recover from auto-zoom: first finger lands outside the
+    // popup (primary), second finger joins (non-primary), then fingers lift.
+    document.body.dispatchEvent(pointer('pointerdown', { pointerId: 1, isPrimary: true }));
+    document.body.dispatchEvent(pointer('pointerdown', { pointerId: 2, isPrimary: false }));
+    document.body.dispatchEvent(pointer('pointerup', { pointerId: 1, isPrimary: true }));
+    document.body.dispatchEvent(pointer('pointerup', { pointerId: 2, isPrimary: false }));
+
+    expect(shadow().querySelector('.input')).not.toBeNull();
+  });
+
+  it('a cross-boundary pinch (second finger inside the popup) never dismisses', async () => {
+    seedStore(makeComment('original'));
+    annotator = makeAnnotator();
+
+    const ta = openFirstPinInput();
+    await flushMicrotasks();
+    // First finger outside (primary), second finger lands ON the popup —
+    // still a pinch: lifting the first finger must not eat the draft.
+    document.body.dispatchEvent(pointer('pointerdown', { pointerId: 1, isPrimary: true }));
+    ta.dispatchEvent(pointer('pointerdown', { pointerId: 2, isPrimary: false }));
+    document.body.dispatchEvent(pointer('pointerup', { pointerId: 1, isPrimary: true }));
+    ta.dispatchEvent(pointer('pointerup', { pointerId: 2, isPrimary: false }));
+
+    expect(shadow().querySelector('.input')).not.toBeNull();
+  });
+
+  it('dragging from outside and releasing inside the popup keeps it open', async () => {
+    seedStore(makeComment('original'));
+    annotator = makeAnnotator();
+
+    const ta = openFirstPinInput();
+    await flushMicrotasks();
+    document.body.dispatchEvent(pointer('pointerdown', { pointerId: 3 }));
+    ta.dispatchEvent(pointer('pointerup', { pointerId: 3 }));
+
+    expect(shadow().querySelector('.input')).not.toBeNull();
   });
 
   it('dismissing a never-saved empty comment deletes it (no orphan pins)', () => {

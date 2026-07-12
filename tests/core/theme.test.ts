@@ -61,6 +61,13 @@ describe('theme tokens (A1)', () => {
     expect(STYLES).toMatch(/\.root\{[^}]*font-family:var\(--pf-font-family,inherit\)/);
   });
 
+  it('draft textarea is 16px on coarse pointers — iOS Safari must not auto-zoom on focus', () => {
+    // Safari zooms the whole page when a focused input is under 16px; the
+    // reviewer then pinches out and the gesture eats the draft. 16px on touch
+    // devices removes the zoom trigger at the source.
+    expect(STYLES).toContain('@media (pointer:coarse){.input textarea{font-size:16px}}');
+  });
+
   it('resolution treatments ride the textMuted token (L2.3)', () => {
     expect(STYLES).toMatch(/\.pin\[data-status\]\{background:var\(--pf-text-muted,#64748b\)\}/);
     expect(STYLES).toMatch(/\.pin\[data-status="declined"\]\{text-decoration:line-through\}/);
