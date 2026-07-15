@@ -15,7 +15,7 @@ Excluded from coverage: `src/core/iife.ts`, `src/core/ui/**`, `src/core/types.ts
 
 ## Layout (mirrors `src/`)
 
-- **`tests/core/`** — unit tests: annotator, gesture, anchor, selector, storage, router, export, theme, dom, identity, initialization, voice-loader, …
+- **`tests/core/`** — unit tests: annotator (+ reflow), gesture, anchor, selector, storage, router, route-key, frame-route, export, download, onchange, theme, dom, id, identity, init, safe-storage, voice-loader, wrapper-isolation.
 - **`tests/voice/`** — audio, deepgram, token, session, worklet, protocol, transcript-store, levels, and **`bundle-isolation.test.ts`** (asserts voice symbols never appear in core bundles — the seam's CI enforcement).
 - **`tests/react/`**, **`tests/vue/`** — wrapper component tests (`tests/vue/mount-helper.ts` utility).
 - **`tests/e2e/`** — `acceptance.spec.ts` (Playwright), served by `tests/e2e/serve.mjs` on `localhost:4173`.

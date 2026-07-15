@@ -4,21 +4,23 @@ The Pinflow core engine (`src/core/`) is a framework-agnostic annotation layer t
 
 ## Module map
 
-**`index.ts`** — Public entry point. Exports `init(config)` → `Handle`, `destroy()`, `routeOf()`, `version`, and all types. Manages the singleton instance and coordinates module initialization: resolves reviewer identity, acquires storage, creates the `Annotator`, and sets up route watching. The `Handle` contract (`destroy()`, `refreshRoute()`) lets hosts control lifecycle and refresh pins when the logical screen changes without a URL change (frame-per-screen SPAs).
+**`index.ts`** — Public entry point. Exports `init(config)` → `Handle`, `destroy()`, `routeOf()`, `version`, all types, and the artifact toolkit re-exports from `export.ts`. Manages the singleton instance and coordinates module initialization: resolves reviewer identity, acquires storage, creates the `Annotator`, and sets up route watching. The `Handle` contract (`destroy()`, `refreshRoute()`, `exportJSON()`, `exportMarkdown()`, `downloadExport()`) lets hosts control lifecycle, refresh pins when the logical screen changes without a URL change (frame-per-screen SPAs), and place their own submission moment.
 
-**`types.ts`** — Shared data models and config. Defines `Comment` (the core entity with anchor, modality, metadata), `ReviewerStore` (per-reviewer corpus), `Anchor` (selectors + fingerprint + position), and `PinflowConfig` (project namespace, optional voice config, theme tokens, callbacks). Mode is `'reviewer'` (single user) or `'builder'` (aggregate all users).
+**`types.ts`** — Shared data models and config. Defines `Comment` (the core entity with anchor, modality, metadata, and the server-owned `status`/`resolution` disposition), `ReviewerStore` (per-reviewer corpus), `Anchor` (selectors + fingerprint + position + optional pin-time `context` with accessible name/role/heading, image `src`, and a computed-style micro-snapshot), and `PinflowConfig` (project namespace, sync hooks `onChange`/`source`, optional voice config, theme tokens, `describeRoute`, `submitTo`). Mode is `'reviewer'` (single user) or `'builder'` (aggregate all users).
 
-**`ui/annotator.ts`** — The state machine that owns all user interaction (largest file in the repo): pin creation, editing, deletion, panel toggling, export, and reflow. Private `_*` members are mangled by the build. Core methods: `_placeCommentAt()` (gesture→pin), `_renderPins()` (full rebuild), `_repositionPins()` (scroll/resize only), `_ensureIdentity()` (stealth deferred prompt), `_openInput()` (explicit-save text editor), `_startVoiceDot()` (voice recording with generation guard).
+**`ui/annotator.ts`** — The state machine that owns all user interaction (largest file in the repo): pin creation, editing, deletion, panel toggling, export, source hydration, and reflow. Private `_*` members are mangled by the build. Core methods: `_placeCommentAt()` (gesture→pin), `_renderPins()` (full rebuild), `_repositionPins()` (scroll/resize only), `_ensureIdentity()` (stealth deferred prompt), `_openInput()` (explicit-save text editor; resolved comments open as a frozen read-only view with a muted disposition line), `_startVoiceDot()` (voice recording with generation guard), `_hydrateFromSource()` (fetch `config.source` once at identity resolution, merge, and re-announce local-only/locally-newer comments through `onChange`). Dispositioned pins render muted (theme `textMuted`): done swaps the number for ✓, declined keeps the number struck through; orphaned pins stay gray `#a3a3a3`.
+
+Outside-dismiss of the draft popup requires a COMPLETED single-finger tap: armed on `pointerdown`, fired on the matching `pointerup`, aborted by a second pointer (pinch — including one landing on the popup), `pointercancel` (browser took the gesture: touch scroll, pinch-zoom), or release back inside the popup. The draft textarea is 16px on coarse pointers so iOS Safari never auto-zooms on focus.
 
 **`ui/styles.ts`** — Inline CSS (hand-minified) for the shadow tree. Defines `.root`, `.control` (bottom-right button), `.pin` (numbered badge), `.panel` (info drawer), `.input` (text editor popup), `.drawer` (builder-mode checkbox list). Theme tokens are CSS variables (`--pf-*`) consumed with fallbacks; media queries handle dark mode and mobile.
 
 **`ui/dom.ts`** — Shadow root factory (`createUIRoot()`) that builds the isolated DOM tree and appends to `body` once ready. Provides the `el()` helper for text-only element creation.
 
-**`storage.ts`** — Persistence with schema versioning (v1→v2 migration). Stores per-reviewer corpora under `pinflow:c:<project>:<reviewer>` (see `KEY_PREFIX`). Exports `loadStore()`, `saveStore()` (guarded, never throws), `loadAllStores()`, `upsertComment()`, `deleteComment()`, `emptyStore()`. Migration coerces v1 records to v2 (defaulting modality to `'text'`) and drops malformed entries via anchor validation.
+**`storage.ts`** — Persistence with schema versioning (`SCHEMA_VERSION = 3`; v1→v2→v3 migration on load). Stores per-reviewer corpora under `pinflow:c:<project>:<reviewer>` (see `KEY_PREFIX`). Exports `loadStore()`, `saveStore()` (guarded, never throws), `loadAllStores()`, `upsertComment()`, `deleteComment()`, `emptyStore()`, and `mergeComments()` (id-match merge used by source hydration: higher `updatedAt` wins content, incoming server value always wins `status`/`resolution` — including clearing them). Migration coerces v1 records (defaulting modality to `'text'`), validates anchors, and drops malformed entries; v3 added the optional disposition fields, so v2 stores need no field rewrite.
 
 **`safe-storage.ts`** — Fallback to an in-memory `Map`-backed Storage shim when real localStorage is blocked (third-party embeds, sandboxed iframes, private browsing). `acquireStorage()` tries a read first; on SecurityError returns `memoryStorage()` (non-persistent for the session).
 
-**`anchor.ts`** — Element-to-pin anchoring. `buildAnchor()` captures selectors + fingerprint + click-to-percentage offset. `resolveAnchor()` re-finds the element on re-render via the selector ladder. `anchorToScreen()` converts percentage offsets back to viewport coords. `currentViewport()` records dimensions for orphan fallback.
+**`anchor.ts`** — Element-to-pin anchoring. `buildAnchor()` captures selectors + fingerprint + click-to-percentage offset, plus the pin-time `context`: accessible name (image `alt` included, capped at 80), role, nearest heading, truncated image `src`, and a computed-style micro-snapshot of what feedback is usually about (background, color, font, radius; defaults omitted). `resolveAnchor()` re-finds the element on re-render via the selector ladder. `anchorToScreen()` converts percentage offsets back to viewport coords. `currentViewport()` records dimensions for orphan fallback.
 
 **`selector.ts`** — Selector generation and resolution. `buildSelectors()` produces `SelectorCandidates` (testid, id, css, xpath). The CSS path uses `nth-of-type()` and filters framework-generated IDs (React `useId`, Radix, auto-hashed tokens). `getTextFingerprint()` returns the first 80 chars, whitespace-collapsed. `findByCandidates()` implements the ladder (testid → id → CSS → XPath → fingerprint walk, capped at 2000 elements).
 
@@ -26,7 +28,7 @@ The Pinflow core engine (`src/core/`) is a framework-agnostic annotation layer t
 
 **`route-key.ts`** — Strips pinflow-internal URL params (`reviewer`, `mode`) before deriving the logical screen key, so comments anchor to the conceptual route.
 
-**`export.ts`** — Markdown generation for reviewer and builder modes. `exportReviewer()` groups comments by route with full selector detail; `exportBuilder()` adds reviewer names and a summary. Orphaned comments are segregated with last-known selectors. `exportFilename()` timestamps output (`pinflow-feedback-[reviewer-]project-timestamp.md`).
+**`export.ts`** — Artifact generation for reviewer and builder modes, re-exported from the package entry as a standalone toolkit. `exportReviewer()` groups comments by route with full selector detail; `exportBuilder()` adds reviewer names and a summary; `exportJSON()` emits the versioned machine-readable corpus. Headings carry the comment id and a disposition suffix; a host `describeRoute` turns `## Route: <key>` into a friendly title with the stable key in backticks beneath. Per-comment lines include **Context:** (accessible name/role/nearest heading), **Computed:** (pin-time style snapshot), **Image:** (truncated src), and **Resolution:** (team note) when present. Orphaned comments are segregated but KEEP their context/computed/image lines — the last-known visual state is exactly what remains when the element is gone. `exportFilename()` timestamps output (`pinflow-feedback-[reviewer-]project-timestamp.md`).
 
 **`gesture/controller.ts`** — Stealth gesture recognizer (long-press on touch, Alt+click on desktop). Runs in capture phase with swallow-timing so host click handlers don't fire. Active only in `'stealth'`/`'both'` activation modes.
 
@@ -40,7 +42,9 @@ The Pinflow core engine (`src/core/`) is a framework-agnostic annotation layer t
 
 **Voice → persistence:** the voice module streams interim/final text and emits `commit(text, meta)` when done. `_buildVoiceHost()` supplies the callback that calls `_commitTextComment()` with a **frozen route** (captured at dot creation, not commit time, to survive route changes mid-recording). Voice failures degrade to text via `degradeToText()`.
 
-**Route change:** `watchRoute()` fires → `_generation` bumps → in-flight voice stops and persists to its frozen route → `_renderPins()` clears both caches and renders pins for the new route.
+**Route change:** `watchRoute()` fires → `_generation` bumps → in-flight voice stops and persists to its frozen route → the open draft popup closes → `_renderPins()` clears both caches and renders pins for the new route.
+
+**Source hydration (read half of PROTOCOL.md):** when reviewer identity resolves (init, or first stealth gesture), `config.source()` is fetched once and merged via `mergeComments()`. Local comments the server lacks — or has stale (`updatedAt` older than local) — are re-announced through `onChange` as add/update, so transient sync losses self-heal (reconcile-on-load). Hydration-applied changes themselves never emit `onChange` (echoing the host's own data back would loop). Rejection is a dev-visible warn; localStorage stays authoritative.
 
 **Reflow (scroll/resize):** rAF-throttled `_repositionPins()` reuses cached anchors and moves existing pin elements only — no DOM churn, caches NOT invalidated.
 
@@ -64,7 +68,7 @@ The Pinflow core engine (`src/core/`) is a framework-agnostic annotation layer t
 
 ## Storage behavior
 
-- **Schema:** `schemaVersion: 2`. v1 records (no modality) migrate on load with `modality='text'`.
+- **Schema:** `schemaVersion: 3` (`SCHEMA_VERSION` in `src/core/storage.ts`). v1 records (no modality) migrate on load with `modality='text'`; v3 added optional `status`/`resolution`, so v2 records pass through unchanged.
 - **Validation:** `normalizeComments()` drops entries with missing `id`, malformed `anchor`, or invalid selector shapes; coerces text/route/createdAt to strings.
 - **Blocked access:** SecurityError on read → in-memory shim; comments last the session only; a single console.warn on first write failure.
 - **Forward tolerance:** `migrate()` reads hypothetical v3+ stable core fields; foreign data (missing reviewer/project/schemaVersion) is discarded.
@@ -78,12 +82,16 @@ Reviewer export shape:
 Generated: <timestamp>
 [comment count, routes covered]
 ---
-## Route: /path
-### Comment 1 — <reviewer>, <createdAt>
+## <describeRoute label (stable key in backticks beneath), or `Route: /path`>
+### [<comment id>] Comment 1 — <reviewer>, <createdAt> — done|declined (suffix only when dispositioned)
 **Element:** <button data-testid="..."> ("fingerprint")
+**Context:** the 'Continue' button under 'Next section'
+**Computed:** background rgb(…), text rgb(…), font 17px DM Sans, radius 14px
+**Image:** https://… (image pins only)
 **Selector candidates:** testid / css / xpath as inline code
 **Position:** X% from left, Y% from top of element
 **Viewport at time of comment:** 390×844 (mobile)
+**Resolution:** <team note, when present>
 > comment text, blockquoted
 ```
 

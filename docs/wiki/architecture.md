@@ -1,6 +1,6 @@
 # Architecture
 
-Pinflow is a zero-backend annotation layer: a framework-agnostic core engine, an optional lazily-loaded voice module, and two thin framework wrappers. Everything persists to localStorage; the only "export" is markdown generated client-side for pasting into coding agents.
+Pinflow is a zero-backend annotation layer: a framework-agnostic core engine, an optional lazily-loaded voice module, and two thin framework wrappers. localStorage is the local-first source of truth; artifacts (markdown for pasting into coding agents, versioned JSON for machines) are generated client-side. Hosts that want cross-device sync and a team review lifecycle bring their own backend via the two-hook contract in `PROTOCOL.md` at the repo root: `onChange` is the write half, `config.source` the read half, and the server owns the `status`/`resolution` disposition.
 
 ## Module map
 
@@ -40,8 +40,9 @@ Voice must cost text-only users **0 bytes**. `pinflow/voice` is marked external 
 2. **Pin**: click an element → `buildAnchor()` (`src/core/anchor.ts`) captures selector candidates (`src/core/selector.ts`), a text fingerprint, and percentage offsets.
 3. **Comment**: text via the explicit-save editor popup, or voice via the lazily-loaded module streaming Deepgram transcripts back through `VoiceHost.commit`.
 4. **Persist**: `upsertComment()` → `saveStore()` (`src/core/storage.ts`) under `pinflow:c:<project>:<reviewer>`; `onChange` fires after each persisted mutation.
-5. **Re-render**: route changes (`src/core/router.ts` or host-driven `Handle.refreshRoute()`) re-scope pins to the current logical screen (`src/core/route-key.ts`, or host-supplied `config.routeKey`).
-6. **Export**: `src/core/export.ts` renders reviewer/builder markdown; comment text is untrusted input — blockquote escaping guards prompt injection when users paste exports into coding agents.
+5. **Hydrate** (hosts with a backend): `config.source()` fetched once at identity resolution, merged by comment id (`mergeComments()`); server wins disposition, local-only/newer comments re-announce through `onChange` so sync losses self-heal.
+6. **Re-render**: route changes (`src/core/router.ts` or host-driven `Handle.refreshRoute()`) close any open draft popup and re-scope pins to the current logical screen (`src/core/route-key.ts`, or host-supplied `config.routeKey`).
+7. **Export**: `src/core/export.ts` renders reviewer/builder markdown and versioned JSON (also reachable via `Handle.exportMarkdown()/exportJSON()/downloadExport()` and the package-entry toolkit re-exports); comment text is untrusted input — blockquote escaping guards prompt injection when users paste exports into coding agents.
 
 ## Cross-cutting conventions
 

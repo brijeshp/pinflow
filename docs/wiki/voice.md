@@ -34,7 +34,7 @@ Voice activation happens in `src/core/ui/annotator.ts` `_startVoiceDot()`:
 
 - **getUserMedia:** audio with echoCancellation and noiseSuppression, `channelCount: 1`.
 - **AudioWorklet:** `src/voice/capture/worklet.ts` ships as a Blob-URL string loaded via `ctx.audioWorklet.addModule()`. It downsamples the AudioContext's native rate (typically 48 kHz) to 16 kHz mono linear16 PCM, emitting transferable ArrayBuffers off the main thread (ratio = sampleRate / 16000; samples clamped to [-1, 1] then scaled to Int16).
-- **Waveform levels:** an AnalyserNode samples 5-band frequency data on a parallel rAF loop, feeding the 5-bar visual in `src/voice/ui/dot.ts`.
+- **Waveform levels:** an AnalyserNode samples 5-band frequency data on a parallel rAF loop, feeding the 5-bar visual in `src/voice/ui/dot.ts`. The dot HUD consumes the host theme's surface/text/font tokens (`--pf-surface`, `--pf-text`, `--pf-font-family`) so it matches a themed embed.
 - **Cleanup:** `stop()` releases mic tracks (OS indicator clears), closes the AudioContext, detaches the worklet, cancels rAF, revokes the Blob URL — every acquired resource is released even on partial failure.
 
 ## Deepgram streaming & WebSocket lifecycle
