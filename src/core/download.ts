@@ -1,5 +1,5 @@
-export function downloadMarkdown(content: string, filename: string): void {
-  const blob = new Blob([content], { type: 'text/markdown;charset=utf-8' });
+export function download(content: string, filename: string, type = 'text/markdown'): void {
+  const blob = new Blob([content], { type });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -11,6 +11,8 @@ export function downloadMarkdown(content: string, filename: string): void {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
+// Clipboard failure is non-fatal: the file download is the primary channel and
+// the confirmation copy adjusts its message when the clipboard was unavailable.
 export async function copyToClipboard(content: string): Promise<boolean> {
   try {
     if (navigator.clipboard?.writeText) {
@@ -18,20 +20,7 @@ export async function copyToClipboard(content: string): Promise<boolean> {
       return true;
     }
   } catch {
-    /* fall through */
+    /* degrade below */
   }
-  try {
-    const textarea = document.createElement('textarea');
-    textarea.value = content;
-    textarea.setAttribute('readonly', '');
-    textarea.style.position = 'absolute';
-    textarea.style.left = '-9999px';
-    document.body.appendChild(textarea);
-    textarea.select();
-    const ok = document.execCommand('copy');
-    document.body.removeChild(textarea);
-    return ok;
-  } catch {
-    return false;
-  }
+  return false;
 }

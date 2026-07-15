@@ -1,196 +1,370 @@
 import { anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
-import { copyToClipboard, downloadMarkdown } from '../download';
-import { exportBuilder, exportFilename, exportReviewer } from '../export';
+import { copyToClipboard, download } from '../download';
+import {
+  exportBuilder,
+  exportFilename,
+  exportJSON as exportStoresJSON,
+  exportReviewer,
+} from '../export';
 import { createId } from '../id';
 import { now } from '../time';
 import { routeKey } from '../route-key';
 import {
+  clearProject,
   deleteComment as deleteCommentFromStore,
   emptyStore,
   loadAllStores,
   loadStore,
+  mergeComments,
   saveStore,
-  storageKey,
   upsertComment,
 } from '../storage';
-import type { Comment, Mode, PinflowConfig, ReviewerStore } from '../types';
-import { createUIRoot, flipPosition, type UIRoot } from './dom';
+import type {
+  ActivationConfig,
+  Anchor,
+  Comment,
+  Mode,
+  PinflowConfig,
+  ReviewerStore,
+  VoiceMeta,
+} from '../types';
+import { GestureController } from '../gesture/controller';
+import type { Logger, VoiceHost, VoiceModule, VoiceSession } from '../voice-contract';
+import { loadVoice as defaultLoadVoice } from '../voice-loader';
+import { createUIRoot, el, flipPosition, place, type UIRoot } from './dom';
+
+// Not publicly configurable (P4.4): the 500ms default matched every real use.
+// GestureController keeps its internal option for tests.
+const LONG_PRESS_MS = 500;
+const MOVE_THRESHOLD_PX = 10;
+
+// Dispositioned by the team (via hydration) — a shared record, not the
+// reviewer's draft: frozen in the UI (no edit/delete, exempt from
+// empty-cleanup). `open` is NOT resolved; it stays fully editable.
+function isResolved(c: Comment): boolean {
+  return c.status === 'done' || c.status === 'declined';
+}
 
 interface AnnotatorDeps {
   config: Required<Pick<PinflowConfig, 'project'>> & PinflowConfig;
-  reviewer: string;
+  /** null = stealth mode with identity deferred to the first activation. */
+  reviewer: string | null;
   mode: Mode;
   storage: Storage;
+  /** Resolves (and may prompt for) the reviewer identity at first activation. */
+  resolveIdentity?: () => string | null;
+  /** Injectable for tests; defaults to the real lazy `import('pinflow/voice')`. */
+  loadVoice?: () => Promise<VoiceModule>;
 }
 
-type PositionCorner = 'bottom-right' | 'bottom-left' | 'top-right' | 'top-left';
+interface ActiveVoice {
+  mount: HTMLDivElement;
+  session: VoiceSession | null;
+}
+
+interface ActiveInput {
+  wrap: HTMLDivElement;
+  commentId: string;
+  /** Detach the popup's document-level dismiss listeners. */
+  cleanup(): void;
+}
 
 export class Annotator {
-  private readonly ui: UIRoot;
-  private readonly deps: AnnotatorDeps;
-  private store: ReviewerStore;
-  private annotating = false;
-  private pins = new Map<string, HTMLDivElement>();
-  private activeInput: { wrap: HTMLDivElement; commentId: string } | null = null;
-  private controlEl!: HTMLButtonElement;
-  private panelEl: HTMLDivElement | null = null;
-  private reflowFrame = 0;
+  private readonly _ui: UIRoot;
+  private readonly _deps: AnnotatorDeps;
+  // Host-defined logical screen key (config.routeKey) or the URL default —
+  // the seam that makes frame-per-screen hosts (wizards, phased experiences
+  // on one URL) work: pins anchor to and show on the host's notion of a
+  // screen, and refreshRoute() re-evaluates it.
+  private readonly _routeKey: () => string;
+  private _reviewer: string | null;
+  private _store: ReviewerStore;
+  private _annotating = false;
+  private _pins = new Map<string, HTMLDivElement>();
+  // Reflow-path caches (P2.1/P2.2): repositioning runs at up to 60fps, so it
+  // must never re-scan localStorage or re-run the selector ladder per frame.
+  // Both are dropped whenever data or route changes (persist / renderPins).
+  private _visibleCache: Array<Comment & { reviewer?: string }> | null = null;
+  private readonly _anchorCache = new Map<string, Element | null>();
+  private _activeInput: ActiveInput | null = null;
+  private _controlEl: HTMLButtonElement | null = null;
+  private _panelEl: HTMLDivElement | null = null;
+  /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
+  private _prevBodyCursor = '';
+  private _reflowFrame = 0;
+  private _gesture: GestureController | null = null;
+  // Bumped on every teardown (destroy/route change) so in-flight async voice
+  // work resolving into a stale world can detect it and self-cancel.
+  private _generation = 0;
+  // Set once destroy() finishes tearing down: from then on the annotator must
+  // never write to storage or touch the DOM, no matter what resolves late.
+  private _destroyed = false;
+  private _activeVoice: ActiveVoice | null = null;
+  private readonly _voiceLogger: Logger = {
+    warn: (m, d) => console.warn(`[pinflow] ${m}`, d),
+    error: (m, d) => console.error(`[pinflow] ${m}`, d),
+  };
 
   constructor(deps: AnnotatorDeps) {
-    this.deps = deps;
-    this.ui = createUIRoot();
-    this.store =
-      loadStore(deps.storage, deps.config.project, deps.reviewer) ??
-      emptyStore(deps.config.project, deps.reviewer);
-    this.renderControl();
-    this.renderPins();
-    window.addEventListener('resize', this.onReflow);
-    window.addEventListener('scroll', this.onReflow, { passive: true });
+    this._deps = deps;
+    this._routeKey = deps.config.routeKey ?? routeKey;
+    this._ui = createUIRoot();
+    this._applyTheme();
+    this._reviewer = deps.reviewer;
+    // Deferred-identity (stealth) starts with an inert placeholder store; the
+    // real corpus is loaded once _ensureIdentity resolves a name.
+    this._store =
+      deps.reviewer !== null
+        ? (loadStore(deps.storage, deps.config.project, deps.reviewer) ??
+          emptyStore(deps.config.project, deps.reviewer))
+        : emptyStore(deps.config.project, '');
+    this._renderControl();
+    this._renderPins();
+    this._startGesture();
+    this._hydrateFromSource();
+    window.addEventListener('resize', this._onReflow);
+    window.addEventListener('scroll', this._onReflow, { passive: true });
+  }
+
+  // L2.1: the read half of the sync protocol, fetched once per resolved
+  // identity — i.e. wherever the store becomes real: the constructor when the
+  // reviewer is known at init, or _ensureIdentity when stealth's deferred
+  // identity resolves. Reviewer mode only (`source` is scoped to the current
+  // reviewer; builder-mode all-reviewer hydration is a later slice).
+  // Generation + destroyed guards follow _startVoiceDot: a fetch resolving
+  // after destroy()/refreshRoute() must not write into the stale world.
+  // Hydration-APPLIED changes never echo into onChange (they're the host's
+  // own data coming back). The one exception is reconciliation: a local
+  // comment ABSENT from the server list either never synced (transient write
+  // failure) or predates sync — re-announce it as an 'add' so the host's
+  // write pipe repairs the gap (idempotent: PROTOCOL upserts by id).
+  private _hydrateFromSource(): void {
+    const source = this._deps.config.source;
+    if (!source || this._deps.mode !== 'reviewer' || this._reviewer === null) return;
+    const myGen = this._generation;
+    void source().then(
+      (server) => {
+        if (this._destroyed || myGen !== this._generation) return;
+        // Two repair cases (codex r16): an id the server LACKS re-announces
+        // as 'add'; an id the server has but with an older updatedAt (a lost
+        // update — the merge keeps the local content) re-announces as
+        // 'update'. Server-newer/tie stays silent (no-echo rule).
+        const serverById = new Map(server.map((c) => [c.id, c.updatedAt]));
+        const repair = this._store.comments
+          .map((c) => {
+            const serverUpdatedAt = serverById.get(c.id);
+            if (serverUpdatedAt === undefined) return { type: 'add' as const, id: c.id };
+            if (c.updatedAt > serverUpdatedAt) return { type: 'update' as const, id: c.id };
+            return null;
+          })
+          .filter((r) => r !== null);
+        this._store = { ...this._store, comments: mergeComments(this._store.comments, server) };
+        this._persist();
+        this._renderPins();
+        for (const r of repair) {
+          const merged = this._store.comments.find((c) => c.id === r.id);
+          if (merged) this._emitChange(r.type, merged);
+        }
+      },
+      (err) => this._voiceLogger.warn('source hydration failed — using local store', err),
+    );
   }
 
   destroy(): void {
-    window.removeEventListener('resize', this.onReflow);
-    window.removeEventListener('scroll', this.onReflow);
-    if (this.annotating) this.exitAnnotateMode();
-    if (this.reflowFrame) cancelAnimationFrame(this.reflowFrame);
-    this.ui.destroy();
+    this._generation += 1;
+    window.removeEventListener('resize', this._onReflow);
+    window.removeEventListener('scroll', this._onReflow);
+    this._gesture?.stop();
+    // dispose() may synchronously best-effort persist an in-flight transcript,
+    // so the destroyed flag flips only after voice teardown completes.
+    this._teardownVoice();
+    this._destroyed = true;
+    this._closeActiveInput(false);
+    if (this._annotating) this._exitAnnotateMode();
+    if (this._reflowFrame) cancelAnimationFrame(this._reflowFrame);
+    this._ui.destroy();
+  }
+
+  // Release any in-flight voice session and remove its dot. dispose() best-effort
+  // persists already-committed transcript text (see session.ts).
+  private _teardownVoice(): void {
+    const v = this._activeVoice;
+    if (!v) return;
+    this._activeVoice = null;
+    v.session?.dispose();
+    v.mount.remove();
+  }
+
+  private _activationMode(): NonNullable<ActivationConfig['mode']> {
+    return this._deps.config.activation?.mode ?? 'toggle';
+  }
+
+  // Stealth/both modes add a capture-phase long-press (touch) + Alt+click
+  // (desktop) gesture that drops a comment without the visible control button.
+  private _startGesture(): void {
+    if (this._activationMode() === 'toggle') return;
+    this._gesture = new GestureController({
+      mode: this._activationMode(),
+      longPressMs: LONG_PRESS_MS,
+      moveThresholdPx: MOVE_THRESHOLD_PX,
+      onActivate: (x, y, target) => this._placeCommentAt(x, y, target),
+    });
+    this._gesture.start();
   }
 
   refreshRoute(): void {
-    this.closeActiveInput();
-    this.renderPins();
+    this._generation += 1;
+    // A recording in progress finalizes and persists to its FROZEN route (the
+    // host captured the route at dot creation), then the dot is removed.
+    const v = this._activeVoice;
+    if (v) {
+      this._activeVoice = null;
+      const mount = v.mount;
+      void Promise.resolve(v.session?.stop()).finally(() => mount.remove());
+    }
+    this._closeActiveInput();
+    this._renderPins();
   }
 
   // Scroll/resize only moves existing pins — it never adds or removes them.
   // Re-creating DOM on every scroll frame caused jank; instead, rAF-throttle
   // and just translate existing pin elements.
-  private onReflow = (): void => {
-    if (this.reflowFrame) return;
-    this.reflowFrame = requestAnimationFrame(() => {
-      this.reflowFrame = 0;
-      this.repositionPins();
-      if (this.panelEl) this.positionPanel();
-      if (this.activeInput) this.positionInputNearPin(this.activeInput.wrap, this.activeInput.commentId);
+  private _onReflow = (): void => {
+    if (this._reflowFrame) return;
+    this._reflowFrame = requestAnimationFrame(() => {
+      this._reflowFrame = 0;
+      this._repositionPins();
+      if (this._panelEl) this._positionPanel();
+      if (this._activeInput)
+        this._positionInputNearPin(this._activeInput.wrap, this._activeInput.commentId);
     });
   };
 
-  private persist(): void {
-    saveStore(this.deps.storage, this.store);
+  // Theme tokens ride as custom properties on the shadow host and inherit into
+  // the shadow tree, where styles.ts consumes them via var(--pf-*,stock).
+  private _applyTheme(): void {
+    const theme = this._deps.config.theme;
+    if (!theme) return;
+    for (const [k, v] of Object.entries(theme)) {
+      if (v) {
+        this._ui.host.style.setProperty(
+          `--pf-${k.replace(/[A-Z]/g, (c) => '-' + c.toLowerCase())}`,
+          v,
+        );
+      }
+    }
   }
 
-  private position(): PositionCorner {
-    return (this.deps.config.position as PositionCorner) ?? 'bottom-right';
+  private _persist(): void {
+    this._invalidateViewCaches();
+    saveStore(this._deps.storage, this._store);
   }
 
-  private renderControl(): void {
-    if (this.deps.config.hidden) return;
-    const btn = document.createElement('button');
-    btn.className = 'control';
+  // A2: notify the host after a persisted mutation. Host exceptions must never
+  // break the annotator, and a torn-down world must never call out.
+  private _emitChange(type: 'add' | 'update' | 'delete', comment: Comment): void {
+    const cb = this._deps.config.onChange;
+    if (!cb || this._destroyed) return;
+    try {
+      cb(this._store, { type, comment });
+    } catch (err) {
+      this._voiceLogger.warn('onChange handler threw', err);
+    }
+  }
+
+  private _invalidateViewCaches(): void {
+    this._visibleCache = null;
+    this._anchorCache.clear();
+  }
+
+  private _renderControl(): void {
+    // Stealth activation is invisible — no control button.
+    if (this._activationMode() === 'stealth') return;
+    const btn = el('button', 'control', this._controlLabel());
     btn.type = 'button';
     btn.dataset['active'] = 'false';
-    const [v, h] = this.position().split('-') as ['bottom' | 'top', 'left' | 'right'];
-    btn.style.setProperty(v, '16px');
-    btn.style.setProperty(h, '16px');
-    btn.textContent = this.controlLabel();
-    btn.addEventListener('click', () => this.togglePanel());
-    this.ui.root.appendChild(btn);
-    this.controlEl = btn;
+    btn.style.bottom = '16px';
+    btn.style.right = '16px';
+    btn.addEventListener('click', () => this._togglePanel());
+    this._ui.root.appendChild(btn);
+    this._controlEl = btn;
   }
 
-  private controlLabel(): string {
-    const count = this.visibleComments().length;
-    if (this.deps.mode === 'builder') return `Pinflow • ${count}`;
+  private _controlLabel(): string {
+    const count = this._visibleComments().length;
+    if (this._deps.mode === 'builder') return `Pinflow • ${count}`;
     return count > 0 ? `Pinflow • ${count}` : 'Pinflow';
   }
 
-  private togglePanel(): void {
-    if (this.panelEl) {
-      this.closePanel();
+  private _togglePanel(): void {
+    if (this._panelEl) {
+      this._closePanel();
       return;
     }
-    this.panelEl =
-      this.deps.mode === 'builder' ? this.renderBuilderPanel() : this.renderReviewerPanel();
-    this.ui.root.appendChild(this.panelEl);
-    this.positionPanel();
+    this._panelEl =
+      this._deps.mode === 'builder' ? this._renderBuilderPanel() : this._renderReviewerPanel();
+    this._ui.root.appendChild(this._panelEl);
+    this._positionPanel();
   }
 
-  private closePanel(): void {
-    this.panelEl?.remove();
-    this.panelEl = null;
+  private _closePanel(): void {
+    this._panelEl?.remove();
+    this._panelEl = null;
   }
 
-  // Anchor panel to the control and flip away from the nearest viewport edge
-  // based on which corner the control sits in.
-  private positionPanel(): void {
-    if (!this.panelEl) return;
-    const rect = this.controlEl.getBoundingClientRect();
+  // The control is fixed bottom-right: anchor the panel above it, right-aligned,
+  // and let flipPosition handle tiny viewports.
+  private _positionPanel(): void {
+    if (!this._panelEl || !this._controlEl) return;
+    const rect = this._controlEl.getBoundingClientRect();
     const size = {
-      width: this.panelEl.offsetWidth || 280,
-      height: this.panelEl.offsetHeight || 180,
+      width: this._panelEl.offsetWidth || 280,
+      height: this._panelEl.offsetHeight || 180,
     };
     const vp = { width: window.innerWidth, height: window.innerHeight };
-    const [v, h] = this.position().split('-') as ['bottom' | 'top', 'left' | 'right'];
-    // Start anchored at the control; pick the edge that has room.
-    const anchorLeft = h === 'left' ? rect.left : rect.right - size.width;
-    const anchorTop = v === 'bottom' ? rect.top - size.height - 8 : rect.bottom + 8;
-    const pos = flipPosition({ left: anchorLeft, top: anchorTop }, size, vp, 0);
-    this.panelEl.style.left = `${pos.left}px`;
-    this.panelEl.style.top = `${pos.top}px`;
+    place(
+      this._panelEl,
+      flipPosition({ left: rect.right - size.width, top: rect.top - size.height - 8 }, size, vp, 0),
+    );
   }
 
-  private renderReviewerPanel(): HTMLDivElement {
-    const panel = document.createElement('div');
-    panel.className = 'panel';
-    const count = this.store.comments.length;
-    const h3 = document.createElement('h3');
-    h3.textContent = `You have ${count} comment${count === 1 ? '' : 's'}`;
-    const p = document.createElement('p');
-    p.textContent = 'Click the button below, then tap any element on the page to pin a comment.';
-    const row = document.createElement('div');
-    row.className = 'row';
-    const annotateBtn = this.makeButton(
-      this.annotating ? 'Stop' : 'Add comment',
-      'annotate',
-      'primary',
+  private _renderReviewerPanel(): HTMLDivElement {
+    const count = this._store.comments.length;
+    const panel = this._makePanel(
+      `You have ${count} comment${count === 1 ? '' : 's'}`,
+      'Click below, then tap any element to pin a comment.',
+      [
+        this._makeButton(
+          this._annotating ? 'Stop' : 'Add comment',
+          () => this._toggleAnnotateMode(),
+          'primary',
+        ),
+        this._makeButton('Export & share', () => void this._handleReviewerExport()),
+      ],
     );
-    const exportBtn = this.makeButton('Export & share', 'export');
-    row.append(annotateBtn, exportBtn);
-    panel.append(h3, p, row);
-    if (this.deps.config.onSubmit) {
-      const row2 = document.createElement('div');
-      row2.className = 'row';
+    if (this._deps.config.onSubmit) {
+      const row2 = el('div', 'row');
       row2.style.marginTop = '8px';
-      row2.appendChild(this.makeButton('Send to builder', 'submit'));
+      row2.appendChild(this._makeButton('Send to builder', () => void this._handleOnSubmit()));
       panel.appendChild(row2);
     }
-    panel.addEventListener('click', (e) => {
-      const act = (e.target as HTMLElement).closest('button')?.dataset['act'];
-      if (act === 'annotate') this.toggleAnnotateMode();
-      if (act === 'export') this.handleReviewerExport();
-      if (act === 'submit') this.handleOnSubmit();
-    });
     return panel;
   }
 
   // Built imperatively to keep reviewer names out of innerHTML.
-  private renderBuilderPanel(): HTMLDivElement {
-    const drawer = document.createElement('div');
-    drawer.className = 'drawer';
-    const stores = loadAllStores(this.deps.storage, this.deps.config.project);
-
-    const h3 = document.createElement('h3');
-    h3.textContent = 'Builder mode';
-    drawer.appendChild(h3);
+  private _renderBuilderPanel(): HTMLDivElement {
+    const drawer = el('div', 'drawer');
+    const stores = this._allStores();
+    drawer.appendChild(el('h3', undefined, 'Builder mode'));
 
     if (stores.length === 0) {
-      const empty = document.createElement('p');
-      empty.textContent = 'No comments yet.';
+      const empty = el('p', undefined, 'No comments yet.');
       empty.style.opacity = '0.7';
       drawer.appendChild(empty);
     } else {
       for (const s of stores) {
-        const label = document.createElement('label');
-        const cb = document.createElement('input');
+        const label = el('label');
+        const cb = el('input');
         cb.type = 'checkbox';
         cb.checked = true;
         cb.dataset['reviewer'] = s.reviewer;
@@ -200,271 +374,579 @@ export class Annotator {
       }
     }
 
-    const bar = document.createElement('div');
-    bar.className = 'bar';
-    bar.appendChild(this.makeButton('Export all', 'export'));
-    const clear = this.makeButton('Clear all', 'clear', 'danger');
-    bar.appendChild(clear);
+    const bar = el('div', 'bar');
+    bar.append(
+      this._makeButton('Export all', () => this.downloadExport()),
+      this._makeButton('JSON', () =>
+        download(
+          this.exportJSON(),
+          exportFilename(this._deps.config.project, null, now(), 'json'),
+          'application/json',
+        ),
+      ),
+      this._makeButton('Clear all', () => this._handleBuilderClear(), 'danger'),
+    );
     drawer.appendChild(bar);
-
-    drawer.addEventListener('click', (e) => {
-      const act = (e.target as HTMLElement).closest('button')?.dataset['act'];
-      if (act === 'export') this.handleBuilderExport();
-      if (act === 'clear') this.handleBuilderClear();
-    });
     return drawer;
   }
 
-  private makeButton(
+  private _makeButton(
     label: string,
-    act: string,
+    onClick: () => void,
     variant?: 'primary' | 'danger',
   ): HTMLButtonElement {
-    const b = document.createElement('button');
+    const b = el('button', variant, label);
     b.type = 'button';
-    b.dataset['act'] = act;
-    if (variant) b.className = variant;
-    b.textContent = label;
+    b.addEventListener('click', onClick);
     return b;
   }
 
-  private toggleAnnotateMode(): void {
-    if (this.annotating) this.exitAnnotateMode();
-    else this.enterAnnotateMode();
+  // Shared scaffolding for the reviewer panel and the export confirmation.
+  private _makePanel(title: string, body: string, buttons: HTMLButtonElement[]): HTMLDivElement {
+    const panel = el('div', 'panel');
+    const row = el('div', 'row');
+    row.append(...buttons);
+    panel.append(el('h3', undefined, title), el('p', undefined, body), row);
+    return panel;
   }
 
-  private enterAnnotateMode(): void {
-    this.annotating = true;
-    this.controlEl.dataset['active'] = 'true';
-    document.addEventListener('click', this.onDocumentClick, true);
-    document.addEventListener('keydown', this.onKeyDown);
+  private _toggleAnnotateMode(): void {
+    if (this._annotating) this._exitAnnotateMode();
+    else this._enterAnnotateMode();
+  }
+
+  private _enterAnnotateMode(): void {
+    this._annotating = true;
+    if (this._controlEl) this._controlEl.dataset['active'] = 'true';
+    document.addEventListener('click', this._onDocumentClick, true);
+    document.addEventListener('keydown', this._onKeyDown);
+    this._prevBodyCursor = document.body.style.cursor;
     document.body.style.cursor = 'crosshair';
-    this.closePanel();
+    this._closePanel();
   }
 
-  private exitAnnotateMode(): void {
-    this.annotating = false;
-    if (this.controlEl) this.controlEl.dataset['active'] = 'false';
-    document.removeEventListener('click', this.onDocumentClick, true);
-    document.removeEventListener('keydown', this.onKeyDown);
-    document.body.style.cursor = '';
+  private _exitAnnotateMode(): void {
+    this._annotating = false;
+    if (this._controlEl) this._controlEl.dataset['active'] = 'false';
+    document.removeEventListener('click', this._onDocumentClick, true);
+    document.removeEventListener('keydown', this._onKeyDown);
+    document.body.style.cursor = this._prevBodyCursor;
+    this._prevBodyCursor = '';
   }
 
-  private onKeyDown = (e: KeyboardEvent): void => {
-    if (e.key === 'Escape') this.exitAnnotateMode();
+  private _onKeyDown = (e: KeyboardEvent): void => {
+    if (e.key === 'Escape') this._exitAnnotateMode();
   };
 
-  private onDocumentClick = (e: MouseEvent): void => {
+  private _onDocumentClick = (e: MouseEvent): void => {
     const target = e.target as Element | null;
-    if (!target || this.ui.host.contains(target)) return;
+    if (!target || this._ui.host.contains(target)) return;
     e.preventDefault();
     e.stopPropagation();
+    this._exitAnnotateMode();
+    this._placeCommentAt(e.clientX, e.clientY, target);
+  };
+
+  // Stealth defers the (blocking) identity prompt from init to the first
+  // activation — the moment identity is actually needed, right before any
+  // comment can be created. Declining leaves the layer dormant; the next
+  // activation asks again. Resolving loads that reviewer's existing corpus.
+  private _ensureIdentity(): boolean {
+    if (this._reviewer !== null) return true;
+    const name = this._deps.resolveIdentity?.() ?? null;
+    if (!name) return false;
+    this._reviewer = name;
+    this._store =
+      loadStore(this._deps.storage, this._deps.config.project, name) ??
+      emptyStore(this._deps.config.project, name);
+    this._renderPins();
+    this._hydrateFromSource(); // the store just became real — sync it (L2.1)
+    return true;
+  }
+
+  // Shared by the toggle click path and the stealth gesture: drop an anchored
+  // note at a screen point. Voice-configured → a streaming voice dot; otherwise
+  // the classic text input.
+  private _placeCommentAt(clientX: number, clientY: number, target: Element): void {
+    if (this._ui.host.contains(target)) return; // never annotate our own UI
+    if (!this._ensureIdentity()) return; // identity is required before any comment exists
+    const anchor = buildAnchor(target, clientX, clientY);
+    if (this._deps.config.voice) {
+      if (this._activeVoice) return; // one recording at a time
+      this._startVoiceDot(anchor, clientX, clientY);
+      return;
+    }
+    this._commitTextComment(anchor, '', true);
+  }
+
+  // `route` defaults to the current route; the voice degrade path passes the
+  // FROZEN route captured at dot creation (voice-contract.ts frozen-route rule).
+  private _commitTextComment(
+    anchor: Anchor,
+    text: string,
+    openForEdit: boolean,
+    route?: string,
+  ): void {
     const t = now();
     const comment: Comment = {
       id: createId(),
       createdAt: t,
       updatedAt: t,
-      route: routeKey(),
+      route: route ?? this._routeKey(),
       fullUrl: window.location.href,
-      text: '',
-      anchor: buildAnchor(target, e.clientX, e.clientY),
+      text,
+      modality: 'text',
+      anchor,
     };
-    this.store = upsertComment(this.store, comment);
-    this.persist();
-    this.renderPins();
-    this.exitAnnotateMode();
-    this.openInput(comment.id);
-  };
-
-  private visibleComments(): Array<Comment & { reviewer?: string }> {
-    const route = routeKey();
-    if (this.deps.mode === 'builder') {
-      const stores = loadAllStores(this.deps.storage, this.deps.config.project);
-      return stores.flatMap((s) =>
-        s.comments.filter((c) => c.route === route).map((c) => ({ ...c, reviewer: s.reviewer })),
-      );
-    }
-    return this.store.comments.filter((c) => c.route === route);
+    this._store = upsertComment(this._store, comment);
+    this._persist();
+    this._emitChange('add', comment);
+    this._renderPins();
+    if (openForEdit) this._openInput(comment.id);
   }
 
-  private renderPins(): void {
-    for (const el of this.pins.values()) el.remove();
-    this.pins.clear();
-    const comments = this.visibleComments();
+  private _loadVoiceModule(): Promise<VoiceModule> {
+    return (this._deps.loadVoice ?? defaultLoadVoice)();
+  }
+
+  // Drop a voice dot, lazily load the voice module, and start a session — with
+  // generation guards so an import/start resolving after teardown self-cancels
+  // and releases whatever it produced.
+  private _startVoiceDot(anchor: Anchor, clientX: number, clientY: number): void {
+    const mount = el('div');
+    mount.style.cssText = 'position:fixed;';
+    place(
+      mount,
+      flipPosition(
+        { left: clientX, top: clientY },
+        { width: 280, height: 140 },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
+    );
+    this._ui.root.appendChild(mount);
+
+    const active: ActiveVoice = { mount, session: null };
+    this._activeVoice = active;
+    const myGen = this._generation;
+    const route = this._routeKey();
+    const host = this._buildVoiceHost(mount, anchor, route, active, myGen);
+
+    this._loadVoiceModule()
+      .then((mod) => {
+        if (myGen !== this._generation) {
+          mount.remove();
+          return;
+        }
+        return mod.start(host).then((session) => {
+          if (myGen !== this._generation) {
+            session.dispose();
+            mount.remove();
+            return;
+          }
+          active.session = session;
+        });
+      })
+      .catch((err) => {
+        this._voiceLogger.warn('voice module failed to load', err);
+        if (myGen === this._generation) host.degradeToText();
+      });
+  }
+
+  private _buildVoiceHost(
+    mount: HTMLDivElement,
+    anchor: Anchor,
+    route: string,
+    active: ActiveVoice,
+    gen: number,
+  ): VoiceHost {
+    const commitVoice = (text: string, voice: VoiceMeta): void => {
+      if (this._activeVoice === active) this._activeVoice = null;
+      const t = now();
+      const comment: Comment = {
+        id: createId(),
+        createdAt: t,
+        updatedAt: t,
+        route,
+        fullUrl: window.location.href,
+        text,
+        modality: 'voice',
+        voice,
+        anchor,
+      };
+      this._store = upsertComment(this._store, comment);
+      this._persist();
+      this._emitChange('add', comment);
+      mount.remove();
+      this._renderPins();
+    };
+    return {
+      config: this._deps.config.voice ?? {},
+      mount,
+      anchor,
+      route,
+      // destroy() guards: after teardown the world is gone — a late callback
+      // must not write to storage or touch the DOM. (A same-tick commit during
+      // destroy()'s own dispose() is still allowed — see destroy().)
+      commit: ({ text, voice }) => {
+        if (this._destroyed) return;
+        commitVoice(text, voice);
+      },
+      discard: () => {
+        if (this._destroyed) return;
+        if (this._activeVoice === active) this._activeVoice = null;
+        mount.remove();
+      },
+      degradeToText: (prefill) => {
+        if (this._destroyed) return;
+        if (this._activeVoice === active) this._activeVoice = null;
+        mount.remove();
+        // After a route change (generation bumped) the recording's route is no
+        // longer on screen: persist any transcript to the FROZEN route, but
+        // never open an editor there — and drop a degrade with nothing to say.
+        const live = gen === this._generation;
+        const text = prefill ?? '';
+        if (!live && text.length === 0) return;
+        this._commitTextComment(anchor, text, live, route);
+      },
+      logger: this._voiceLogger,
+    };
+  }
+
+  // Memoized: the builder branch does a full localStorage key scan + parse of
+  // every reviewer corpus — far too expensive for the per-frame reflow path.
+  private _visibleComments(): Array<Comment & { reviewer?: string }> {
+    if (this._visibleCache) return this._visibleCache;
+    const route = this._routeKey();
+    this._visibleCache =
+      this._deps.mode === 'builder'
+        ? this._allStores().flatMap((s) =>
+            s.comments
+              .filter((c) => c.route === route)
+              .map((c) => ({ ...c, reviewer: s.reviewer })),
+          )
+        : this._store.comments.filter((c) => c.route === route);
+    return this._visibleCache;
+  }
+
+  private _renderPins(): void {
+    this._invalidateViewCaches();
+    for (const el of this._pins.values()) el.remove();
+    this._pins.clear();
+    const comments = this._visibleComments();
     comments.forEach((c, i) => {
       const target = resolveAnchor(c.anchor);
-      const pin = document.createElement('div');
-      pin.className = 'pin';
-      pin.textContent = String(i + 1);
+      this._anchorCache.set(c.id, target);
+      const pin = el('div', 'pin', String(i + 1));
       if (!target) pin.dataset['orphaned'] = 'true';
+      // L2.3: dispositioned pins render muted (styles.ts); done swaps the
+      // number for a ✓, with the index preserved in the title.
+      if (isResolved(c) && c.status) {
+        pin.dataset['status'] = c.status;
+        if (c.status === 'done') {
+          pin.textContent = '✓';
+          pin.title = `Comment ${i + 1} — done`;
+        }
+      }
       if (c.reviewer) pin.title = c.reviewer;
       pin.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (this.deps.mode === 'builder') return;
-        this.openInput(c.id);
+        if (this._deps.mode === 'builder') return;
+        this._openInput(c.id);
       });
-      this.placePin(pin, c, target);
-      this.ui.root.appendChild(pin);
-      this.pins.set(c.id, pin);
+      this._placePin(pin, c, target);
+      this._ui.root.appendChild(pin);
+      this._pins.set(c.id, pin);
     });
-    if (this.controlEl) this.controlEl.textContent = this.controlLabel();
+    if (this._controlEl) this._controlEl.textContent = this._controlLabel();
   }
 
-  private placePin(pin: HTMLDivElement, comment: Comment, target: Element | null): void {
+  private _placePin(pin: HTMLDivElement, comment: Comment, target: Element | null): void {
     if (!target) {
       // Orphaned pin: park at last-known percentage within the viewport.
       const { positionPercent: p } = comment.anchor;
-      pin.style.left = `${(window.innerWidth * p.x) / 100}px`;
-      pin.style.top = `${(window.innerHeight * p.y) / 100}px`;
+      place(pin, { left: (window.innerWidth * p.x) / 100, top: (window.innerHeight * p.y) / 100 });
       return;
     }
-    const { left, top } = anchorToScreen(target, comment.anchor.positionPercent);
-    pin.style.left = `${left}px`;
-    pin.style.top = `${top}px`;
+    place(pin, anchorToScreen(target, comment.anchor.positionPercent));
   }
 
   // Cheap path used on scroll/resize: just reposition existing pins, skipping
   // the querySelector + element-create cost of a full renderPins().
-  private repositionPins(): void {
-    const byId = new Map(this.visibleComments().map((c) => [c.id, c]));
-    for (const [id, pin] of this.pins) {
+  private _repositionPins(): void {
+    const byId = new Map(this._visibleComments().map((c) => [c.id, c]));
+    for (const [id, pin] of this._pins) {
       const c = byId.get(id);
-      if (c) this.placePin(pin, c, resolveAnchor(c.anchor));
+      if (c) this._placePin(pin, c, this._cachedAnchor(c));
     }
   }
 
-  private openInput(commentId: string): void {
-    this.closeActiveInput();
-    const comment = this.store.comments.find((c) => c.id === commentId);
+  // Reflow path never re-runs the full selector ladder. A cached element that
+  // left the DOM (host re-render) is re-resolved once and re-cached; an
+  // orphaned (null) entry stays parked — its position can't change per frame.
+  private _cachedAnchor(c: Comment): Element | null {
+    const hit = this._anchorCache.get(c.id);
+    if (hit === null || (hit !== undefined && hit.isConnected)) return hit;
+    const el = resolveAnchor(c.anchor);
+    this._anchorCache.set(c.id, el);
+    return el;
+  }
+
+  // Explicit-save popup: Save (or Cmd/Ctrl+Enter) persists; Escape or clicking
+  // anywhere outside dismisses, dropping unsaved edits. Dismissing a comment
+  // whose saved text is still empty deletes it — no orphan pins littering the
+  // page from an accidental gesture.
+  private _openInput(commentId: string): void {
+    this._closeActiveInput();
+    const comment = this._store.comments.find((c) => c.id === commentId);
     if (!comment) return;
-    const wrap = document.createElement('div');
-    wrap.className = 'input';
-    const ta = document.createElement('textarea');
+    // A resolved comment opens as a frozen read-only view: readOnly textarea
+    // (text stays selectable/copyable), a muted disposition line in place of
+    // the Save/Delete row. Esc/outside-click still close it.
+    const frozen = isResolved(comment);
+    const wrap = el('div', 'input');
+    const ta = el('textarea');
     ta.placeholder = "What's on your mind?";
     ta.value = comment.text;
     ta.rows = 3;
-    const actions = document.createElement('div');
-    actions.className = 'actions';
-    const hint = document.createElement('span');
-    hint.textContent = 'Auto-saves';
-    const del = document.createElement('button');
-    del.type = 'button';
-    del.className = 'delete';
-    del.textContent = 'Delete';
-    actions.append(hint, del);
-    wrap.append(ta, actions);
-    this.ui.root.appendChild(wrap);
-    this.positionInputNearPin(wrap, commentId);
+    ta.readOnly = frozen;
+    wrap.appendChild(ta);
+    if (frozen) {
+      const mark = comment.status === 'done' ? '✓ Done' : '✕ Declined';
+      const note = comment.resolution ? ` — ${comment.resolution}` : '';
+      wrap.appendChild(el('div', 'res', mark + note));
+    }
+    this._ui.root.appendChild(wrap);
 
-    let debounce: number | undefined;
     const save = (): void => {
-      this.store = upsertComment(this.store, {
-        ...comment,
-        text: ta.value,
-        updatedAt: now(),
-      });
-      this.persist();
+      if (this._destroyed || frozen) return;
+      const persisted = this._store.comments.find((c) => c.id === commentId);
+      if (persisted && ta.value !== persisted.text) {
+        // Hand-correcting a voice transcript flags the meta as edited (immutably).
+        const voicePatch = persisted.voice ? { voice: { ...persisted.voice, edited: true } } : {};
+        const updated: Comment = {
+          ...persisted,
+          text: ta.value,
+          updatedAt: now(),
+          ...voicePatch,
+        };
+        this._store = upsertComment(this._store, updated);
+        this._persist();
+        this._emitChange('update', updated);
+      }
+      this._closeActiveInput();
     };
-    ta.addEventListener('input', () => {
-      window.clearTimeout(debounce);
-      debounce = window.setTimeout(save, 2000);
-    });
-    ta.addEventListener('blur', save);
-    del.addEventListener('click', () => {
-      this.store = deleteCommentFromStore(this.store, commentId);
-      this.persist();
-      this.closeActiveInput();
-      this.renderPins();
-    });
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation(); // don't also exit annotate mode
+        this._closeActiveInput();
+      } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+        save();
+      }
+    };
+    ta.addEventListener('keydown', onKey);
+    // Dismissal requires a COMPLETED outside tap: armed on pointerdown, fired
+    // on the matching pointerup. A second finger joining (pinch — on iOS the
+    // recovery gesture after input auto-zoom) or the browser stealing the
+    // gesture (pointercancel: touch scroll, pinch-zoom) aborts instead of
+    // discarding the draft. composedPath (not target) because document-level
+    // listeners see shadow-internal events retargeted to the host. Armed on
+    // the next task so the gesture that opened the popup can't instantly
+    // close it. isPrimary is only ever false on real multi-touch — plain
+    // events (jsdom, synthetic) count as primary.
+    let pendingTap: number | null = null;
+    const onOutsideDown = (e: Event): void => {
+      const p = e as PointerEvent;
+      if (p.isPrimary === false) {
+        // A second finger ANYWHERE (even on the popup) makes this a pinch,
+        // so the containment check must come after — codex r20.
+        pendingTap = null;
+        return;
+      }
+      if (e.composedPath().includes(wrap)) return;
+      pendingTap = p.pointerId ?? 0;
+    };
+    const onOutsideUp = (e: Event): void => {
+      if (pendingTap === null || ((e as PointerEvent).pointerId ?? 0) !== pendingTap) return;
+      pendingTap = null;
+      if (e.composedPath().includes(wrap)) return; // released back inside
+      this._closeActiveInput();
+    };
+    const onOutsideCancel = (e: Event): void => {
+      if (((e as PointerEvent).pointerId ?? 0) === pendingTap) pendingTap = null;
+    };
+    const arm = window.setTimeout(() => {
+      document.addEventListener('pointerdown', onOutsideDown, true);
+      document.addEventListener('pointerup', onOutsideUp, true);
+      document.addEventListener('pointercancel', onOutsideCancel, true);
+    }, 0);
+    if (!frozen) {
+      const actions = el('div', 'actions');
+      const del = el('button', 'delete', 'Delete');
+      del.type = 'button';
+      del.addEventListener('click', () => {
+        const removed = this._store.comments.find((c) => c.id === commentId);
+        this._store = deleteCommentFromStore(this._store, commentId);
+        this._persist();
+        if (removed) this._emitChange('delete', removed);
+        this._closeActiveInput(false); // already gone — nothing to clean up
+        this._renderPins();
+      });
+      const saveBtn = el('button', 'save', 'Save');
+      saveBtn.type = 'button';
+      saveBtn.addEventListener('click', save);
+      actions.append(del, saveBtn);
+      wrap.appendChild(actions);
+    }
+    this._positionInputNearPin(wrap, commentId);
     ta.focus();
-    this.activeInput = { wrap, commentId };
+    this._activeInput = {
+      wrap,
+      commentId,
+      cleanup: () => {
+        window.clearTimeout(arm);
+        document.removeEventListener('pointerdown', onOutsideDown, true);
+        document.removeEventListener('pointerup', onOutsideUp, true);
+        document.removeEventListener('pointercancel', onOutsideCancel, true);
+      },
+    };
   }
 
-  private positionInputNearPin(wrap: HTMLDivElement, commentId: string): void {
-    const pin = this.pins.get(commentId);
+  private _positionInputNearPin(wrap: HTMLDivElement, commentId: string): void {
+    const pin = this._pins.get(commentId);
     if (!pin) return;
     const pr = pin.getBoundingClientRect();
-    const pos = flipPosition(
-      { left: pr.right, top: pr.top },
-      { width: wrap.offsetWidth || 280, height: wrap.offsetHeight || 120 },
-      { width: window.innerWidth, height: window.innerHeight },
+    place(
+      wrap,
+      flipPosition(
+        { left: pr.right, top: pr.top },
+        { width: wrap.offsetWidth || 280, height: wrap.offsetHeight || 120 },
+        { width: window.innerWidth, height: window.innerHeight },
+      ),
     );
-    wrap.style.left = `${pos.left}px`;
-    wrap.style.top = `${pos.top}px`;
   }
 
-  private closeActiveInput(): void {
-    this.activeInput?.wrap.remove();
-    this.activeInput = null;
+  // Closing never saves — Save is explicit. A dismissed comment whose SAVED
+  // text is still empty gets deleted (`cleanupEmpty=false` for delete/destroy:
+  // delete already removed it; destroy must not write during teardown).
+  private _closeActiveInput(cleanupEmpty = true): void {
+    const input = this._activeInput;
+    if (!input) return;
+    this._activeInput = null;
+    input.cleanup();
+    input.wrap.remove();
+    if (!cleanupEmpty || this._destroyed) return;
+    const c = this._store.comments.find((x) => x.id === input.commentId);
+    // Resolved comments are exempt: they can't be empty in practice (the team
+    // dispositioned real feedback) but a shared record must never self-delete.
+    if (c && c.text === '' && !isResolved(c)) {
+      this._store = deleteCommentFromStore(this._store, input.commentId);
+      this._persist();
+      this._emitChange('delete', c);
+      this._renderPins();
+    }
   }
 
   // Only classify comments on the current route — we can't tell if a comment
   // on another route would resolve without navigating there, so those stay
   // "live" conservatively (spec §5.2 intent: orphaned = element missing now).
-  private isOrphaned = (c: Comment): boolean => {
-    if (c.route !== routeKey()) return false;
+  private _isOrphaned = (c: Comment): boolean => {
+    if (c.route !== this._routeKey()) return false;
     return resolveAnchor(c.anchor) === null;
   };
 
-  private async handleReviewerExport(): Promise<void> {
-    const meta = { generatedAt: now(), project: this.deps.config.project };
-    const md = exportReviewer(this.store, meta, { isOrphaned: this.isOrphaned });
-    const filename = exportFilename(
-      'reviewer',
-      this.deps.config.project,
-      this.store.reviewer,
-      meta.generatedAt,
-    );
-    downloadMarkdown(md, filename);
-    const copied = await copyToClipboard(md);
-    this.showConfirmation(copied);
+  /**
+   * Current corpus as versioned JSON (`{ pinflowExport, generatedAt, comments }`):
+   * this reviewer's store in reviewer mode, every reviewer's in builder mode.
+   * Public — exposed on the init() handle for host-owned pipelines.
+   */
+  exportJSON(): string {
+    return exportStoresJSON(this._deps.mode === 'builder' ? this._allStores() : this._store);
   }
 
-  private async handleBuilderExport(): Promise<void> {
-    const stores = loadAllStores(this.deps.storage, this.deps.config.project);
-    const meta = { generatedAt: now(), project: this.deps.config.project };
-    const md = exportBuilder(stores, meta, { isOrphaned: this.isOrphaned });
-    const filename = exportFilename('builder', this.deps.config.project, null, meta.generatedAt);
-    downloadMarkdown(md, filename);
-    await copyToClipboard(md);
+  private _allStores(): ReviewerStore[] {
+    return loadAllStores(this._deps.storage, this._deps.config.project);
+  }
+
+  /**
+   * Markdown artifact via the same generator as the export button (builder
+   * mode aggregates all stores). Public — hosts own the submission moment
+   * (stealth has no chrome), so the handle exposes this.
+   */
+  exportMarkdown(): string {
+    return this._buildArtifact()[0];
+  }
+
+  /**
+   * Download the markdown artifact + copy it to the clipboard, with NO
+   * confirmation panel — the host owns that UX. Public, on the handle.
+   */
+  downloadExport(): void {
+    const [md, filename] = this._buildArtifact();
+    download(md, filename);
+    void copyToClipboard(md);
+  }
+
+  // Single source for the markdown artifact + its filename, mode-aware.
+  private _buildArtifact(): [md: string, filename: string] {
+    const { project, describeRoute } = this._deps.config;
+    const meta = { generatedAt: now(), project };
+    const builder = this._deps.mode === 'builder';
+    return [
+      builder
+        ? exportBuilder(this._allStores(), meta, this._isOrphaned, describeRoute)
+        : exportReviewer(this._store, meta, this._isOrphaned, describeRoute),
+      exportFilename(project, builder ? null : this._store.reviewer, meta.generatedAt),
+    ];
+  }
+
+  private async _handleReviewerExport(): Promise<void> {
+    const [md, filename] = this._buildArtifact();
+    download(md, filename);
+    const copied = await copyToClipboard(md);
+    this._showConfirmation(copied);
   }
 
   // Spec §5.6: after reviewer export, show a small confirmation panel
-  // suggesting any share channel, rather than closing silently.
-  private showConfirmation(copied: boolean): void {
-    this.closePanel();
-    const panel = document.createElement('div');
-    panel.className = 'panel';
-    const h3 = document.createElement('h3');
-    h3.textContent = 'Saved to your downloads';
-    const p = document.createElement('p');
-    p.textContent = copied
-      ? 'Copied to clipboard too. Share however you like — email, Slack, paste into a chat.'
-      : 'Share however you like — email, Slack, paste into a chat.';
-    const row = document.createElement('div');
-    row.className = 'row';
-    row.appendChild(this.makeButton('Done', 'done'));
-    panel.append(h3, p, row);
-    panel.addEventListener('click', (e) => {
-      const act = (e.target as HTMLElement).closest('button')?.dataset['act'];
-      if (act === 'done') this.closePanel();
-    });
-    this.panelEl = panel;
-    this.ui.root.appendChild(panel);
-    this.positionPanel();
-  }
-
-  private handleBuilderClear(): void {
-    if (!window.confirm('Clear all comments for this project from this browser?')) return;
-    for (const s of loadAllStores(this.deps.storage, this.deps.config.project)) {
-      this.deps.storage.removeItem(storageKey(this.deps.config.project, s.reviewer));
+  // suggesting any share channel, rather than closing silently. With
+  // config.submitTo the hand-off turns active: a primary mailto button
+  // completes the zero-backend submission channel (download + clipboard +
+  // prefilled email).
+  private _showConfirmation(copied: boolean): void {
+    this._closePanel();
+    const submitTo = this._deps.config.submitTo;
+    const share = 'Share however you like.';
+    let body = copied ? `Copied to clipboard too. ${share}` : share;
+    const buttons = [this._makeButton('Done', () => this._closePanel())];
+    if (submitTo) {
+      if (copied) body = 'Your feedback is copied — paste it into the email.';
+      buttons.unshift(
+        this._makeButton(
+          'Email it to the builder',
+          () => {
+            // location.href (not window.open) — mailto: never blocks on popups.
+            location.href = `mailto:${submitTo.email}?subject=${encodeURIComponent(
+              submitTo.subject ?? `Feedback: ${this._deps.config.project}`,
+            )}`;
+          },
+          'primary',
+        ),
+      );
     }
-    this.renderPins();
-    this.closePanel();
+    const panel = this._makePanel('Saved to your downloads', body, buttons);
+    this._panelEl = panel;
+    this._ui.root.appendChild(panel);
+    this._positionPanel();
   }
 
-  private async handleOnSubmit(): Promise<void> {
-    if (!this.deps.config.onSubmit) return;
-    await this.deps.config.onSubmit(this.store);
+  private _handleBuilderClear(): void {
+    if (!window.confirm('Clear all comments for this project?')) return;
+    clearProject(this._deps.storage, this._deps.config.project);
+    this._renderPins();
+    this._closePanel();
+  }
+
+  private async _handleOnSubmit(): Promise<void> {
+    if (!this._deps.config.onSubmit) return;
+    await this._deps.config.onSubmit(this._store);
   }
 }

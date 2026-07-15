@@ -25,9 +25,7 @@
   },
   "author": "Pinflow contributors",
   "type": "module",
-  "sideEffects": [
-    "**/*.css"
-  ],
+  "sideEffects": false,
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -49,6 +47,11 @@
       "import": "./dist/vue.js",
       "require": "./dist/vue.cjs"
     },
+    "./voice": {
+      "types": "./dist/voice.d.ts",
+      "import": "./dist/voice.js",
+      "require": "./dist/voice.cjs"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -68,6 +71,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "size": "size-limit",
+    "wiki:check": "node scripts/wiki-check.mjs",
     "changeset": "changeset",
     "release": "pnpm build && changeset publish",
     "prepublishOnly": "pnpm build && pnpm test && pnpm size"
@@ -112,14 +116,46 @@
     {
       "name": "core (IIFE, gz)",
       "path": "dist/pinflow.iife.js",
-      "limit": "30 KB",
-      "gzip": true
+      "limit": "11.85 KB",
+      "gzip": true,
+      "ignore": [
+        "pinflow/voice"
+      ]
     },
     {
       "name": "core (ESM, gz)",
       "path": "dist/index.js",
-      "limit": "30 KB",
+      "limit": "11.5 KB",
+      "gzip": true,
+      "ignore": [
+        "pinflow/voice"
+      ]
+    },
+    {
+      "name": "voice (ESM, gz)",
+      "path": "dist/voice.js",
+      "limit": "4.2 KB",
       "gzip": true
+    },
+    {
+      "name": "react wrapper (ESM, gz)",
+      "path": "dist/react.js",
+      "limit": "0.4 KB",
+      "gzip": true,
+      "ignore": [
+        "pinflow",
+        "react"
+      ]
+    },
+    {
+      "name": "vue wrapper (ESM, gz)",
+      "path": "dist/vue.js",
+      "limit": "0.6 KB",
+      "gzip": true,
+      "ignore": [
+        "pinflow",
+        "vue"
+      ]
     }
   ],
   "engines": {

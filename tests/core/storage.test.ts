@@ -1,10 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   deleteComment,
   emptyStore,
   listReviewers,
   loadAllStores,
   loadStore,
+  mergeComments,
   saveStore,
   storageKey,
   upsertComment,
@@ -19,6 +20,7 @@ function makeComment(overrides: Partial<Comment> = {}): Comment {
     route: '/',
     fullUrl: 'http://x/',
     text: 'hi',
+    modality: 'text',
     anchor: {
       selectors: { testid: null, id: null, css: 'body', xpath: '/html/body' },
       textFingerprint: '',
@@ -46,7 +48,10 @@ describe('storage', () => {
   it('saves and loads a store', () => {
     const s = emptyStore('p', 'sarah');
     saveStore(localStorage, s);
-    expect(loadStore(localStorage, 'p', 'sarah')).toMatchObject({ reviewer: 'sarah', project: 'p' });
+    expect(loadStore(localStorage, 'p', 'sarah')).toMatchObject({
+      reviewer: 'sarah',
+      project: 'p',
+    });
   });
 
   it('returns null for missing/malformed', () => {
@@ -55,12 +60,24 @@ describe('storage', () => {
     expect(loadStore(localStorage, 'p', 'bad')).toBeNull();
   });
 
-  it('ignores wrong schema version', () => {
+  it('reads a newer schema tolerantly instead of wiping it (forward-compat)', () => {
+    // A future build wrote schemaVersion 999. An older build must NOT return null
+    // (which would let the next save overwrite the user's data) — it reads the
+    // stable core fields and leaves the blob intact.
     localStorage.setItem(
       'pinflow:c:p:sarah',
-      JSON.stringify({ schemaVersion: 999, reviewer: 'sarah', project: 'p', comments: [] }),
+      JSON.stringify({
+        schemaVersion: 999,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [makeComment({ id: 'cmt_future' })],
+        futureField: 'ignored',
+      }),
     );
-    expect(loadStore(localStorage, 'p', 'sarah')).toBeNull();
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded).toMatchObject({ reviewer: 'sarah', project: 'p' });
+    expect(loaded?.comments).toHaveLength(1);
   });
 
   it('upserts and deletes comments immutably', () => {
@@ -81,5 +98,300 @@ describe('storage', () => {
     saveStore(localStorage, emptyStore('other', 'jen'));
     expect(listReviewers(localStorage, 'p')).toEqual(['mike', 'sarah']);
     expect(loadAllStores(localStorage, 'p')).toHaveLength(2);
+  });
+});
+
+describe('storage v2 migration & hardening', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('migrates a v1 store, defaulting every comment to text modality', () => {
+    // v1 comments had no `modality` field.
+    const v1Comment = { ...makeComment({ id: 'cmt_v1' }) } as Record<string, unknown>;
+    delete v1Comment['modality'];
+    localStorage.setItem(
+      'pinflow:c:p:sarah',
+      JSON.stringify({
+        schemaVersion: 1,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [v1Comment],
+      }),
+    );
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments).toHaveLength(1);
+    expect(loaded?.comments[0]?.modality).toBe('text');
+  });
+
+  it('re-saving a migrated store stamps schemaVersion 3 and is idempotent', () => {
+    localStorage.setItem(
+      'pinflow:c:p:sarah',
+      JSON.stringify({
+        schemaVersion: 1,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [],
+      }),
+    );
+    const first = loadStore(localStorage, 'p', 'sarah');
+    expect(first).not.toBeNull();
+    saveStore(localStorage, first!);
+    const raw = JSON.parse(localStorage.getItem('pinflow:c:p:sarah') as string);
+    expect(raw.schemaVersion).toBe(3);
+    // Loading again yields a structurally stable result.
+    expect(loadStore(localStorage, 'p', 'sarah')).toEqual(first);
+  });
+
+  it('saveStore persists v3', () => {
+    saveStore(localStorage, emptyStore('p', 'sarah'));
+    const raw = JSON.parse(localStorage.getItem('pinflow:c:p:sarah') as string);
+    expect(raw.schemaVersion).toBe(3);
+  });
+
+  it('discards a corrupt blob on load', () => {
+    localStorage.setItem('pinflow:c:p:bad', '{ broken json');
+    expect(loadStore(localStorage, 'p', 'bad')).toBeNull();
+  });
+
+  it('coerces corrupt text/route/createdAt to safe defaults instead of crashing export (P4.6)', () => {
+    const corrupt = {
+      ...makeComment({ id: 'cmt_corrupt' }),
+      text: 42,
+      route: null,
+      createdAt: 1234567890,
+    };
+    localStorage.setItem(
+      'pinflow:c:p:sarah',
+      JSON.stringify({
+        schemaVersion: 2,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [corrupt],
+      }),
+    );
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments).toHaveLength(1);
+    expect(loaded?.comments[0]).toMatchObject({ text: '', route: '', createdAt: '' });
+  });
+
+  it('drops records with a corrupt anchor sub-shape, keeping valid siblings (P4.6)', () => {
+    const good = makeComment({ id: 'cmt_good' });
+    const noSelectors = { ...makeComment({ id: 'cmt_a' }), anchor: { positionPercent: {} } };
+    const badCss = {
+      ...makeComment({ id: 'cmt_b' }),
+      anchor: { ...good.anchor, selectors: { css: 9 } },
+    };
+    const noPosition = {
+      ...makeComment({ id: 'cmt_c' }),
+      anchor: { selectors: good.anchor.selectors, viewport: good.anchor.viewport },
+    };
+    const noViewport = {
+      ...makeComment({ id: 'cmt_d' }),
+      anchor: { selectors: good.anchor.selectors, positionPercent: { x: 1, y: 2 } },
+    };
+    localStorage.setItem(
+      'pinflow:c:p:sarah',
+      JSON.stringify({
+        schemaVersion: 2,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [good, noSelectors, badCss, noPosition, noViewport],
+      }),
+    );
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments.map((c) => c.id)).toEqual(['cmt_good']);
+  });
+
+  it('loads a v2 store unchanged under schema v3 (status/resolution simply absent)', () => {
+    localStorage.setItem(
+      'pinflow:c:p:sarah',
+      JSON.stringify({
+        schemaVersion: 2,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [makeComment({ id: 'cmt_v2' })],
+      }),
+    );
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments).toHaveLength(1);
+    expect(loaded?.comments[0]).not.toHaveProperty('status');
+    expect(loaded?.comments[0]).not.toHaveProperty('resolution');
+  });
+
+  it('round-trips v3 status and resolution', () => {
+    const store = upsertComment(
+      emptyStore('p', 'sarah'),
+      makeComment({ id: 'cmt_r', status: 'done', resolution: 'Shipped in v2.' }),
+    );
+    saveStore(localStorage, store);
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments[0]).toMatchObject({ status: 'done', resolution: 'Shipped in v2.' });
+  });
+
+  it('drops an invalid status and non-string resolution; caps resolution at 500 chars', () => {
+    const invalid = { ...makeComment({ id: 'cmt_x' }), status: 'wontfix', resolution: 42 };
+    const long = {
+      ...makeComment({ id: 'cmt_y' }),
+      status: 'declined',
+      resolution: 'z'.repeat(600),
+    };
+    localStorage.setItem(
+      'pinflow:c:p:sarah',
+      JSON.stringify({
+        schemaVersion: 3,
+        reviewer: 'sarah',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00Z',
+        comments: [invalid, long],
+      }),
+    );
+    const loaded = loadStore(localStorage, 'p', 'sarah');
+    expect(loaded?.comments[0]).not.toHaveProperty('status');
+    expect(loaded?.comments[0]).not.toHaveProperty('resolution');
+    expect(loaded?.comments[1]?.status).toBe('declined');
+    expect(loaded?.comments[1]?.resolution).toHaveLength(500);
+  });
+
+  it('merge: server-only comments are added, local-only comments are kept', () => {
+    const local = [makeComment({ id: 'cmt_local', text: 'not synced yet' })];
+    const server = [makeComment({ id: 'cmt_server', text: 'from another device' })];
+    const merged = mergeComments(local, server);
+    expect(merged.map((c) => c.id)).toEqual(['cmt_local', 'cmt_server']);
+  });
+
+  it('merge: higher updatedAt wins the whole comment for content', () => {
+    const localNewer = mergeComments(
+      [makeComment({ id: 'cmt_a', text: 'edited here', updatedAt: '2026-06-02T00:00:00Z' })],
+      [makeComment({ id: 'cmt_a', text: 'stale server copy', updatedAt: '2026-06-01T00:00:00Z' })],
+    );
+    expect(localNewer[0]?.text).toBe('edited here');
+
+    const serverNewer = mergeComments(
+      [makeComment({ id: 'cmt_a', text: 'stale local copy', updatedAt: '2026-06-01T00:00:00Z' })],
+      [
+        makeComment({
+          id: 'cmt_a',
+          text: 'edited on another device',
+          updatedAt: '2026-06-02T00:00:00Z',
+        }),
+      ],
+    );
+    expect(serverNewer[0]?.text).toBe('edited on another device');
+  });
+
+  it('merge: equal updatedAt resolves to the server copy (deterministic tie-break)', () => {
+    const merged = mergeComments(
+      [makeComment({ id: 'cmt_a', text: 'local' })],
+      [makeComment({ id: 'cmt_a', text: 'server' })],
+    );
+    expect(merged[0]?.text).toBe('server');
+  });
+
+  it('merge: server status/resolution always win, even when local content is newer', () => {
+    const merged = mergeComments(
+      [
+        makeComment({
+          id: 'cmt_a',
+          text: 'freshly edited',
+          updatedAt: '2026-06-09T00:00:00Z',
+          status: 'open',
+        }),
+      ],
+      [
+        makeComment({
+          id: 'cmt_a',
+          text: 'old text',
+          updatedAt: '2026-06-01T00:00:00Z',
+          status: 'done',
+          resolution: 'Fixed in build 42.',
+        }),
+      ],
+    );
+    expect(merged[0]).toMatchObject({
+      text: 'freshly edited',
+      status: 'done',
+      resolution: 'Fixed in build 42.',
+    });
+  });
+
+  it('merge: server-absent disposition CLEARS a local one (server owns disposition)', () => {
+    const merged = mergeComments(
+      [
+        makeComment({
+          id: 'cmt_a',
+          updatedAt: '2026-06-09T00:00:00Z',
+          status: 'done',
+          resolution: 'stale local disposition',
+        }),
+      ],
+      [makeComment({ id: 'cmt_a', updatedAt: '2026-06-01T00:00:00Z' })],
+    );
+    expect(merged[0]).not.toHaveProperty('status');
+    expect(merged[0]).not.toHaveProperty('resolution');
+  });
+
+  it('merge: disposition on a server-only comment survives verbatim', () => {
+    const merged = mergeComments(
+      [],
+      [makeComment({ id: 'cmt_s', status: 'declined', resolution: 'Out of scope.' })],
+    );
+    expect(merged[0]).toMatchObject({ status: 'declined', resolution: 'Out of scope.' });
+  });
+
+  it('merge: pure — neither input array nor its comments are mutated', () => {
+    const local = [
+      makeComment({
+        id: 'cmt_a',
+        text: 'local',
+        status: 'open',
+        updatedAt: '2026-06-09T00:00:00Z',
+      }),
+    ];
+    const server = [makeComment({ id: 'cmt_a', text: 'server', status: 'done' })];
+    const localSnapshot = JSON.parse(JSON.stringify(local));
+    const serverSnapshot = JSON.parse(JSON.stringify(server));
+    mergeComments(local, server);
+    expect(local).toEqual(localSnapshot);
+    expect(server).toEqual(serverSnapshot);
+  });
+
+  it('merge: preserves local ordering and appends server-only comments in server order', () => {
+    const local = [makeComment({ id: 'cmt_1' }), makeComment({ id: 'cmt_2' })];
+    const server = [
+      makeComment({ id: 'cmt_3' }),
+      makeComment({ id: 'cmt_2' }),
+      makeComment({ id: 'cmt_4' }),
+    ];
+    expect(mergeComments(local, server).map((c) => c.id)).toEqual([
+      'cmt_1',
+      'cmt_2',
+      'cmt_3',
+      'cmt_4',
+    ]);
+  });
+
+  it('never throws on write failure and warns exactly once per session', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const throwing: Storage = {
+      getItem: () => null,
+      setItem: () => {
+        const err = new Error('quota');
+        err.name = 'QuotaExceededError';
+        throw err;
+      },
+      removeItem: () => {},
+      clear: () => {},
+      key: () => null,
+      length: 0,
+    };
+    expect(() => saveStore(throwing, emptyStore('p', 'sarah'))).not.toThrow();
+    saveStore(throwing, emptyStore('p', 'sarah')); // second failure — silent
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('[pinflow] failed to persist comments', expect.any(Error));
+    warn.mockRestore();
   });
 });

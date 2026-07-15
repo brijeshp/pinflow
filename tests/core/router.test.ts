@@ -23,4 +23,29 @@ describe('router', () => {
     w.stop();
     expect(history.pushState).toBe(before);
   });
+
+  it('stop leaves a later third-party wrapper intact and goes dead (P4.6)', async () => {
+    const original = history.pushState;
+    const cb = vi.fn();
+    const w = watchRoute(cb);
+    // A router library wraps history AFTER us — a naive restore would rip
+    // its wrapper out of the chain.
+    const ours = history.pushState;
+    const third = function (this: History, ...args: Parameters<History['pushState']>) {
+      return ours.apply(this, args);
+    };
+    history.pushState = third;
+    try {
+      w.stop();
+      expect(history.pushState).toBe(third); // not clobbered
+
+      // Our orphaned wrapper is still in the chain but must never emit.
+      history.pushState({}, '', '/after-stop');
+      await Promise.resolve();
+      expect(cb).not.toHaveBeenCalledWith('/after-stop');
+    } finally {
+      history.pushState = original;
+      history.pushState({}, '', '/');
+    }
+  });
 });

@@ -1,7 +1,9 @@
 import { now } from './time';
 import type { Comment, ReviewerStore } from './types';
 
-const SCHEMA_VERSION = 1;
+// Exported: exportJSON's `pinflowExport` field shares this version namespace —
+// "v3" means one thing everywhere (storage blob, JSON export, sync protocol).
+export const SCHEMA_VERSION = 3;
 // `c` = comments store; kept short to save bundle bytes and to avoid
 // colliding with other pinflow:* keys (e.g. the identity key in identity.ts,
 // which lives under `pinflow:r:<project>`).
@@ -15,6 +17,83 @@ export function storageKey(project: string, reviewer: string): string {
   return `${KEY_PREFIX}${project}:${reviewer}`;
 }
 
+function isObject(v: unknown): v is Record<string, unknown> {
+  return typeof v === 'object' && v !== null;
+}
+
+function isPersistedStore(v: unknown): v is {
+  schemaVersion: number;
+  reviewer: string;
+  project: string;
+  createdAt?: unknown;
+  comments?: unknown;
+} {
+  return (
+    isObject(v) &&
+    typeof v['schemaVersion'] === 'number' &&
+    v['schemaVersion'] >= 1 &&
+    typeof v['reviewer'] === 'string' &&
+    typeof v['project'] === 'string'
+  );
+}
+
+// The anchor sub-shape export/render dereference without guards: selectors
+// (with a string `css`), positionPercent, and viewport must all be objects or
+// the record is dropped rather than admitted to crash export later.
+function hasValidAnchor(c: Record<string, unknown>): boolean {
+  const anchor = c['anchor'];
+  if (!isObject(anchor)) return false;
+  const selectors = anchor['selectors'];
+  return (
+    isObject(selectors) &&
+    typeof selectors['css'] === 'string' &&
+    isObject(anchor['positionPercent']) &&
+    isObject(anchor['viewport'])
+  );
+}
+
+// Comments from localStorage are untrusted: drop malformed entries, coerce the
+// string fields downstream code dereferences unguarded, and guarantee every
+// survivor carries a `modality` (v1 stores predate the field). v3 disposition
+// fields are optional: an invalid status/resolution is stripped, not fatal.
+function normalizeComments(input: unknown): Comment[] {
+  if (!Array.isArray(input)) return [];
+  return input
+    .filter(
+      (c): c is Record<string, unknown> =>
+        isObject(c) && typeof c['id'] === 'string' && hasValidAnchor(c),
+    )
+    .map((c) => {
+      const out: Comment = {
+        ...(c as unknown as Comment),
+        text: typeof c['text'] === 'string' ? c['text'] : '',
+        route: typeof c['route'] === 'string' ? c['route'] : '',
+        createdAt: typeof c['createdAt'] === 'string' ? c['createdAt'] : '',
+        modality: c['modality'] === 'voice' ? 'voice' : 'text',
+      };
+      const s = c['status'];
+      if (s === 'open' || s === 'done' || s === 'declined') out.status = s;
+      else delete out.status;
+      const r = c['resolution'];
+      if (typeof r === 'string') out.resolution = r.slice(0, 500);
+      else delete out.resolution;
+      return out;
+    });
+}
+
+// Forward-tolerant migration. v1 → default modality 'text'; v2 → as-is (v3
+// disposition fields simply absent); a NEWER version is read for its stable
+// core fields rather than wiped. Genuinely foreign data → null.
+function migrate(parsed: unknown): ReviewerStore | null {
+  if (!isPersistedStore(parsed)) return null;
+  return {
+    reviewer: parsed.reviewer,
+    project: parsed.project,
+    createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : now(),
+    comments: normalizeComments(parsed.comments),
+  };
+}
+
 export function loadStore(
   storage: Storage,
   project: string,
@@ -22,23 +101,30 @@ export function loadStore(
 ): ReviewerStore | null {
   const raw = storage.getItem(storageKey(project, reviewer));
   if (!raw) return null;
+  let parsed: unknown;
   try {
-    const parsed = JSON.parse(raw) as PersistedStore;
-    if (parsed.schemaVersion !== SCHEMA_VERSION) return null;
-    return {
-      reviewer: parsed.reviewer,
-      project: parsed.project,
-      createdAt: parsed.createdAt,
-      comments: parsed.comments ?? [],
-    };
+    parsed = JSON.parse(raw);
   } catch {
-    return null;
+    return null; // corrupt blob — discard
   }
+  return migrate(parsed);
 }
 
+// Persistence failing (quota, private mode) is worth exactly one signal per
+// session, not one per keystroke.
+let warnedWriteFailure = false;
+
+/** Guarded write — never throws. On failure the session degrades to in-memory. */
 export function saveStore(storage: Storage, store: ReviewerStore): void {
   const payload: PersistedStore = { ...store, schemaVersion: SCHEMA_VERSION };
-  storage.setItem(storageKey(store.project, store.reviewer), JSON.stringify(payload));
+  try {
+    storage.setItem(storageKey(store.project, store.reviewer), JSON.stringify(payload));
+  } catch (err: unknown) {
+    if (!warnedWriteFailure) {
+      warnedWriteFailure = true;
+      console.warn('[pinflow] failed to persist comments', err);
+    }
+  }
 }
 
 export function listReviewers(storage: Storage, project: string): string[] {
@@ -46,7 +132,9 @@ export function listReviewers(storage: Storage, project: string): string[] {
   const out: string[] = [];
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
-    if (key && key.startsWith(prefix)) out.push(key.slice(prefix.length));
+    if (key && key.startsWith(prefix)) {
+      out.push(key.slice(prefix.length));
+    }
   }
   return out.sort();
 }
@@ -77,6 +165,40 @@ export function upsertComment(store: ReviewerStore, comment: Comment): ReviewerS
 
 export function deleteComment(store: ReviewerStore, id: string): ReviewerStore {
   return { ...store, comments: store.comments.filter((c) => c.id !== id) };
+}
+
+/**
+ * Merge a `source`-hydrated server corpus into the local one, by comment id.
+ * Pure — neither input is mutated.
+ *
+ * Semantics (the sync protocol's one subtle rule — see PROTOCOL.md):
+ * - Content: the copy with the higher `updatedAt` wins WHOLE-comment; an exact
+ *   tie resolves to the server copy (deterministic, and on a tie the two are
+ *   the same write anyway).
+ * - Disposition (`status`/`resolution`): the SERVER value always wins,
+ *   including absence — the team sets disposition through the host, a
+ *   reviewer's device never legitimately writes it, so a server copy without
+ *   one CLEARS any local one.
+ * - Server-only comments are appended (same reviewer, another device);
+ *   local-only comments are KEPT (they may simply not have synced yet).
+ * - Ordering: local order preserved, then unmatched server comments in server
+ *   order.
+ */
+export function mergeComments(local: Comment[], server: Comment[]): Comment[] {
+  const serverById = new Map(server.map((c) => [c.id, c]));
+  const merged = local.map((l) => {
+    const s = serverById.get(l.id);
+    if (!s) return l;
+    const base = l.updatedAt > s.updatedAt ? l : s;
+    const out: Comment = { ...base };
+    delete out.status;
+    delete out.resolution;
+    if (s.status !== undefined) out.status = s.status;
+    if (s.resolution !== undefined) out.resolution = s.resolution;
+    return out;
+  });
+  const localIds = new Set(local.map((c) => c.id));
+  return [...merged, ...server.filter((c) => !localIds.has(c.id))];
 }
 
 export function clearProject(storage: Storage, project: string): void {

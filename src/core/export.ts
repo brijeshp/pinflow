@@ -1,3 +1,5 @@
+import { SCHEMA_VERSION } from './storage';
+import { now } from './time';
 import type { Comment, ReviewerStore } from './types';
 
 export interface ExportMeta {
@@ -5,12 +7,13 @@ export interface ExportMeta {
   project: string;
 }
 
-export interface ExportOptions {
-  // Called per-comment to decide if the anchor still resolves. Comments for
-  // which this returns true are pulled into the "Orphaned comments" section
-  // (spec §5.2, §7.2). Default: all comments considered live.
-  isOrphaned?: (comment: Comment) => boolean;
-}
+// Called per-comment to decide if the anchor still resolves. Comments for
+// which this returns true are pulled into the "Orphaned comments" section
+// (spec §5.2, §7.2).
+export type IsOrphaned = (comment: Comment) => boolean;
+
+/** Optional host-provided friendly label for a route/frame key (config.describeRoute). */
+export type DescribeRoute = (key: string) => string;
 
 function tagFromCss(css: string): string {
   const last = css.split('>').pop()?.trim() ?? '';
@@ -45,30 +48,76 @@ function viewportLabel(comment: Comment): string {
   return `${width}×${height} (${kind})`;
 }
 
+// Leads with the stable comment id (the tracker/sync handle) and trails with
+// the team's disposition — only when one exists, so backendless exports stay
+// noise-free.
+function commentHeading(comment: Comment, index: number, reviewer?: string): string {
+  const s = comment.status;
+  const disp = s === 'done' || s === 'declined' ? ` — ${s}` : '';
+  return `### [${comment.id}] Comment ${index} — ${reviewer ? `${reviewer}, ` : ''}${comment.createdAt}${disp}`;
+}
+
+// "the ‘Continue’ button under ‘Next section’" — the human twin of the CSS
+// path, from the context captured at pin time. Empty when never captured (v2).
+function contextLine(comment: Comment): string {
+  const ctx = comment.anchor.context;
+  if (!ctx) return '';
+  return `**Context:** the ${ctx.name ? `‘${ctx.name}’ ` : ''}${ctx.role ?? 'element'}${
+    ctx.heading ? ` under ‘${ctx.heading}’` : ''
+  }`;
+}
+
+// "**Computed:** background rgb(...), text rgb(...), font 17px DM Sans" — the
+// pin-time visual snapshot, so an agent knows WHAT is being pinned (a color,
+// a font, an image) and its current value, not just where it sits.
+function visualLines(comment: Comment): string[] {
+  const ctx = comment.anchor.context;
+  if (!ctx) return [];
+  const s = ctx.styles;
+  const parts: string[] = [];
+  if (s?.background) parts.push(`background ${s.background}`);
+  if (s?.color) parts.push(`text ${s.color}`);
+  if (s?.fontSize || s?.fontFamily)
+    parts.push(`font ${[s.fontSize, s.fontFamily].filter(Boolean).join(' ')}`);
+  if (s?.radius) parts.push(`radius ${s.radius}`);
+  if (s?.backgroundImage) parts.push(`bg-image ${s.backgroundImage}`);
+  const lines: string[] = [];
+  if (parts.length) lines.push(`**Computed:** ${parts.join(', ')}`);
+  if (ctx.src) lines.push(`**Image:** ${ctx.src}`);
+  return lines;
+}
+
 function commentBlock(comment: Comment, index: number, reviewer?: string): string {
-  const heading = reviewer
-    ? `### Comment ${index} — ${reviewer}, ${comment.createdAt}`
-    : `### Comment ${index} — ${comment.createdAt}`;
+  const heading = commentHeading(comment, index, reviewer);
   const pos = comment.anchor.positionPercent;
+  const ctx = contextLine(comment);
   return [
     heading,
     `**Element:** ${elementLabel(comment)}`,
+    ...(ctx ? [ctx] : []),
+    ...visualLines(comment),
     '**Selector candidates:**',
     selectorLines(comment),
     `**Position:** ${Math.round(pos.x)}% from left, ${Math.round(pos.y)}% from top of element`,
     `**Viewport at time of comment:** ${viewportLabel(comment)}`,
+    // The team's "why" — the disposition heading suffix says WHAT happened,
+    // this line says the reason. Together they close the loop in the artifact.
+    ...(comment.resolution ? [`**Resolution:** ${comment.resolution}`] : []),
     '',
     `> ${comment.text.replace(/\r?\n/g, '\n> ')}`,
   ].join('\n');
 }
 
 function orphanBlock(comment: Comment & { reviewer?: string }, index: number): string {
-  const heading = comment.reviewer
-    ? `### Comment ${index} — ${comment.reviewer}, ${comment.createdAt}`
-    : `### Comment ${index} — ${comment.createdAt}`;
+  // Orphans keep their human context and visual snapshot — the element is
+  // GONE, so the last-known name/heading/colors are exactly what an agent
+  // has left to work with (codex r18).
+  const ctx = contextLine(comment);
   return [
-    heading,
+    commentHeading(comment, index, comment.reviewer),
     `**Last known element:** ${elementLabel(comment)}`,
+    ...(ctx ? [ctx] : []),
+    ...visualLines(comment),
     `**Last known selector:** \`${comment.anchor.selectors.css}\``,
     `**Route:** ${comment.route}`,
     '',
@@ -103,9 +152,8 @@ function routesCovered(groups: RouteGroup[]): string {
 
 function partitionOrphans<T extends Comment>(
   comments: T[],
-  isOrphaned?: (c: Comment) => boolean,
+  isOrphaned: IsOrphaned,
 ): { live: T[]; orphaned: T[] } {
-  if (!isOrphaned) return { live: comments, orphaned: [] };
   const live: T[] = [];
   const orphaned: T[] = [];
   for (const c of comments) (isOrphaned(c) ? orphaned : live).push(c);
@@ -118,19 +166,27 @@ function orphanSection(orphaned: Array<Comment & { reviewer?: string }>): string
   return [
     '## Orphaned comments',
     '',
-    'The following comments were left on elements that no longer exist in the current DOM. They are preserved here for context.',
+    'Their elements no longer exist in the DOM.',
     '',
     blocks,
   ].join('\n');
 }
 
-function bodyFromGroups(groups: RouteGroup[], withReviewer: boolean): string {
+function bodyFromGroups(
+  groups: RouteGroup[],
+  withReviewer: boolean,
+  describeRoute?: DescribeRoute,
+): string {
   return groups
     .map((g) => {
       const blocks = g.comments.map((c, i) =>
         commentBlock(c, i + 1, withReviewer ? c.reviewer : undefined),
       );
-      return [`## Route: ${g.route}`, '', blocks.join('\n\n---\n\n')].join('\n');
+      // `## <label>` with the stable key in backticks beneath when the host
+      // labels this key; the plain v1 heading otherwise.
+      const label = describeRoute?.(g.route);
+      const heading = label ? `## ${label}\n\`${g.route}\`` : `## Route: ${g.route}`;
+      return [heading, '', blocks.join('\n\n---\n\n')].join('\n');
     })
     .join('\n\n---\n\n');
 }
@@ -138,9 +194,10 @@ function bodyFromGroups(groups: RouteGroup[], withReviewer: boolean): string {
 export function exportReviewer(
   store: ReviewerStore,
   meta: ExportMeta,
-  options: ExportOptions = {},
+  isOrphaned: IsOrphaned,
+  describeRoute?: DescribeRoute,
 ): string {
-  const { live, orphaned } = partitionOrphans(store.comments, options.isOrphaned);
+  const { live, orphaned } = partitionOrphans(store.comments, isOrphaned);
   const groups = groupByRoute(live);
   const header = [
     `# Feedback for ${meta.project} — from ${store.reviewer}`,
@@ -153,7 +210,7 @@ export function exportReviewer(
     '---',
   ].join('\n');
 
-  const parts = [header, bodyFromGroups(groups, false)];
+  const parts = [header, bodyFromGroups(groups, false, describeRoute)];
   const orphan = orphanSection(orphaned);
   if (orphan) parts.push('---', orphan);
   return parts.filter(Boolean).join('\n\n') + '\n';
@@ -168,9 +225,7 @@ function summarize(
   const byReviewerLines = reviewers
     .map((r) => `- ${r} — ${byReviewer.get(r) ?? 0} comments`)
     .join('\n');
-  const byRouteLines = groups
-    .map((g) => `- ${g.route} — ${g.comments.length} comments`)
-    .join('\n');
+  const byRouteLines = groups.map((g) => `- ${g.route} — ${g.comments.length} comments`).join('\n');
   return [
     '## Summary',
     '',
@@ -187,13 +242,14 @@ function summarize(
 export function exportBuilder(
   stores: ReviewerStore[],
   meta: ExportMeta,
-  options: ExportOptions = {},
+  isOrphaned: IsOrphaned,
+  describeRoute?: DescribeRoute,
 ): string {
   const reviewers = stores.map((s) => s.reviewer);
   const allComments: Array<Comment & { reviewer: string }> = stores.flatMap((s) =>
     s.comments.map((c) => ({ ...c, reviewer: s.reviewer })),
   );
-  const { live, orphaned } = partitionOrphans(allComments, options.isOrphaned);
+  const { live, orphaned } = partitionOrphans(allComments, isOrphaned);
   const byReviewer = new Map<string, number>();
   for (const c of live) byReviewer.set(c.reviewer, (byReviewer.get(c.reviewer) ?? 0) + 1);
 
@@ -213,20 +269,35 @@ export function exportBuilder(
     '---',
   ].join('\n');
 
-  const parts = [header, bodyFromGroups(groups, true)];
+  const parts = [header, bodyFromGroups(groups, true, describeRoute)];
   const orphan = orphanSection(orphaned);
   if (orphan) parts.push('---', orphan);
   return parts.filter(Boolean).join('\n\n') + '\n';
 }
 
+// `reviewer` doubles as the kind switch: null means the builder aggregate.
 export function exportFilename(
-  kind: 'reviewer' | 'builder',
   project: string,
   reviewer: string | null,
   timestamp: string,
+  ext = 'md',
 ): string {
   const ts = timestamp.replace(/[:.]/g, '-');
-  return kind === 'reviewer' && reviewer
-    ? `pinflow-feedback-${reviewer}-${project}-${ts}.md`
-    : `pinflow-feedback-${project}-aggregate-${ts}.md`;
+  const who = reviewer ? `${reviewer}-${project}` : `${project}-aggregate`;
+  return `pinflow-feedback-${who}-${ts}.${ext}`;
+}
+
+/**
+ * Machine-readable twin of the markdown export (markdown for humans/agents,
+ * JSON for pipelines). `pinflowExport` shares the storage schema version
+ * namespace — "v3" means one thing everywhere. Pure and DOM-free by contract:
+ * hosts run it server-side too.
+ */
+export function exportJSON(stores: ReviewerStore[] | ReviewerStore): string {
+  const list = Array.isArray(stores) ? stores : [stores];
+  return JSON.stringify({
+    pinflowExport: SCHEMA_VERSION,
+    generatedAt: now(),
+    comments: list.flatMap((s) => s.comments.map((c) => ({ ...c, reviewer: s.reviewer }))),
+  });
 }

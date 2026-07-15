@@ -1,55 +1,115 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Pinflow — Vanilla HTML Example</title>
-  <style>
-    * { margin: 0; box-sizing: border-box; }
-    body { font-family: system-ui, sans-serif; color: #1a1a1a; }
-    header { padding: 60px 24px; text-align: center; background: #f8fafc; }
-    header h1 { font-size: 2.5rem; margin-bottom: 12px; }
-    header p { font-size: 1.1rem; color: #64748b; max-width: 540px; margin: 0 auto; }
-    .cta { display: inline-block; margin-top: 24px; padding: 14px 28px; background: #2563eb; color: #fff; border: 0; border-radius: 8px; font-size: 1rem; cursor: pointer; }
-    section { padding: 48px 24px; max-width: 720px; margin: 0 auto; }
-    section h2 { font-size: 1.5rem; margin-bottom: 12px; }
-    section p { line-height: 1.7; color: #475569; }
-    .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 24px; margin-top: 24px; }
-    .card { padding: 24px; border-radius: 12px; background: #f1f5f9; }
-    .card h3 { font-size: 1rem; margin-bottom: 8px; }
-    .card p { font-size: 0.9rem; }
-    footer { padding: 32px 24px; text-align: center; font-size: 0.85rem; color: #94a3b8; }
-  </style>
-</head>
-<body>
-  <header>
-    <h1>My Prototype</h1>
-    <p>This is a vibe-coded landing page. Pinflow is loaded below — click anywhere to leave feedback.</p>
-    <button class="cta" data-testid="hero-cta">Get started</button>
-  </header>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pinflow — Vanilla HTML Example</title>
+    <style>
+      * {
+        margin: 0;
+        box-sizing: border-box;
+      }
+      body {
+        font-family: system-ui, sans-serif;
+        color: #1a1a1a;
+      }
+      header {
+        padding: 60px 24px;
+        text-align: center;
+        background: #f8fafc;
+      }
+      header h1 {
+        font-size: 2.5rem;
+        margin-bottom: 12px;
+      }
+      header p {
+        font-size: 1.1rem;
+        color: #64748b;
+        max-width: 540px;
+        margin: 0 auto;
+      }
+      .cta {
+        display: inline-block;
+        margin-top: 24px;
+        padding: 14px 28px;
+        background: #2563eb;
+        color: #fff;
+        border: 0;
+        border-radius: 8px;
+        font-size: 1rem;
+        cursor: pointer;
+      }
+      section {
+        padding: 48px 24px;
+        max-width: 720px;
+        margin: 0 auto;
+      }
+      section h2 {
+        font-size: 1.5rem;
+        margin-bottom: 12px;
+      }
+      section p {
+        line-height: 1.7;
+        color: #475569;
+      }
+      .features {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+        gap: 24px;
+        margin-top: 24px;
+      }
+      .card {
+        padding: 24px;
+        border-radius: 12px;
+        background: #f1f5f9;
+      }
+      .card h3 {
+        font-size: 1rem;
+        margin-bottom: 8px;
+      }
+      .card p {
+        font-size: 0.9rem;
+      }
+      footer {
+        padding: 32px 24px;
+        text-align: center;
+        font-size: 0.85rem;
+        color: #94a3b8;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1>My Prototype</h1>
+      <p>
+        This is a vibe-coded landing page. Pinflow is loaded below — click anywhere to leave
+        feedback.
+      </p>
+      <button class="cta" data-testid="hero-cta">Get started</button>
+    </header>
 
-  <section>
-    <h2>Features</h2>
-    <p>Things this prototype pretends to do.</p>
-    <div class="features">
-      <div class="card">
-        <h3>Fast</h3>
-        <p>Loads in under a second.</p>
+    <section>
+      <h2>Features</h2>
+      <p>Things this prototype pretends to do.</p>
+      <div class="features">
+        <div class="card">
+          <h3>Fast</h3>
+          <p>Loads in under a second.</p>
+        </div>
+        <div class="card">
+          <h3>Simple</h3>
+          <p>No config, no build step.</p>
+        </div>
+        <div class="card">
+          <h3>Beautiful</h3>
+          <p>Looks good by default.</p>
+        </div>
       </div>
-      <div class="card">
-        <h3>Simple</h3>
-        <p>No config, no build step.</p>
-      </div>
-      <div class="card">
-        <h3>Beautiful</h3>
-        <p>Looks good by default.</p>
-      </div>
-    </div>
-  </section>
+    </section>
 
-  <footer>Built with vibes. Annotated with Pinflow.</footer>
+    <footer>Built with vibes. Annotated with Pinflow.</footer>
 
-  <!-- One line. That's it. -->
-  <script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="vanilla-demo"></script>
-</body>
+    <!-- One line. That's it. -->
+    <script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="vanilla-demo"></script>
+  </body>
 </html>

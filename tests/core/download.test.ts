@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { copyToClipboard, downloadMarkdown } from '../../src/core/download';
+import { copyToClipboard, download } from '../../src/core/download';
 
-describe('downloadMarkdown', () => {
+describe('download', () => {
   afterEach(() => {
     document.body.innerHTML = '';
     vi.restoreAllMocks();
@@ -13,7 +13,12 @@ describe('downloadMarkdown', () => {
     const clickSpy = vi.fn();
     vi.spyOn(document, 'createElement').mockImplementation((tag: string) => {
       if (tag === 'a') {
-        const a = { href: '', download: '', rel: '', click: clickSpy } as unknown as HTMLAnchorElement;
+        const a = {
+          href: '',
+          download: '',
+          rel: '',
+          click: clickSpy,
+        } as unknown as HTMLAnchorElement;
         return a;
       }
       return document.createElement(tag);
@@ -21,7 +26,7 @@ describe('downloadMarkdown', () => {
     vi.spyOn(document.body, 'appendChild').mockImplementation((n) => n);
     vi.spyOn(document.body, 'removeChild').mockImplementation((n) => n);
 
-    downloadMarkdown('# Hello', 'test.md');
+    download('# Hello', 'test.md');
     expect(createUrl).toHaveBeenCalled();
     expect(clickSpy).toHaveBeenCalled();
   });
@@ -43,28 +48,19 @@ describe('copyToClipboard', () => {
     expect(writeText).toHaveBeenCalledWith('hello');
   });
 
-  it('falls back to execCommand when clipboard API fails', async () => {
+  it('returns false (never throws) when the clipboard API rejects', async () => {
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: () => Promise.reject(new Error('denied')) },
       configurable: true,
     });
-    (document as unknown as Record<string, unknown>).execCommand = vi.fn().mockReturnValue(true);
-    const ok = await copyToClipboard('fallback');
-    expect(ok).toBe(true);
-    expect(document.execCommand).toHaveBeenCalledWith('copy');
-    delete (document as unknown as Record<string, unknown>).execCommand;
+    await expect(copyToClipboard('nope')).resolves.toBe(false);
   });
 
-  it('returns false when all methods fail', async () => {
+  it('returns false when the clipboard API is unavailable', async () => {
     Object.defineProperty(navigator, 'clipboard', {
-      value: { writeText: () => Promise.reject(new Error('no')) },
+      value: undefined,
       configurable: true,
     });
-    (document as unknown as Record<string, unknown>).execCommand = vi.fn().mockImplementation(() => {
-      throw new Error('nope');
-    });
-    const ok = await copyToClipboard('nope');
-    expect(ok).toBe(false);
-    delete (document as unknown as Record<string, unknown>).execCommand;
+    await expect(copyToClipboard('nope')).resolves.toBe(false);
   });
 });

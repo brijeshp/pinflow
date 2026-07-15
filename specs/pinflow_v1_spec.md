@@ -147,13 +147,15 @@ export default function App() {
 
 ```js
 window.Pinflow.init({
-  project: 'my-prototype',           // namespace for localStorage
-  reviewer: 'Sarah',                 // override URL param
-  mode: 'reviewer',                  // 'reviewer' | 'builder'
-  onSubmit: (comments) => { /* ... */ },  // called when reviewer hits Submit
-  theme: 'auto',                     // 'light' | 'dark' | 'auto'
-  position: 'bottom-right',          // floating control position
-  hidden: false                      // hide the floating control entirely (programmatic mode)
+  project: 'my-prototype', // namespace for localStorage
+  reviewer: 'Sarah', // override URL param
+  mode: 'reviewer', // 'reviewer' | 'builder'
+  onSubmit: (comments) => {
+    /* ... */
+  }, // called when reviewer hits Submit
+  theme: 'auto', // 'light' | 'dark' | 'auto'
+  position: 'bottom-right', // floating control position
+  hidden: false, // hide the floating control entirely (programmatic mode)
 });
 ```
 
@@ -242,7 +244,7 @@ Export is the primary collection mechanism. Both reviewer mode and builder mode 
 **Reviewer export (the default path):**
 
 - Trigger: "Export & share" button in the floating control's expanded panel
-- Action: Generates a markdown file containing all of *this reviewer's* comments across all routes, downloads it as `pinflow-feedback-${reviewer}-${project}-${timestamp}.md`, and also copies the contents to the clipboard
+- Action: Generates a markdown file containing all of _this reviewer's_ comments across all routes, downloads it as `pinflow-feedback-${reviewer}-${project}-${timestamp}.md`, and also copies the contents to the clipboard
 - After export: A small confirmation panel appears with copy along the lines of "Saved to your downloads. Share this file with the builder however works for you — email, Slack, message, drop it in a folder, whatever."
 - The library does not own the share channel. It does not open a mailto, does not POST anywhere, does not suggest a specific tool. It produces a file and gets out of the way.
 - Reviewer's localStorage is preserved after export. They can keep editing and re-export.
@@ -265,9 +267,9 @@ init({
     await fetch('/api/feedback', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload)
+      body: JSON.stringify(payload),
     });
-  }
+  },
 });
 ```
 
@@ -316,26 +318,30 @@ Routes covered: /, /pricing
 ## Route: /
 
 ### Comment 1 — 2026-04-15T14:24:00Z
+
 **Element:** `<button data-testid="primary-cta">` ("Get started for free")
 **Selector candidates:**
+
 - testid: `primary-cta`
 - css: `main > section:nth-of-type(1) > button.cta-primary`
 - xpath: `/html/body/main/section[1]/button[1]`
-**Position:** 47% from left, 38% from top of element
-**Viewport at time of comment:** 390×844 (mobile)
+  **Position:** 47% from left, 38% from top of element
+  **Viewport at time of comment:** 390×844 (mobile)
 
 > This CTA gets lost against the background.
 
 ---
 
 ### Comment 2 — 2026-04-15T14:31:00Z
+
 **Element:** `<h1>` ("Welcome to Sensavera")
 **Selector candidates:**
+
 - testid: (none)
 - css: `main > header > h1`
 - xpath: `/html/body/main/header/h1`
-**Position:** 12% from left, 50% from top of element
-**Viewport at time of comment:** 1440×900 (desktop)
+  **Position:** 12% from left, 50% from top of element
+  **Viewport at time of comment:** 1440×900 (desktop)
 
 > Headline is doing too much. Maybe just "Sensavera" with a tagline below?
 
@@ -360,11 +366,13 @@ Routes covered: /, /pricing, /signup
 8 comments across 3 routes.
 
 By reviewer:
+
 - Sarah — 4 comments
 - Mike — 3 comments
 - Jen — 1 comment
 
 By route:
+
 - /pricing — 4 comments
 - / — 3 comments
 - /signup — 1 comment
@@ -374,26 +382,30 @@ By route:
 ## Route: /
 
 ### Comment 1 — Sarah, 2026-04-15T14:24:00Z
+
 **Element:** `<button data-testid="primary-cta">` ("Get started for free")
 **Selector candidates:**
+
 - testid: `primary-cta`
 - css: `main > section:nth-of-type(1) > button.cta-primary`
 - xpath: `/html/body/main/section[1]/button[1]`
-**Position:** 47% from left, 38% from top of element
-**Viewport at time of comment:** 390×844 (mobile)
+  **Position:** 47% from left, 38% from top of element
+  **Viewport at time of comment:** 390×844 (mobile)
 
 > This CTA gets lost against the background.
 
 ---
 
 ### Comment 2 — Mike, 2026-04-15T14:31:00Z
+
 **Element:** `<h1>` ("Welcome to Sensavera")
 **Selector candidates:**
+
 - testid: (none)
 - css: `main > header > h1`
 - xpath: `/html/body/main/header/h1`
-**Position:** 12% from left, 50% from top of element
-**Viewport at time of comment:** 1440×900 (desktop)
+  **Position:** 12% from left, 50% from top of element
+  **Viewport at time of comment:** 1440×900 (desktop)
 
 > Headline is doing too much. Maybe just "Sensavera" with a tagline below?
 
@@ -408,6 +420,7 @@ By route:
 The following comments were left on elements that no longer exist in the current DOM. They are preserved here for context.
 
 ### Comment N — Jen, 2026-04-14T09:12:00Z
+
 **Last known element:** `<div class="legacy-banner">` ("Limited time offer")
 **Last known selector:** `body > div.legacy-banner`
 **Route:** /
@@ -514,6 +527,7 @@ The library is ready for v1 release when all of the following are true:
 Documented here so the team has a clear roadmap and the v1 scope stays disciplined.
 
 **v2 candidates (post-traction):**
+
 - Voice notes with server-side transcription
 - Client-side screenshot capture (using html2canvas or equivalent)
 - Sketching / drawing layer
@@ -521,6 +535,7 @@ Documented here so the team has a clear roadmap and the v1 scope stays disciplin
 - Browser extension version for annotating sites you don't control
 
 **Paid layer (Shape B — separate product, separate repo):**
+
 - Conflict detection across reviewers
 - Semantic clustering of similar comments
 - Severity and intent inference
@@ -529,6 +544,7 @@ Documented here so the team has a clear roadmap and the v1 scope stays disciplin
 - Hosted aggregation for distributed teams (the moment it's clearly necessary, not before)
 
 **Never (out of category):**
+
 - Threading, replies, @mentions
 - Status workflows / kanban
 - Issue tracker integrations as first-class features
@@ -543,4 +559,4 @@ These are decisions to make before or during build, not blockers to starting.
 1. **CSS strategy.** Inline styles, CSS file shipped with the bundle, or shadow DOM to avoid host-page style collisions? Lean shadow DOM — strongest isolation and avoids the "my host site has weird global CSS that breaks the pin" class of bugs.
 2. **React wrapper as separate package or single package with subpath imports?** Lean subpath imports for simpler install, ship as `pinflow/react`.
 3. **License the export format itself?** Probably not, but worth noting that we want third-party tools to be able to consume it freely. Document the format in the repo so others can build against it.
-4. **Demo site at pinflow.dev.** The demo *is* the marketing site — there is no separate landing page. Visitors land on a working interactive demo where they can try annotation immediately, then see the install snippet below.
+4. **Demo site at pinflow.dev.** The demo _is_ the marketing site — there is no separate landing page. Visitors land on a working interactive demo where they can try annotation immediately, then see the install snippet below.
