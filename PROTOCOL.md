@@ -45,6 +45,10 @@ activation in stealth mode). Hosts refresh by re-initializing; `localStorage`
 makes that lossless. A rejection is silent — the local store stays
 authoritative.
 
+Configuring `source` also flips `exportUi: 'auto'` off: a synced host owns
+collation, so the reviewer-side export chip/hotkey/popup action disappear.
+Pass `exportUi: 'always'` if your host wants both.
+
 ### upsert / delete — `onChange(store, change)`
 
 Fired after every persisted comment mutation with a change envelope:

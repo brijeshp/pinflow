@@ -109,6 +109,9 @@ const handle = init({
   submitTo: { email: 'builder@example.com', subject: 'Feedback: pinflow demo' },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   source: () => Promise.resolve(seededComments as any),
+  // The demo uses `source` only to seed showcase comments, so 'auto' would
+  // hide the export chip — force it on to demo the anytime-export affordance.
+  exportUi: 'always',
 });
 
 // Tab switcher for install snippets — each tab is a pinflow frame.

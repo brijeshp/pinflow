@@ -59,4 +59,29 @@ describe('React <Annotator />', () => {
     const mod = await import('../../src/react/index');
     expect(typeof mod.Annotator).toBe('function');
   });
+
+  it('re-inits when exportUi changes (codex #9: wrapper contract parity)', async () => {
+    const React = await import('react');
+    const { createRoot } = await import('react-dom/client');
+    const { Annotator } = await import('../../src/react/index');
+    const { act } = await import('react');
+
+    const root = createRoot(document.createElement('div'));
+    await act(async () => {
+      root.render(React.createElement(Annotator, { project: 'p', exportUi: 'never' }));
+    });
+    await vi.dynamicImportSettled();
+    expect(initMock).toHaveBeenCalledWith(expect.objectContaining({ exportUi: 'never' }));
+    const calls = initMock.mock.calls.length;
+
+    await act(async () => {
+      root.render(React.createElement(Annotator, { project: 'p', exportUi: 'always' }));
+    });
+    expect(initMock.mock.calls.length).toBe(calls + 1);
+    expect(initMock).toHaveBeenLastCalledWith(expect.objectContaining({ exportUi: 'always' }));
+
+    await act(async () => {
+      root.unmount();
+    });
+  });
 });

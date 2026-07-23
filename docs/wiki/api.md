@@ -43,6 +43,7 @@ Required: `project`.
 | `routeKey`      | `() => string`                                                  | custom frame/screen key (default: `pathname + search`); pair with `handle.refreshRoute()`                                                                                                                                                                                                                                                                          |
 | `describeRoute` | `(key: string) => string`                                       | friendly label for a route key in export headings (stable key kept in backticks beneath); return `''` to keep the plain `## Route: <key>` heading                                                                                                                                                                                                                  |
 | `submitTo`      | `{ email: string; subject?: string }`                           | free-tier hand-off: the post-export confirmation gains an "Email it to the builder" `mailto:` button (artifact already downloaded + on clipboard); subject defaults to `Feedback: <project>`                                                                                                                                                                       |
+| `exportUi`      | `'auto' \| 'always' \| 'never'`                                 | anytime-export affordance (reviewer mode): count chip + summonable sheet, popup `Export all · n` action, `⌘/Ctrl+Shift+E`; `'auto'` (default) = on for local-first installs, OFF when `source` is configured (a synced host owns collation); builder mode unaffected                                                                                               |
 | `activation`    | `{ mode?: 'toggle' \| 'stealth' \| 'both' }`                    | `toggle` = visible button (default); `stealth` = Alt+click / long-press only                                                                                                                                                                                                                                                                                       |
 | `voice`         | `VoiceConfig?`                                                  | omit for pure text                                                                                                                                                                                                                                                                                                                                                 |
 
@@ -62,7 +63,7 @@ Required: `project`.
 
 ## React wrapper (`src/react/index.ts`)
 
-`<Annotator {...PinflowConfig} />` renders `null`; mounts on first render. Re-inits only on stable primitives (`project`, `mode`, `reviewer`, `activation.mode`, `voice.tokenEndpoint`) — memoize inline objects to avoid unnecessary re-inits.
+`<Annotator {...PinflowConfig} />` renders `null`; mounts on first render. Re-inits only on stable primitives (`project`, `mode`, `reviewer`, `activation.mode`, `voice.tokenEndpoint`, `exportUi`) — memoize inline objects to avoid unnecessary re-inits.
 
 ```jsx
 import { Annotator } from 'pinflow/react';
@@ -71,7 +72,7 @@ import { Annotator } from 'pinflow/react';
 
 ## Vue wrapper (`src/vue/index.ts`)
 
-Props mirror `PinflowConfig` except **`onSubmit` is exposed as `submitHandler`** (an `on*`-prefixed prop would be treated as an event listener by Vue). Re-inits only on stable primitives.
+Props are an ENUMERATED subset of `PinflowConfig` (`project`, `reviewer`, `mode`, `submitHandler`, `activation`, `voice`, `exportUi`) — **`onSubmit` is exposed as `submitHandler`** (an `on*`-prefixed prop would be treated as an event listener by Vue). Undeclared config keys are NOT forwarded. Re-inits only on stable primitives (incl. `exportUi`).
 
 ```vue
 <script setup>

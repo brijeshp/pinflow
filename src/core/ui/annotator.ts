@@ -67,6 +67,9 @@ interface ActiveInput {
   commentId: string;
   /** Detach the popup's document-level dismiss listeners. */
   cleanup(): void;
+  /** Persist the draft's current text and close (frozen popups just close).
+   *  Lets export surfaces resolve an open draft LOSSLESSLY before acting. */
+  save(): void;
 }
 
 export class Annotator {
@@ -89,6 +92,14 @@ export class Annotator {
   private _activeInput: ActiveInput | null = null;
   private _controlEl: HTMLButtonElement | null = null;
   private _panelEl: HTMLDivElement | null = null;
+  // Anytime-export affordance: the count chip, whichever element anchors the
+  // open panel (control in toggle mode, chip for the export sheet), which KIND
+  // of panel is up (a sheet summon must replace a menu/confirmation, not just
+  // toggle it away — codex #4), and the sheet's outside-dismiss teardown.
+  private _chipEl: HTMLButtonElement | null = null;
+  private _panelAnchor: HTMLElement | null = null;
+  private _panelKind: 'menu' | 'sheet' | 'confirm' | null = null;
+  private _sheetDismiss: (() => void) | null = null;
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
   private _prevBodyCursor = '';
   private _reflowFrame = 0;
@@ -124,7 +135,22 @@ export class Annotator {
     this._hydrateFromSource();
     window.addEventListener('resize', this._onReflow);
     window.addEventListener('scroll', this._onReflow, { passive: true });
+    // Desktop accelerator for the export sheet. A chord, so it can never
+    // collide with typing in host inputs; gated at registration (config is
+    // immutable per instance).
+    if (this._exportUiEnabled()) document.addEventListener('keydown', this._onExportHotkey, true);
   }
+
+  private _onExportHotkey = (e: Event): void => {
+    const k = e as KeyboardEvent;
+    if (k.repeat) return; // held chord must not strobe the sheet
+    if (!(k.metaKey || k.ctrlKey) || !k.shiftKey || k.key.toLowerCase() !== 'e') return;
+    // The chord stays the HOST'S unless pinflow will actually act (codex #11):
+    // an open sheet toggles closed; otherwise there must be something to export.
+    if (this._panelKind !== 'sheet' && this._store.comments.length === 0) return;
+    k.preventDefault();
+    this._toggleSheet();
+  };
 
   // L2.1: the read half of the sync protocol, fetched once per resolved
   // identity — i.e. wherever the store becomes real: the constructor when the
@@ -174,6 +200,7 @@ export class Annotator {
     this._generation += 1;
     window.removeEventListener('resize', this._onReflow);
     window.removeEventListener('scroll', this._onReflow);
+    document.removeEventListener('keydown', this._onExportHotkey, true);
     this._gesture?.stop();
     // dispose() may synchronously best-effort persist an in-flight transcript,
     // so the destroyed flag flips only after voice teardown completes.
@@ -182,6 +209,7 @@ export class Annotator {
     this._closeActiveInput(false);
     if (this._annotating) this._exitAnnotateMode();
     if (this._reflowFrame) cancelAnimationFrame(this._reflowFrame);
+    this._closePanel(); // sheet dismiss listeners live on document — must detach
     this._ui.destroy();
   }
 
@@ -301,6 +329,8 @@ export class Annotator {
       this._closePanel();
       return;
     }
+    this._panelAnchor = this._controlEl;
+    this._panelKind = 'menu';
     this._panelEl =
       this._deps.mode === 'builder' ? this._renderBuilderPanel() : this._renderReviewerPanel();
     this._ui.root.appendChild(this._panelEl);
@@ -308,23 +338,123 @@ export class Annotator {
   }
 
   private _closePanel(): void {
+    this._sheetDismiss?.();
+    this._sheetDismiss = null;
     this._panelEl?.remove();
     this._panelEl = null;
+    this._panelKind = null;
   }
 
-  // The control is fixed bottom-right: anchor the panel above it, right-aligned,
-  // and let flipPosition handle tiny viewports.
+  // Anchor the panel above whatever summoned it (control bottom-right, chip
+  // bottom-left), aligned to the anchor's near edge; flipPosition handles
+  // tiny viewports. An anchor can leave the DOM while an async export is in
+  // flight (last comment deleted → chip unmounted — codex #6): fall back to
+  // the control, then to the chip's home corner.
   private _positionPanel(): void {
-    if (!this._panelEl || !this._controlEl) return;
-    const rect = this._controlEl.getBoundingClientRect();
+    if (!this._panelEl) return;
+    const anchor = this._panelAnchor?.isConnected
+      ? this._panelAnchor
+      : this._controlEl?.isConnected
+        ? this._controlEl
+        : null;
     const size = {
       width: this._panelEl.offsetWidth || 280,
       height: this._panelEl.offsetHeight || 180,
     };
     const vp = { width: window.innerWidth, height: window.innerHeight };
-    place(
-      this._panelEl,
-      flipPosition({ left: rect.right - size.width, top: rect.top - size.height - 8 }, size, vp, 0),
+    if (!anchor) {
+      place(this._panelEl, { left: 16, top: Math.max(16, vp.height - size.height - 16) });
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    // Chip sits left, control sits right: align the panel toward the wider side.
+    const left = rect.left + size.width / 2 > vp.width / 2 ? rect.right - size.width : rect.left;
+    place(this._panelEl, flipPosition({ left, top: rect.top - size.height - 8 }, size, vp, 0));
+  }
+
+  // ── Anytime export: count chip + summonable sheet ──
+  // "Summon, don't station": stealth mode has no standing chrome, so the
+  // export affordance is a chip in the pins' own visual vocabulary — it
+  // exists only while the reviewer has comments, and reads as the sum of
+  // their pins, not as new furniture.
+
+  private _exportUiEnabled(): boolean {
+    if (this._deps.mode !== 'reviewer') return false;
+    const mode = this._deps.config.exportUi ?? 'auto';
+    if (mode === 'never') return false;
+    // 'auto': a host that hydrates from a backend (source) owns collation —
+    // member-side export there is noise. Local-first installs get it free.
+    return mode === 'always' || !this._deps.config.source;
+  }
+
+  private _sheetTitle(): string {
+    const comments = this._store.comments;
+    const screens = new Set(comments.map((c) => c.route)).size;
+    const n = (v: number, w: string): string => `${v} ${w}${v === 1 ? '' : 's'}`;
+    return `${n(comments.length, 'comment')} · ${n(screens, 'screen')}`;
+  }
+
+  private _syncChip(): void {
+    const count = this._exportUiEnabled() ? this._store.comments.length : 0;
+    if (count === 0) {
+      if (this._chipEl) {
+        this._chipEl.remove();
+        this._chipEl = null;
+        // The sheet is meaningless without comments; menus/confirmations stay
+        // (the confirmation must survive its own export — codex #6 anchors it
+        // through the connectivity fallback instead).
+        if (this._panelKind === 'sheet') this._closePanel();
+      }
+      return;
+    }
+    const label = `Export feedback — ${count} comment${count === 1 ? '' : 's'}`;
+    if (!this._chipEl) {
+      const chip = el('button', 'chip', String(count));
+      chip.type = 'button';
+      chip.addEventListener('click', () => this._toggleSheet());
+      this._ui.root.appendChild(chip);
+      this._chipEl = chip;
+    } else {
+      this._chipEl.textContent = String(count);
+    }
+    this._chipEl.setAttribute('aria-label', label);
+    this._chipEl.title = label;
+    // An open sheet tracks the corpus live (hydration merge, voice commit,
+    // deletes) — Export always uses the store, so the label must too (codex #5).
+    if (this._panelKind === 'sheet' && this._panelEl) {
+      const h = this._panelEl.querySelector('h3');
+      if (h) h.textContent = this._sheetTitle();
+    }
+  }
+
+  private _toggleSheet(): void {
+    if (this._panelKind === 'sheet') {
+      this._closePanel();
+      return;
+    }
+    this._closePanel(); // a summon REPLACES a menu/confirmation (codex #4)
+    // Resolve any open draft losslessly before exporting (codex #3): typed
+    // text is saved; a still-empty draft is deleted by the save path.
+    this._activeInput?.save();
+    // The save can delete the sole (empty) comment — nothing left to export
+    // means nothing to summon (codex #8).
+    if (this._store.comments.length === 0 || !this._chipEl?.isConnected) return;
+    const sheet = this._makePanel(
+      this._sheetTitle(),
+      'Downloads the markdown and copies it to your clipboard.',
+      [this._makeButton('Export & share', () => void this._handleReviewerExport(), 'primary')],
+    );
+    this._panelAnchor = this._chipEl;
+    this._panelKind = 'sheet';
+    this._panelEl = sheet;
+    this._ui.root.appendChild(sheet);
+    this._positionPanel();
+    // The chip is exempt from outside-dismiss: its own click must reach the
+    // toggle (a physical tap's pointerup would otherwise close the sheet and
+    // the trailing click reopen it — codex #7).
+    this._sheetDismiss = this._armOutsideDismiss(
+      () => [sheet, this._chipEl],
+      () => this._closePanel(),
     );
   }
 
@@ -630,6 +760,10 @@ export class Annotator {
 
   private _renderPins(): void {
     this._invalidateViewCaches();
+    // Every count-changing path funnels through here (place, save-dismiss of
+    // an empty draft, delete, hydration merge, builder clear), so the export
+    // chip stays honest with one sync point.
+    this._syncChip();
     for (const el of this._pins.values()) el.remove();
     this._pins.clear();
     const comments = this._visibleComments();
@@ -744,41 +878,12 @@ export class Annotator {
       }
     };
     ta.addEventListener('keydown', onKey);
-    // Dismissal requires a COMPLETED outside tap: armed on pointerdown, fired
-    // on the matching pointerup. A second finger joining (pinch — on iOS the
-    // recovery gesture after input auto-zoom) or the browser stealing the
-    // gesture (pointercancel: touch scroll, pinch-zoom) aborts instead of
-    // discarding the draft. composedPath (not target) because document-level
-    // listeners see shadow-internal events retargeted to the host. Armed on
-    // the next task so the gesture that opened the popup can't instantly
-    // close it. isPrimary is only ever false on real multi-touch — plain
-    // events (jsdom, synthetic) count as primary.
-    let pendingTap: number | null = null;
-    const onOutsideDown = (e: Event): void => {
-      const p = e as PointerEvent;
-      if (p.isPrimary === false) {
-        // A second finger ANYWHERE (even on the popup) makes this a pinch,
-        // so the containment check must come after — codex r20.
-        pendingTap = null;
-        return;
-      }
-      if (e.composedPath().includes(wrap)) return;
-      pendingTap = p.pointerId ?? 0;
-    };
-    const onOutsideUp = (e: Event): void => {
-      if (pendingTap === null || ((e as PointerEvent).pointerId ?? 0) !== pendingTap) return;
-      pendingTap = null;
-      if (e.composedPath().includes(wrap)) return; // released back inside
-      this._closeActiveInput();
-    };
-    const onOutsideCancel = (e: Event): void => {
-      if (((e as PointerEvent).pointerId ?? 0) === pendingTap) pendingTap = null;
-    };
-    const arm = window.setTimeout(() => {
-      document.addEventListener('pointerdown', onOutsideDown, true);
-      document.addEventListener('pointerup', onOutsideUp, true);
-      document.addEventListener('pointercancel', onOutsideCancel, true);
-    }, 0);
+    // The chip is exempt so a tap on it reaches _toggleSheet, which saves this
+    // draft losslessly instead of the outside-tap discarding it (codex #3).
+    const disarm = this._armOutsideDismiss(
+      () => [wrap, this._chipEl],
+      () => this._closeActiveInput(),
+    );
     if (!frozen) {
       const actions = el('div', 'actions');
       const del = el('button', 'delete', 'Delete');
@@ -794,7 +899,17 @@ export class Annotator {
       const saveBtn = el('button', 'save', 'Save');
       saveBtn.type = 'button';
       saveBtn.addEventListener('click', save);
-      actions.append(del, saveBtn);
+      if (this._exportUiEnabled()) {
+        // Anytime export from the moment of engagement: SAVES the draft
+        // first (never silently discards typed text), then summons the sheet.
+        const exp = el('button', 'exportall', `Export all · ${this._store.comments.length}`);
+        exp.type = 'button';
+        // _toggleSheet saves the draft itself (ActiveInput.save) — one path.
+        exp.addEventListener('click', () => this._toggleSheet());
+        actions.append(del, exp, saveBtn);
+      } else {
+        actions.append(del, saveBtn);
+      }
       wrap.appendChild(actions);
     }
     this._positionInputNearPin(wrap, commentId);
@@ -802,12 +917,63 @@ export class Annotator {
     this._activeInput = {
       wrap,
       commentId,
-      cleanup: () => {
-        window.clearTimeout(arm);
-        document.removeEventListener('pointerdown', onOutsideDown, true);
-        document.removeEventListener('pointerup', onOutsideUp, true);
-        document.removeEventListener('pointercancel', onOutsideCancel, true);
-      },
+      cleanup: disarm,
+      save: () => (frozen ? this._closeActiveInput() : save()),
+    };
+  }
+
+  // Dismissal requires a COMPLETED outside tap: armed on pointerdown, fired
+  // on the matching pointerup. A second finger joining (pinch — on iOS the
+  // recovery gesture after input auto-zoom) or the browser stealing the
+  // gesture (pointercancel: touch scroll, pinch-zoom) aborts instead of
+  // firing. composedPath (not target) because document-level listeners see
+  // shadow-internal events retargeted to the host. Armed on the next task so
+  // the gesture that opened the surface can't instantly close it. isPrimary
+  // is only ever false on real multi-touch — plain events (jsdom, synthetic)
+  // count as primary. Shared by the draft popup and the export sheet; the
+  // returned disarm is idempotent-safe cleanup. `within` is a thunk returning
+  // the elements that do NOT count as outside (the surface itself + the chip,
+  // whose taps must reach their own click handlers — codex #3/#7); a thunk
+  // because the chip can be created/removed while the surface is open.
+  private _armOutsideDismiss(
+    within: () => Array<HTMLElement | null>,
+    onDismiss: () => void,
+  ): () => void {
+    let pendingTap: number | null = null;
+    const inside = (e: Event): boolean => {
+      const path = e.composedPath();
+      return within().some((elm) => elm !== null && path.includes(elm));
+    };
+    const onOutsideDown = (e: Event): void => {
+      const p = e as PointerEvent;
+      if (p.isPrimary === false) {
+        // A second finger ANYWHERE (even on the surface) makes this a pinch,
+        // so the containment check must come after — codex r20.
+        pendingTap = null;
+        return;
+      }
+      if (inside(e)) return;
+      pendingTap = p.pointerId ?? 0;
+    };
+    const onOutsideUp = (e: Event): void => {
+      if (pendingTap === null || ((e as PointerEvent).pointerId ?? 0) !== pendingTap) return;
+      pendingTap = null;
+      if (inside(e)) return; // released back inside
+      onDismiss();
+    };
+    const onOutsideCancel = (e: Event): void => {
+      if (((e as PointerEvent).pointerId ?? 0) === pendingTap) pendingTap = null;
+    };
+    const arm = window.setTimeout(() => {
+      document.addEventListener('pointerdown', onOutsideDown, true);
+      document.addEventListener('pointerup', onOutsideUp, true);
+      document.addEventListener('pointercancel', onOutsideCancel, true);
+    }, 0);
+    return () => {
+      window.clearTimeout(arm);
+      document.removeEventListener('pointerdown', onOutsideDown, true);
+      document.removeEventListener('pointerup', onOutsideUp, true);
+      document.removeEventListener('pointercancel', onOutsideCancel, true);
     };
   }
 
@@ -934,6 +1100,7 @@ export class Annotator {
     }
     const panel = this._makePanel('Saved to your downloads', body, buttons);
     this._panelEl = panel;
+    this._panelKind = 'confirm';
     this._ui.root.appendChild(panel);
     this._positionPanel();
   }
