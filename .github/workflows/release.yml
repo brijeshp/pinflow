@@ -36,6 +36,7 @@ jobs:
       # outrun any check CI runs (codex audit #13, round 2).
       - run: pnpm exec playwright install --with-deps
       - run: pnpm test:e2e
+      - run: pnpm wiki:check
       - uses: changesets/action@v1
         with:
           publish: pnpm release

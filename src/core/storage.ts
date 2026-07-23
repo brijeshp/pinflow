@@ -57,6 +57,30 @@ function optStr(v: unknown): boolean {
   return v === null || v === undefined || typeof v === 'string';
 }
 
+function validContext(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!isObject(v)) return false;
+  if (!optStr(v['name']) || !optStr(v['role']) || !optStr(v['heading']) || !optStr(v['src']))
+    return false;
+  const styles = v['styles'];
+  if (styles === undefined) return true;
+  return isObject(styles) && Object.values(styles).every((s) => typeof s === 'string');
+}
+
+function validVoice(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!isObject(v)) return false;
+  const conf = v['confidence'];
+  return (
+    finite(v['durationMs']) &&
+    v['durationMs'] >= 0 &&
+    (conf === undefined || (finite(conf) && conf >= 0 && conf <= 1)) &&
+    (v['interim'] === undefined || typeof v['interim'] === 'boolean') &&
+    (v['edited'] === undefined || typeof v['edited'] === 'boolean') &&
+    optStr(v['engine'])
+  );
+}
+
 function hasValidAnchor(c: Record<string, unknown>): boolean {
   const anchor = c['anchor'];
   if (!isObject(anchor)) return false;
@@ -84,10 +108,12 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     finite(vp['height']) &&
     vp['width'] > 0 &&
     vp['height'] > 0 &&
-    // Optional shapes: reject records whose context/voice would crash export.
-    (c['context'] === undefined || isObject(c['context'])) &&
-    (c['voice'] === undefined ||
-      (isObject(c['voice']) && finite((c['voice'] as Record<string, unknown>)['durationMs'])))
+    // Optional shapes at their REAL locations (codex r3: context lives on
+    // the anchor, not the comment): reject records whose context, fingerprint,
+    // or voice metadata would corrupt export or render.
+    optStr(anchor['textFingerprint']) &&
+    validContext(anchor['context']) &&
+    validVoice(c['voice'])
   );
 }
 

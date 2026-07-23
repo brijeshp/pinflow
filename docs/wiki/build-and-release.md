@@ -33,7 +33,7 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 ## CI (`.github/workflows/`)
 
 - **`ci.yml`** — `verify` job: `format:check`, `typecheck`, `build` (BEFORE tests so bundle-isolation hard-fails rather than skips), `test:coverage` (the 80/75 thresholds are enforced in CI), `size`, `wiki:check`. `e2e` job: build + Playwright across chromium / mobile-chrome / mobile-safari. pnpm caching in both.
-- **`release.yml`** — changesets publish on push to `main`, gated by re-running the full verify battery (format/typecheck/build/coverage/size) on the exact SHA before publishing.
+- **`release.yml`** — changesets publish on push to `main`, gated by re-running the full battery (format/typecheck/build/coverage/size/E2E/wiki-check) on the exact SHA before publishing; `prepublishOnly` independently runs build + coverage + size.
 - ⚠️ The repo currently has **no git remote**; both workflows are dormant until pinflow is pushed to GitHub. `AGENTS.md` documents the local-only workflow.
 
 ## Command reference (`package.json` scripts)

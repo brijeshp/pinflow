@@ -470,3 +470,35 @@ it('#19 (r2): a legacy raw-key blob is rejected when its embedded scope mismatch
   expect(loadStore(localStorage, 'a:b', 'c')?.reviewer).toBe('c'); // true owner reads fine
   localStorage.clear();
 });
+
+it('#20 (r3): context/fingerprint/voice shapes are validated at their REAL locations', async () => {
+  const { normalizeComments } = await import('../../src/core/storage');
+  const base = (id: string, anchorExtra: object, commentExtra: object = {}) => ({
+    id,
+    createdAt: 'x',
+    updatedAt: 'x',
+    route: '/',
+    fullUrl: 'u',
+    text: 't',
+    modality: 'text',
+    anchor: {
+      selectors: { testid: null, id: null, css: 'body', xpath: '/x' },
+      textFingerprint: '',
+      positionPercent: { x: 1, y: 2 },
+      viewport: { width: 3, height: 4 },
+      ...anchorExtra,
+    },
+    ...commentExtra,
+  });
+  const kept = normalizeComments([
+    base('ok', {}),
+    base('okctx', { context: { name: 'n', styles: { color: 'red' } } }),
+    base('badctx', { context: 'not-an-object' }),
+    base('badstyles', { context: { styles: { color: 42 } } }),
+    base('badfp', { textFingerprint: 42 }),
+    base('badvoice', {}, { voice: { durationMs: 'long' } }),
+    base('badconf', {}, { voice: { durationMs: 100, confidence: 7 } }),
+    base('okvoice', {}, { voice: { durationMs: 100, confidence: 0.5, interim: true } }),
+  ]).map((c) => c.id);
+  expect(kept.sort()).toEqual(['ok', 'okctx', 'okvoice'].sort());
+});
