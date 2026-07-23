@@ -1,15 +1,15 @@
 # Production readiness audit — 2026-07-23
 
-Scope: full repo at `main` (`61a66ec`) + this branch's fixes. Method: mechanical gates, dimension-by-dimension manual passes, live browser probes, and three rounds of external Codex certification (verbatim transcripts alongside this file).
+Scope: full repo at `main` (`61a66ec`) + this branch's fixes. Method: mechanical gates, dimension-by-dimension manual passes, live browser probes, and iterative external Codex certification to zero findings (verbatim transcripts alongside this file).
 
 ## Gate results (at audit head, post-remediation)
 
 | Gate                                           | Result                                                                                                                                                                                                                    |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Unit                                           | 301 passed (+2 CI-only guards, skipped locally)                                                                                                                                                                           |
+| Unit                                           | 302 passed (+2 CI-only guards, skipped locally)                                                                                                                                                                           |
 | E2E (chromium / mobile-chrome / mobile-safari) | 27 passed                                                                                                                                                                                                                 |
 | Packed type surface                            | consumer program compiles against `dist/index.d.ts` with zero diagnostics                                                                                                                                                 |
-| Coverage                                       | 94.0% lines / 91.9% branches with the UI layer INCLUDED (annotator ~90%); the first draft cited 96.8% while excluding `src/core/ui/**` — corrected per certification finding #28                                          |
+| Coverage                                       | 94.0% lines / 91.9% branches with the UI layer INCLUDED (annotator ~90%); an earlier draft cited a higher figure that excluded `src/core/ui/**` — corrected per certification finding #28                                 |
 | Typecheck / format                             | clean; wiki re-synced as the final step of every batch (an interim draft claimed clean while drifted — finding #29)                                                                                                       |
 | Size budgets                                   | green — audited ceilings core ESM 13 KB, IIFE 13.3, voice 4.45, react 0.47, vue 0.6 (gz); the raise over pre-audit ceilings is the measured cost of the certification fixes, documented in the production-audit changeset |
 | Runtime dependencies                           | **zero** (invariant holds); peers react/vue only                                                                                                                                                                          |
@@ -42,12 +42,13 @@ The audit ran in two layers. The internal pass landed four fixes (hostile-input 
 - **Minimal**: zero deps; hand-minified stylesheet (worklet template kept comment-free — it ships verbatim); budgets razor-thin over audited actuals.
 - **Scalable**: reflow path is rAF-throttled translation-only with anchor caches and bounded orphan retry; selector fingerprint walk capped at 2000 elements; storage writes guarded end to end.
 - **Extensible**: core↔voice isolation enforced by build config + CI-hard bundle-isolation test; typed, abortable voice contract; sync protocol documented (PROTOCOL.md); artifact toolkit exported for host-side rendering; changesets govern releases.
-- **Maintainable**: agent-maintained wiki with a drift gate that watches src, configs, workflows, changesets, and tests; 301 tests mirroring src layout; conventions enforced in CI.
+- **Maintainable**: agent-maintained wiki with a drift gate that watches src, configs, workflows, changesets, and tests; 302 tests mirroring src layout; conventions enforced in CI.
 - **Production-ready**: all-fields untrusted-input escaping locked; shadow-DOM isolation; SSR-safe init; no secrets; a11y pass (buttons, labels, reduced motion, 16px touch inputs); dark mode; LICENSE, SECURITY.md, and publish protections in place.
 
 ## Codex certification trail
 
 - **Round 1** (`2026-07-23-production-audit-codex.md`): CHANGES_REQUESTED — 34 findings (17 P1), including three defects in this audit's own first draft.
 - **Round 2** (`2026-07-23-production-audit-codex-r2.md`): 17 confirmed resolved; 17 judged incomplete at the edges plus one new finding (#35: this report's own self-consistency).
-- **Round 3** (`2026-07-23-production-audit-codex-r3.md`): all but four closed — a misplaced validation check, a missing release-gate step, this report's stale table, and an undocumented example env var. Fixed in the final remediation commit.
-- **Round 4** (`2026-07-23-production-audit-codex-r4.md`): final verdict.
+- **Round 3** (`2026-07-23-production-audit-codex-r3.md`): all but four closed — a misplaced validation check, a missing release-gate step, this report's stale table, and an undocumented example env var.
+- **Round 4** (`2026-07-23-production-audit-codex-r4.md`): the code fixes verified; one residual bookkeeping inconsistency in this report.
+- **Round 5** (`2026-07-23-production-audit-codex-r5.md`): final verdict.
