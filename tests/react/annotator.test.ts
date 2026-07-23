@@ -117,3 +117,40 @@ it('delegates function props through the latest render — no stale closures, no
     root.unmount();
   });
 });
+
+it('re-inits when a function prop is ADDED or REMOVED (presence drives core behavior) (codex #9, r2)', async () => {
+  const React = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const { Annotator } = await import('../../src/react/index');
+  const { act } = await import('react');
+
+  const root = createRoot(document.createElement('div'));
+  await act(async () => {
+    root.render(React.createElement(Annotator, { project: 'p' }));
+  });
+  await vi.dynamicImportSettled();
+  const calls = initMock.mock.calls.length;
+
+  const source = vi.fn().mockResolvedValue([]);
+  await act(async () => {
+    root.render(React.createElement(Annotator, { project: 'p', source }));
+  });
+  expect(initMock.mock.calls.length).toBe(calls + 1); // source ADDED → re-init (exportUi auto flips)
+  expect(initMock).toHaveBeenLastCalledWith(
+    expect.objectContaining({ source: expect.any(Function) }),
+  );
+
+  await act(async () => {
+    root.render(React.createElement(Annotator, { project: 'p' }));
+  });
+  expect(initMock.mock.calls.length).toBe(calls + 2); // source REMOVED → re-init
+  const lastConfig = initMock.mock.calls[initMock.mock.calls.length - 1]![0] as Record<
+    string,
+    unknown
+  >;
+  expect('source' in lastConfig && lastConfig['source'] !== undefined).toBe(false);
+
+  await act(async () => {
+    root.unmount();
+  });
+});

@@ -65,7 +65,7 @@
           }));
           await fetch(FEEDBACK_ENDPOINT, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-feedback-token': 'CHANGE-ME' },
             // The server owns the Slack webhook URL and forwards these blocks.
             body: JSON.stringify({ reviewer: payload.reviewer, blocks }),
           });

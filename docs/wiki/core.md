@@ -97,7 +97,7 @@ Generated: <timestamp>
 > comment text, blockquoted
 ```
 
-Builder export adds a summary table (total, by reviewer, by route) and reviewer names per comment. Orphaned comments get their own section with last-known selectors. **Comment text is the only untrusted content**: newlines are rewritten as blockquote continuations (`\n> `) so user text cannot escape the quote and masquerade as instructions when pasted into a coding agent. Never weaken this escaping.
+Builder export adds a summary table (total, by reviewer, by route) and reviewer names per comment. Orphaned comments get their own section with last-known selectors. **Every interpolated field is untrusted** — comment text (blockquote-continued incl. bare `\r`), reviewer names, routes, ids, selectors, resolutions, context, and `describeRoute` labels are all newline-collapsed and code-span-safe so no field can fabricate top-level markdown or instructions when the artifact is pasted into a coding agent. Never weaken this escaping.
 
 ## Key internal conventions
 

@@ -13,4 +13,4 @@ Production audit hardening (34-finding external review, all resolved):
 - **A11y/platform**: pins are real buttons with accessible names; `prefers-reduced-motion` honored; `.root` font stack survives `all:initial` quirks; the export hotkey leaves the chord to the host when pinflow won't act.
 - **Public API**: `routeOf` now strips pinflow params exactly like the default route key (documented behavior).
 
-Budgets re-ratcheted to the audited actuals: core ESM 12.8 KB, IIFE 13.1 KB, voice 4.4 KB, react wrapper 0.45 KB (gz) — the measured cost of the correctness work above.
+Budgets re-ratcheted to the audited actuals: core ESM 13 KB, IIFE 13.3 KB, voice 4.45 KB, react wrapper 0.47 KB (gz) — the measured cost of the correctness work above across both certification rounds.

@@ -648,13 +648,15 @@ export class Annotator {
     this._commitTextComment(anchor, '', true);
   }
 
-  // `route` defaults to the current route; the voice degrade path passes the
-  // FROZEN route captured at dot creation (voice-contract.ts frozen-route rule).
+  // `route`/`fullUrl` default to the current location; the voice degrade path
+  // passes BOTH frozen at dot creation — they describe one moment and must
+  // never split across a navigation (codex audit #32).
   private _commitTextComment(
     anchor: Anchor,
     text: string,
     openForEdit: boolean,
     route?: string,
+    fullUrl?: string,
   ): void {
     const t = now();
     const comment: Comment = {
@@ -662,7 +664,7 @@ export class Annotator {
       createdAt: t,
       updatedAt: t,
       route: route ?? this._routeKey(),
-      fullUrl: window.location.href,
+      fullUrl: fullUrl ?? window.location.href,
       text,
       modality: 'text',
       anchor,
@@ -756,11 +758,35 @@ export class Annotator {
       mount,
       anchor,
       route,
-      // destroy() guards: after teardown the world is gone — a late callback
-      // must not write to storage or touch the DOM. (A same-tick commit during
-      // destroy()'s own dispose() is still allowed — see destroy().)
+      // destroy() guards: after teardown a late callback must not touch the
+      // DOM or instance state — but a transcript that finished finalizing
+      // AFTER destroy() (stop() was in flight when the host tore down) is
+      // still the reviewer's words: persist it STORAGE-ONLY so it is not
+      // lost (codex audit #5). Reads the stored corpus fresh because
+      // `this._store` is part of the dead world.
       commit: ({ text, voice }) => {
-        if (this._destroyed) return;
+        if (this._destroyed) {
+          if (text.trim().length === 0 || this._reviewer === null) return;
+          const t = now();
+          const stored =
+            loadStore(this._deps.storage, this._deps.config.project, this._reviewer) ??
+            emptyStore(this._deps.config.project, this._reviewer);
+          saveStore(
+            this._deps.storage,
+            upsertComment(stored, {
+              id: createId(),
+              createdAt: t,
+              updatedAt: t,
+              route,
+              fullUrl,
+              text,
+              modality: 'voice',
+              voice,
+              anchor,
+            }),
+          );
+          return;
+        }
         commitVoice(text, voice);
       },
       discard: () => {
@@ -778,7 +804,7 @@ export class Annotator {
         const live = gen === this._generation;
         const text = prefill ?? '';
         if (!live && text.length === 0) return;
-        this._commitTextComment(anchor, text, live, route);
+        this._commitTextComment(anchor, text, live, route, fullUrl);
       },
       logger: this._voiceLogger,
       signal: active.abort.signal,
@@ -1179,10 +1205,10 @@ export class Annotator {
     download(md, filename);
     const startedFrom = this._panelEl;
     const copied = await copyToClipboard(md);
-    // A slow clipboard must not resurrect stale UI over whatever the user did
-    // meanwhile (codex audit #23): confirm only if the surface that launched
-    // the export is still the open one (or everything is already closed).
-    if (this._destroyed || (this._panelEl !== null && this._panelEl !== startedFrom)) return;
+    // A slow clipboard must not resurrect stale UI (codex audit #23): the
+    // confirmation appears only if the EXACT surface that launched the export
+    // is still open — a closed or replaced panel invalidates it entirely.
+    if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
     this._showConfirmation(copied);
   }
 

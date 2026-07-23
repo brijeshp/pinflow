@@ -17,7 +17,7 @@ const WATCHED = [
   'tsconfig.json',
   // Governed by build-and-release.md / testing.md too (codex audit #33):
   '.github/workflows',
-  '.changeset/config.json',
+  '.changeset',
   'tests',
 ];
 

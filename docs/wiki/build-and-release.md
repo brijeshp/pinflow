@@ -16,10 +16,10 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 | Entry         | Budget (gz) |
 | ------------- | ----------- |
-| core IIFE     | 13.1 KB     |
-| core ESM      | 12.8 KB     |
-| voice ESM     | 4.4 KB      |
-| react wrapper | 0.45 KB     |
+| core IIFE     | 13.3 KB     |
+| core ESM      | 13 KB       |
+| voice ESM     | 4.45 KB     |
+| react wrapper | 0.47 KB     |
 | vue wrapper   | 0.6 KB      |
 
 `pnpm size` gates CI (`verify` job) and publishing (`prepublishOnly` runs build + test + size). Policy: budgets only ratchet **down** between features — kept razor-thin over actuals so regressions surface immediately. (The core budgets were raised one notch as a deliberate, changeset-documented trade for the v3 lifecycle features, then re-ratcheted to actuals.) Check budget impact after any core change.

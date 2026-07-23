@@ -39,8 +39,12 @@ export function Annotator(props: AnnotatorProps): null {
       handleRef.current?.destroy();
       handleRef.current = null;
     };
-    // Re-init only on stable PRIMITIVE keys — inline `activation`/`voice` objects
-    // are new references each render, so callers should memoize those props.
+    // Re-init on stable PRIMITIVE keys plus the PRESENCE of each function
+    // prop: identity changes flow through the delegates above without
+    // re-init, but adding or removing a function changes core behavior
+    // (e.g. `source` presence drives exportUi 'auto') and so re-initializes
+    // (codex audit #9). Inline `activation`/`voice` objects are new
+    // references each render — memoize those props.
   }, [
     props.project,
     props.mode,
@@ -48,6 +52,11 @@ export function Annotator(props: AnnotatorProps): null {
     props.activation?.mode,
     props.voice?.tokenEndpoint,
     props.exportUi,
+    !!props.onChange,
+    !!props.onSubmit,
+    !!props.source,
+    !!props.routeKey,
+    !!props.describeRoute,
   ]);
 
   return null;

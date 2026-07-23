@@ -451,3 +451,22 @@ describe('production audit hardening', () => {
     expect(normalizeComments([good, nan, missing, stringy]).map((c) => c.id)).toEqual(['c1']);
   });
 });
+
+it('#19 (r2): a legacy raw-key blob is rejected when its embedded scope mismatches', async () => {
+  const { loadStore } = await import('../../src/core/storage');
+  // Raw key "pinflow:c:a:b:c" is reachable as project "a", reviewer "b:c" —
+  // but the blob says it belongs to project "a:b", reviewer "c".
+  localStorage.setItem(
+    'pinflow:c:a:b:c',
+    JSON.stringify({
+      schemaVersion: 3,
+      reviewer: 'c',
+      project: 'a:b',
+      createdAt: 'x',
+      comments: [],
+    }),
+  );
+  expect(loadStore(localStorage, 'a', 'b:c')).toBeNull(); // scope mismatch → refused
+  expect(loadStore(localStorage, 'a:b', 'c')?.reviewer).toBe('c'); // true owner reads fine
+  localStorage.clear();
+});

@@ -51,12 +51,7 @@
         onSubmit: async (payload) => {
           await fetch('/api/feedback', {
             method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              // Must match the FEEDBACK_TOKEN env on the function — the
-              // endpoint performs privileged Notion writes.
-              'x-feedback-token': 'CHANGE-ME',
-            },
+            headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload),
           });
         },

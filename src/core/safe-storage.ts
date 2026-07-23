@@ -5,8 +5,13 @@
  * back to a non-persistent in-memory Storage shim: the widget still works for
  * the session, it just forgets on reload.
  */
+// A SINGLETON backing map (codex audit #8): every degraded acquisition in
+// this page shares one corpus, so re-init after a failed probe does not
+// silently discard the session's comments. Still non-persistent by nature.
+const memoryBacking = new Map<string, string>();
+
 export function memoryStorage(): Storage {
-  const m = new Map<string, string>();
+  const m = memoryBacking;
   return {
     get length() {
       return m.size;

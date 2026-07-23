@@ -13,7 +13,7 @@ Voice loads on demand via `src/core/voice-loader.ts` `loadVoice()`, a dynamic im
 
 The contract lives in `src/core/voice-contract.ts`:
 
-- `VoiceHost` — the narrow port core hands voice: mount element, config, anchor, an optional `signal` (AbortSignal — startup checks it at every side-effect boundary so teardown mid-startup never gains a socket or mic stream), and three callbacks (`commit`, `discard`, `degradeToText`).
+- `VoiceHost` — the narrow port core hands voice: mount element, config, anchor, an optional `signal` (AbortSignal — checked before the token mint (which aborts its fetch), before the socket opens, and around mic acquisition, so teardown mid-startup never gains a socket or mic stream), and three callbacks (`commit`, `discard`, `degradeToText`).
 - `VoiceSession` — one live recording with idempotent `stop()` and `dispose()`.
 - `VoiceModule` — the default export shape: `{ start(host: VoiceHost): Promise<VoiceSession> }`.
 

@@ -31,7 +31,7 @@ export type FetchLike = (input: string, init?: RequestInit) => Promise<Response>
  */
 export async function resolveToken(
   config: Readonly<VoiceConfig>,
-  deps: { fetchFn?: FetchLike; hostname?: string } = {},
+  deps: { fetchFn?: FetchLike; hostname?: string; signal?: AbortSignal } = {},
 ): Promise<string> {
   if (config.getToken) {
     // A rejection propagates and degrades like any other token failure.
@@ -48,7 +48,11 @@ export async function resolveToken(
     // "Illegal invocation" when it is called. The arrow keeps the call
     // receiver-correct (a bare `fetch(...)` call resolves the global binding).
     const fetchFn = deps.fetchFn ?? ((input: string, init?: RequestInit) => fetch(input, init));
-    const res = await fetchFn(config.tokenEndpoint, { method: 'POST' });
+    // Teardown mid-mint cancels the request itself (codex audit #4).
+    const res = await fetchFn(config.tokenEndpoint, {
+      method: 'POST',
+      ...(deps.signal ? { signal: deps.signal } : {}),
+    });
     if (!res.ok) throw new Error(`token endpoint returned ${res.status}`);
     const body: unknown = await res.json();
     if (!isGrantResponse(body)) throw new Error('invalid token response');

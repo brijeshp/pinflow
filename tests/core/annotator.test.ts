@@ -1058,3 +1058,61 @@ describe('builder mode is functional (codex audit #14)', () => {
     expect(loadStore(localStorage, PROJECT, 'Bob')?.comments[0]?.text).toBe('from bob');
   });
 });
+
+describe('voice transcript survives destroy during in-flight stop (codex audit #5)', () => {
+  afterEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  it('a commit landing AFTER destroy() persists storage-only (no DOM, no loss)', async () => {
+    let capturedHost: VoiceHost | null = null;
+    const loadVoice = (): Promise<VoiceModule> =>
+      Promise.resolve({
+        start: (host: VoiceHost) => {
+          capturedHost = host;
+          return Promise.resolve({ stop: () => Promise.resolve(), dispose: () => {} });
+        },
+      });
+    const annotator = makeAnnotator({ voice: true, loadVoice });
+    (
+      annotator as unknown as { _placeCommentAt(x: number, y: number, t: Element): void }
+    )._placeCommentAt(10, 10, document.body);
+    await flushMicrotasks();
+    expect(capturedHost).not.toBeNull();
+
+    annotator.destroy(); // world torn down while the recording finalizes
+
+    capturedHost!.commit({ text: 'words that must survive', voice: { durationMs: 1200 } });
+    const stored = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(stored?.comments.some((c) => c.text === 'words that must survive')).toBe(true);
+    // And absolutely no DOM resurrection:
+    expect(document.querySelector('[data-pinflow-root]')).toBeNull();
+  });
+});
+
+it('#32 (r2): the voice DEGRADE path keeps the frozen fullUrl, not the navigated one', async () => {
+  let capturedHost: VoiceHost | null = null;
+  const loadVoice = (): Promise<VoiceModule> =>
+    Promise.resolve({
+      start: (host: VoiceHost) => {
+        capturedHost = host;
+        return Promise.resolve({ stop: () => Promise.resolve(), dispose: () => {} });
+      },
+    });
+  const annotator = makeAnnotator({ voice: true, loadVoice });
+  const frozenUrl = window.location.href;
+  (
+    annotator as unknown as { _placeCommentAt(x: number, y: number, t: Element): void }
+  )._placeCommentAt(10, 10, document.body);
+  await flushMicrotasks();
+  history.pushState({}, '', '/navigated-away');
+  capturedHost!.degradeToText();
+  const stored = loadStore(localStorage, PROJECT, REVIEWER);
+  const voiceComment = stored?.comments[stored.comments.length - 1];
+  expect(voiceComment?.fullUrl).toBe(frozenUrl);
+  history.pushState({}, '', frozenUrl);
+  annotator.destroy();
+  localStorage.clear();
+  document.body.innerHTML = '';
+});

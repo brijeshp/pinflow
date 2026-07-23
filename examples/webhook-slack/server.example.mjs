@@ -6,8 +6,8 @@ import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 
 const WEBHOOK = process.env.SLACK_WEBHOOK_URL;
-const TOKEN = process.env.FEEDBACK_TOKEN; // optional shared secret for public deploys
-if (!WEBHOOK) throw new Error('SLACK_WEBHOOK_URL is required');
+const TOKEN = process.env.FEEDBACK_TOKEN;
+if (!WEBHOOK || !TOKEN) throw new Error('FEEDBACK_TOKEN and SLACK_WEBHOOK_URL is required');
 
 const hits = new Map(); // naive per-IP rate limit: 10 submissions / 10 min
 const allow = (ip) => {
@@ -28,7 +28,7 @@ createServer(async (req, res) => {
     res.statusCode = 404;
     return res.end();
   }
-  if (TOKEN && req.headers['x-feedback-token'] !== TOKEN) {
+  if (req.headers['x-feedback-token'] !== TOKEN) {
     res.statusCode = 401;
     return res.end();
   }

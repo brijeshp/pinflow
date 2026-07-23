@@ -32,6 +32,10 @@ jobs:
       - run: pnpm build
       - run: pnpm test:coverage
       - run: pnpm size
+      # The FULL battery incl. E2E on this exact SHA — publishing must never
+      # outrun any check CI runs (codex audit #13, round 2).
+      - run: pnpm exec playwright install --with-deps
+      - run: pnpm test:e2e
       - uses: changesets/action@v1
         with:
           publish: pnpm release

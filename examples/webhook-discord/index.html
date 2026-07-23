@@ -60,7 +60,7 @@
           const content = `**Pinflow feedback from ${payload.reviewer}**\n${lines.join('\n\n')}`;
           await fetch(FEEDBACK_ENDPOINT, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json', 'x-feedback-token': 'CHANGE-ME' },
             body: JSON.stringify({ content }),
           });
         },

@@ -1,13 +1,24 @@
-# Discord Webhook Example
+# Pinflow → Discord
 
-Posts reviewer feedback to a Discord channel when the reviewer taps "Send to builder".
+Posts each export to a Discord channel — with the webhook URL kept **server-side**.
 
-## Setup
+A Discord webhook URL is a REUSABLE CREDENTIAL: anyone who has it can
+post to your channel forever. Never place it in browser-delivered HTML.
 
-1. Create a Discord webhook in your channel settings.
-2. Replace `DISCORD_WEBHOOK_URL` in `index.html` with your webhook URL.
-3. Serve the page and share `?reviewer=NAME` links.
+## Run
 
-## How it works
+1. Create a webhook in your Discord channel settings (Integrations → Webhooks).
+2. Start the proxy (node >= 18, no dependencies):
 
-The `onSubmit` callback formats comments into a Discord message and POSTs to the webhook. This runs alongside the standard "Export & share" flow — reviewers can use either or both.
+   ```bash
+   DISCORD_WEBHOOK_URL=https://discord.com/api/webhooks/... \
+   FEEDBACK_TOKEN=pick-a-shared-secret node server.example.mjs
+   ```
+
+   `FEEDBACK_TOKEN` is REQUIRED. The proxy authenticates with it, rate-limits
+   per IP, and caps payload size before forwarding to Discord.
+
+3. Open http://localhost:8787 and set the matching token in `index.html`
+   (`x-feedback-token` header).
+
+For anything beyond a demo, replace the shared secret with your real auth.

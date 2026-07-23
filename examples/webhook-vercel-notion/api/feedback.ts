@@ -42,16 +42,20 @@ export default async function handler(
 
   const notionKey = process.env.NOTION_API_KEY;
   const dbId = process.env.NOTION_DATABASE_ID;
-  // REQUIRED shared secret: this endpoint performs privileged Notion writes,
-  // so it must not be publicly writable. Send the same value from the page as
-  // an `x-feedback-token` header (codex audit #16).
-  const token = process.env.FEEDBACK_TOKEN;
+  // HONEST LIMITS OF A PUBLIC DEMO: a secret shipped in public HTML cannot
+  // authenticate anything, so this endpoint gates on an ORIGIN allowlist +
+  // rate limit + size caps instead. That stops drive-by abuse from other
+  // sites; a determined attacker can still spoof Origin outside a browser.
+  // For real use, put this behind actual auth (session, signed link) —
+  // pinflow's PROTOCOL.md assumes the host owns authentication.
+  const allowedOrigin = process.env.ALLOWED_ORIGIN;
 
-  if (!notionKey || !dbId || !token) {
-    return res.status(500).json({ error: 'Missing NOTION_* or FEEDBACK_TOKEN env' });
+  if (!notionKey || !dbId || !allowedOrigin) {
+    return res.status(500).json({ error: 'Missing NOTION_* or ALLOWED_ORIGIN env' });
   }
-  if (req.headers['x-feedback-token'] !== token) {
-    return res.status(401).json({ error: 'Bad token' });
+  const origin = String(req.headers['origin'] ?? '');
+  if (origin !== allowedOrigin) {
+    return res.status(403).json({ error: 'Bad origin' });
   }
   const ip = String(req.headers['x-forwarded-for'] ?? '?').split(',')[0]!;
   if (!allow(ip)) {
@@ -72,34 +76,46 @@ export default async function handler(
 
   const results = [];
   for (const c of comments.slice(0, 100)) {
-    if (typeof c?.text !== 'string' || typeof c?.route !== 'string') continue;
-    const response = await fetch('https://api.notion.com/v1/pages', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${notionKey}`,
-        'Notion-Version': '2022-06-28',
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        parent: { database_id: dbId },
-        properties: {
-          Name: { title: [{ text: { content: c.text.slice(0, 100) } }] },
-          Reviewer: { rich_text: [{ text: { content: reviewer } }] },
-          Project: { rich_text: [{ text: { content: project } }] },
-          Route: { rich_text: [{ text: { content: c.route } }] },
-          Element: {
-            rich_text: [{ text: { content: c.anchor.textFingerprint || c.anchor.selectors.css } }],
-          },
+    if (
+      typeof c?.text !== 'string' ||
+      typeof c?.route !== 'string' ||
+      typeof c?.anchor?.selectors?.css !== 'string'
+    )
+      continue; // unvalidated anchors must not reach the Notion payload
+    let response: { status: number };
+    try {
+      response = await fetch('https://api.notion.com/v1/pages', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${notionKey}`,
+          'Notion-Version': '2022-06-28',
+          'Content-Type': 'application/json',
         },
-        children: [
-          {
-            object: 'block',
-            type: 'paragraph',
-            paragraph: { rich_text: [{ text: { content: c.text } }] },
+        body: JSON.stringify({
+          parent: { database_id: dbId },
+          properties: {
+            Name: { title: [{ text: { content: c.text.slice(0, 100) } }] },
+            Reviewer: { rich_text: [{ text: { content: reviewer } }] },
+            Project: { rich_text: [{ text: { content: project } }] },
+            Route: { rich_text: [{ text: { content: c.route } }] },
+            Element: {
+              rich_text: [
+                { text: { content: c.anchor.textFingerprint || c.anchor.selectors.css } },
+              ],
+            },
           },
-        ],
-      }),
-    });
+          children: [
+            {
+              object: 'block',
+              type: 'paragraph',
+              paragraph: { rich_text: [{ text: { content: c.text } }] },
+            },
+          ],
+        }),
+      });
+    } catch {
+      response = { status: 502 }; // network failure to Notion — surfaced below
+    }
     results.push({ status: response.status });
   }
 

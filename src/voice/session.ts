@@ -45,6 +45,26 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
     deps.view.update(d.committed, d.interim);
   };
 
+  // Hoisted ABOVE provider.open: the provider can fire onError while
+  // capture.start() is still pending, and persist must exist by then
+  // (codex audit #17 — TDZ on the error path).
+  const persist = (text: string, interim: boolean): void => {
+    if (text.trim().length === 0) {
+      host.discard();
+      return;
+    }
+    host.commit({
+      text,
+      voice: {
+        durationMs: Math.max(0, clock() - startedAt),
+        engine: deps.provider.engine,
+        ...(minConfidence !== undefined ? { confidence: minConfidence } : {}),
+        ...(interim ? { interim: true } : {}),
+      },
+    });
+  };
+
+  if (aborted()) return noopSession; // torn down before the socket exists
   try {
     stream = await deps.provider.open({
       onInterim: (t) => {
@@ -108,21 +128,12 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
     return noopSession;
   }
 
-  const persist = (text: string, interim: boolean): void => {
-    if (text.trim().length === 0) {
-      host.discard();
-      return;
-    }
-    host.commit({
-      text,
-      voice: {
-        durationMs: Math.max(0, clock() - startedAt),
-        engine: deps.provider.engine,
-        ...(minConfidence !== undefined ? { confidence: minConfidence } : {}),
-        ...(interim ? { interim: true } : {}),
-      },
-    });
-  };
+  if (phase !== 'recording') {
+    // A provider error settled the session while the mic was still being
+    // acquired (codex audit #17): the late stream must not keep recording.
+    void deps.capture.stop();
+    return noopSession;
+  }
 
   return {
     async stop(): Promise<void> {

@@ -501,3 +501,38 @@ describe('export UI — codex review hardening (surface states, real pointer ord
     }).not.toThrow();
   });
 });
+
+describe('late clipboard vs closed surfaces (codex audit #23, r2)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('closing the sheet before the clipboard resolves suppresses the confirmation entirely', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    let releaseClipboard!: (v: boolean) => void;
+    const gate = new Promise<boolean>((r) => (releaseClipboard = r));
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => gate.then(() => undefined) },
+      configurable: true,
+    });
+    seedStore([makeComment('c1', 'one')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click(); // sheet open
+    Array.from(shadow().querySelectorAll('button'))
+      .find((b) => b.textContent === 'Export & share')!
+      .click();
+    chip()!.click(); // user closes the sheet while the clipboard hangs
+    expect(shadow().querySelector('.panel')).toBeNull();
+    releaseClipboard(true);
+    await new Promise((r) => setTimeout(r, 0));
+    // No stale confirmation resurrects over the closed surface:
+    expect(shadow().querySelector('.panel')).toBeNull();
+  });
+});

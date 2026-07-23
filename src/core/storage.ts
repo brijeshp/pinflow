@@ -53,6 +53,10 @@ function finite(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
+function optStr(v: unknown): boolean {
+  return v === null || v === undefined || typeof v === 'string';
+}
+
 function hasValidAnchor(c: Record<string, unknown>): boolean {
   const anchor = c['anchor'];
   if (!isObject(anchor)) return false;
@@ -65,12 +69,25 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
   return (
     isObject(selectors) &&
     typeof selectors['css'] === 'string' &&
+    optStr(selectors['testid']) &&
+    optStr(selectors['id']) &&
+    typeof selectors['xpath'] === 'string' &&
     isObject(pos) &&
     finite(pos['x']) &&
     finite(pos['y']) &&
+    pos['x'] >= 0 &&
+    pos['x'] <= 100 &&
+    pos['y'] >= 0 &&
+    pos['y'] <= 100 &&
     isObject(vp) &&
     finite(vp['width']) &&
-    finite(vp['height'])
+    finite(vp['height']) &&
+    vp['width'] > 0 &&
+    vp['height'] > 0 &&
+    // Optional shapes: reject records whose context/voice would crash export.
+    (c['context'] === undefined || isObject(c['context'])) &&
+    (c['voice'] === undefined ||
+      (isObject(c['voice']) && finite((c['voice'] as Record<string, unknown>)['durationMs'])))
   );
 }
 
@@ -123,10 +140,13 @@ export function loadStore(
   project: string,
   reviewer: string,
 ): ReviewerStore | null {
-  const raw =
-    storage.getItem(storageKey(project, reviewer)) ??
+  let raw = storage.getItem(storageKey(project, reviewer));
+  let legacy = false;
+  if (!raw) {
     // Corpora written before component encoding (colon-bearing names only).
-    storage.getItem(legacyStorageKey(project, reviewer));
+    raw = storage.getItem(legacyStorageKey(project, reviewer));
+    legacy = raw !== null;
+  }
   if (!raw) return null;
   let parsed: unknown;
   try {
@@ -134,7 +154,11 @@ export function loadStore(
   } catch {
     return null; // corrupt blob — discard
   }
-  return migrate(parsed);
+  const store = migrate(parsed);
+  // A legacy raw key is ambiguous ("a:b:c" parses two ways) — trust it only
+  // when the blob's OWN embedded scope matches the request (codex audit #19).
+  if (legacy && store && (store.project !== project || store.reviewer !== reviewer)) return null;
+  return store;
 }
 
 // Persistence failing (quota, private mode) is worth exactly one signal per
