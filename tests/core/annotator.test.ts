@@ -890,3 +890,27 @@ describe('Annotator voice host generation guards (P0.6)', () => {
     expect(shadow().querySelector('.input')).toBeNull();
   });
 });
+
+describe('pin accessibility (production audit)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  it('pins are real buttons with accessible names — keyboard operable by construction', () => {
+    seedStore(makeComment('needs a11y'));
+    annotator = makeAnnotator();
+    const pin = shadow().querySelector('.pin');
+    expect(pin?.tagName).toBe('BUTTON');
+    expect((pin as HTMLButtonElement).type).toBe('button');
+    expect(pin?.getAttribute('aria-label')).toBeTruthy();
+    // Enter/Space on a button dispatch click natively; the same handler path
+    // a pointer takes. Assert the click path opens the editor.
+    (pin as HTMLButtonElement).click();
+    expect(shadow().querySelector('.input textarea')).not.toBeNull();
+  });
+});

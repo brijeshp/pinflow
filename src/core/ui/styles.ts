@@ -10,7 +10,10 @@
 export const STYLES =
   ':host{all:initial;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;color-scheme:light dark}' +
   '*{box-sizing:border-box}' +
-  '.root{position:fixed;inset:0;pointer-events:none;z-index:2147483646;font-family:var(--pf-font-family,inherit)}' +
+  // The var fallback repeats the static stack (not `inherit`) so .root never
+  // depends on :host's font surviving `all:initial` — some Chromium builds
+  // drop it (audit 2026-07-23: untokened embeds computed Times).
+  '.root{position:fixed;inset:0;pointer-events:none;z-index:2147483646;font-family:var(--pf-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif)}' +
   '.control{position:fixed;pointer-events:auto;background:#0f172a;color:#f8fafc;border-radius:999px;padding:10px 14px;font-size:13px;font-weight:500;box-shadow:0 8px 24px rgba(0,0,0,.18),0 2px 4px rgba(0,0,0,.08);cursor:pointer;user-select:none;display:inline-flex;align-items:center;gap:8px;transition:transform .15s ease}' +
   '.control:hover{transform:translateY(-1px)}' +
   '.control[data-active="true"]{background:var(--pf-accent,#2563eb)}' +
@@ -21,7 +24,7 @@ export const STYLES =
   '.panel button{flex:1;min-height:36px;padding:8px 12px;border-radius:8px;border:1px solid rgba(15,23,42,.12);background:#f8fafc;color:inherit;font:inherit;cursor:pointer}' +
   '.panel button.primary{background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);border-color:transparent}' +
   '.panel button:hover{filter:brightness(.97)}' +
-  '.pin{position:fixed;pointer-events:auto;width:24px;height:24px;border-radius:999px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);display:grid;place-items:center;font-size:11px;font-weight:600;box-shadow:0 4px 10px rgba(37,99,235,.35),0 0 0 2px #fff;cursor:pointer;transform:translate(-50%,-50%) scale(0);animation:pop .18s ease forwards;transition:transform .12s ease}' +
+  '.pin{position:fixed;pointer-events:auto;width:24px;height:24px;border:0;padding:0;font-family:inherit;border-radius:999px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);display:grid;place-items:center;font-size:11px;font-weight:600;box-shadow:0 4px 10px rgba(37,99,235,.35),0 0 0 2px #fff;cursor:pointer;transform:translate(-50%,-50%) scale(0);animation:pop .18s ease forwards;transition:transform .12s ease}' +
   '.pin:hover{transform:translate(-50%,-50%) scale(1.08)}' +
   '.pin[data-orphaned="true"]{background:#a3a3a3}' +
   // Resolution treatment (L2.3), cheapest legible option: dispositioned pins go
@@ -35,6 +38,7 @@ export const STYLES =
   // pop-in) promoted to a fixed corner summon for the export sheet.
   '.chip{position:fixed;left:16px;bottom:16px;pointer-events:auto;min-width:26px;height:26px;padding:0 8px;border:0;border-radius:999px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);font:inherit;font-size:12px;font-weight:600;box-shadow:0 4px 10px rgba(37,99,235,.35),0 0 0 2px #fff;cursor:pointer;display:grid;place-items:center;transform:scale(0);animation:chippop .18s ease forwards}' +
   '@keyframes chippop{to{transform:scale(1)}}' +
+  '@media (prefers-reduced-motion:reduce){.pin{animation:none;transform:translate(-50%,-50%)}.chip{animation:none;transform:none}}' +
   '@media (max-width:640px){.pin{width:32px;height:32px;font-size:13px}.chip{min-width:32px;height:32px;font-size:13px}}' +
   '.input{position:fixed;pointer-events:auto;min-width:240px;max-width:320px;background:var(--pf-surface,#fff);color:var(--pf-text,#0f172a);border-radius:var(--pf-radius,10px);padding:10px;box-shadow:var(--pf-shadow,0 12px 32px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.08))}' +
   '.input textarea{width:100%;min-height:64px;max-height:160px;resize:none;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5}' +

@@ -58,7 +58,7 @@ describe('theme tokens (A1)', () => {
     // so the font token must be consumed on .root — never inside :host.
     const hostRule = STYLES.slice(0, STYLES.indexOf('}') + 1);
     expect(hostRule).not.toContain('var(--pf-font-family');
-    expect(STYLES).toMatch(/\.root\{[^}]*font-family:var\(--pf-font-family,inherit\)/);
+    expect(STYLES).toMatch(/\.root\{[^}]*font-family:var\(--pf-font-family,-apple-system/);
   });
 
   it('draft textarea is 16px on coarse pointers — iOS Safari must not auto-zoom on focus', () => {
@@ -73,4 +73,9 @@ describe('theme tokens (A1)', () => {
     expect(STYLES).toMatch(/\.pin\[data-status="declined"\]\{text-decoration:line-through\}/);
     expect(STYLES).toMatch(/\.input \.res\{[^}]*color:var\(--pf-text-muted,#64748b\)/);
   });
+});
+
+it('animations are disabled under prefers-reduced-motion (production audit)', () => {
+  expect(STYLES).toContain('@media (prefers-reduced-motion:reduce)');
+  expect(STYLES).toMatch(/prefers-reduced-motion:reduce\)\{\.pin\{animation:none/);
 });

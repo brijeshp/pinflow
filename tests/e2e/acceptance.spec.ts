@@ -4,7 +4,7 @@ import { test, expect } from '@playwright/test';
 const CONTROL = 'button.control';
 const ANNOTATE_BTN = 'button:has-text("Add comment")';
 const EXPORT_BTN = 'button:has-text("Export & share")';
-const PIN = 'div.pin';
+const PIN = 'button.pin';
 const TEXTAREA = '[data-pinflow-root] textarea';
 const SAVE_BUTTON = '[data-pinflow-root] button.save';
 

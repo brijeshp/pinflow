@@ -83,7 +83,7 @@ export class Annotator {
   private _reviewer: string | null;
   private _store: ReviewerStore;
   private _annotating = false;
-  private _pins = new Map<string, HTMLDivElement>();
+  private _pins = new Map<string, HTMLButtonElement>();
   // Reflow-path caches (P2.1/P2.2): repositioning runs at up to 60fps, so it
   // must never re-scan localStorage or re-run the selector ladder per frame.
   // Both are dropped whenever data or route changes (persist / renderPins).
@@ -770,7 +770,10 @@ export class Annotator {
     comments.forEach((c, i) => {
       const target = resolveAnchor(c.anchor);
       this._anchorCache.set(c.id, target);
-      const pin = el('div', 'pin', String(i + 1));
+      // A real <button>: keyboard operability (Enter/Space) and focusability
+      // come from the platform, not from re-implemented key handlers.
+      const pin = el('button', 'pin', String(i + 1));
+      pin.type = 'button';
       if (!target) pin.dataset['orphaned'] = 'true';
       // L2.3: dispositioned pins render muted (styles.ts); done swaps the
       // number for a ✓, with the index preserved in the title.
@@ -782,6 +785,7 @@ export class Annotator {
         }
       }
       if (c.reviewer) pin.title = c.reviewer;
+      pin.setAttribute('aria-label', pin.title || `Comment ${i + 1}`);
       pin.addEventListener('click', (e) => {
         e.stopPropagation();
         if (this._deps.mode === 'builder') return;
@@ -794,7 +798,7 @@ export class Annotator {
     if (this._controlEl) this._controlEl.textContent = this._controlLabel();
   }
 
-  private _placePin(pin: HTMLDivElement, comment: Comment, target: Element | null): void {
+  private _placePin(pin: HTMLButtonElement, comment: Comment, target: Element | null): void {
     if (!target) {
       // Orphaned pin: park at last-known percentage within the viewport.
       const { positionPercent: p } = comment.anchor;
