@@ -994,3 +994,67 @@ describe('source hydration boundary (codex audit #18)', () => {
     expect(ids.sort()).toEqual(['c1', 'c_good'].sort());
   });
 });
+
+describe('builder mode is functional (codex audit #14)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  function seedTwoReviewers(): void {
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, 'Alice'),
+      comments: [{ ...makeComment('from alice'), id: 'a1' }],
+    });
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, 'Bob'),
+      comments: [{ ...makeComment('from bob'), id: 'b1', status: 'done' as const }],
+    });
+  }
+
+  function makeBuilder(): Annotator {
+    return new Annotator({
+      config: { project: PROJECT },
+      reviewer: 'Builder',
+      mode: 'builder',
+      storage: localStorage,
+    });
+  }
+
+  it('reviewer checkboxes actually filter pins', () => {
+    seedTwoReviewers();
+    annotator = makeBuilder();
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(2);
+
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click(); // open drawer
+    const alice = shadow().querySelector<HTMLInputElement>('input[data-reviewer="Alice"]')!;
+    alice.checked = false;
+    alice.dispatchEvent(new Event('change'));
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(1);
+
+    alice.checked = true;
+    alice.dispatchEvent(new Event('change'));
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(2);
+  });
+
+  it('a builder pin opens a read-only view with attribution and disposition', () => {
+    seedTwoReviewers();
+    annotator = makeBuilder();
+    const pins = Array.from(shadow().querySelectorAll<HTMLButtonElement>('.pin'));
+    pins[0]!.click();
+    const ta = shadow().querySelector<HTMLTextAreaElement>('.input textarea');
+    expect(ta).not.toBeNull();
+    expect(ta!.readOnly).toBe(true);
+    const res = shadow().querySelector('.input .res')?.textContent ?? '';
+    expect(res === 'Alice' || res.startsWith('Bob')).toBe(true);
+    // Escape closes; nothing was mutated anywhere.
+    ta!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(shadow().querySelector('.input')).toBeNull();
+    expect(loadStore(localStorage, PROJECT, 'Alice')?.comments[0]?.text).toBe('from alice');
+    expect(loadStore(localStorage, PROJECT, 'Bob')?.comments[0]?.text).toBe('from bob');
+  });
+});

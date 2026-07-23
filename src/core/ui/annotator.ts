@@ -61,6 +61,8 @@ interface AnnotatorDeps {
 interface ActiveVoice {
   mount: HTMLDivElement;
   session: VoiceSession | null;
+  /** Aborts in-flight startup (token/socket/mic) on teardown — codex #4. */
+  abort: AbortController;
 }
 
 interface ActiveInput {
@@ -105,6 +107,8 @@ export class Annotator {
   private _prevBodyCursor = '';
   private _reflowFrame = 0;
   private _orphanRetryAt = 0;
+  // Builder-mode reviewer filter: unchecked reviewers' pins hide (codex #14).
+  private readonly _builderHidden = new Set<string>();
   private _gesture: GestureController | null = null;
   // Bumped on every teardown (destroy/route change) so in-flight async voice
   // work resolving into a stale world can detect it and self-cancel.
@@ -240,6 +244,7 @@ export class Annotator {
     const v = this._activeVoice;
     if (!v) return;
     this._activeVoice = null;
+    v.abort.abort(); // startup still in flight must not gain a socket or mic
     v.session?.dispose();
     v.mount.remove();
   }
@@ -268,6 +273,9 @@ export class Annotator {
     const v = this._activeVoice;
     if (v) {
       this._activeVoice = null;
+      // A session already RECORDING finalizes normally; startup still in
+      // flight aborts (no session yet to stop) — codex #4.
+      if (!v.session) v.abort.abort();
       const mount = v.mount;
       void Promise.resolve(v.session?.stop()).finally(() => mount.remove());
     }
@@ -523,6 +531,12 @@ export class Annotator {
         cb.type = 'checkbox';
         cb.checked = true;
         cb.dataset['reviewer'] = s.reviewer;
+        cb.checked = !this._builderHidden.has(s.reviewer);
+        cb.addEventListener('change', () => {
+          if (cb.checked) this._builderHidden.delete(s.reviewer);
+          else this._builderHidden.add(s.reviewer);
+          this._renderPins();
+        });
         label.appendChild(cb);
         label.appendChild(document.createTextNode(` ${s.reviewer} (${s.comments.length})`));
         drawer.appendChild(label);
@@ -680,7 +694,7 @@ export class Annotator {
     );
     this._ui.root.appendChild(mount);
 
-    const active: ActiveVoice = { mount, session: null };
+    const active: ActiveVoice = { mount, session: null, abort: new AbortController() };
     this._activeVoice = active;
     const myGen = this._generation;
     const route = this._routeKey();
@@ -767,6 +781,7 @@ export class Annotator {
         this._commitTextComment(anchor, text, live, route);
       },
       logger: this._voiceLogger,
+      signal: active.abort.signal,
     };
   }
 
@@ -777,11 +792,13 @@ export class Annotator {
     const route = this._routeKey();
     this._visibleCache =
       this._deps.mode === 'builder'
-        ? this._allStores().flatMap((s) =>
-            s.comments
-              .filter((c) => c.route === route)
-              .map((c) => ({ ...c, reviewer: s.reviewer })),
-          )
+        ? this._allStores()
+            .filter((s) => !this._builderHidden.has(s.reviewer))
+            .flatMap((s) =>
+              s.comments
+                .filter((c) => c.route === route)
+                .map((c) => ({ ...c, reviewer: s.reviewer })),
+            )
         : this._store.comments.filter((c) => c.route === route);
     return this._visibleCache;
   }
@@ -816,7 +833,10 @@ export class Annotator {
       pin.setAttribute('aria-label', pin.title || `Comment ${i + 1}`);
       pin.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (this._deps.mode === 'builder') return;
+        if (this._deps.mode === 'builder') {
+          this._openBuilderView(c);
+          return;
+        }
         this._openInput(c.id);
       });
       this._placePin(pin, c, target);
@@ -973,6 +993,41 @@ export class Annotator {
       commentId,
       cleanup: disarm,
       save: () => (frozen ? this._closeActiveInput() : save()),
+    };
+  }
+
+  // Builder pins open a READ-ONLY view (codex #14): the aggregate is the
+  // team's record, so text is selectable/copyable but never editable here,
+  // with the reviewer attribution and any disposition beneath. Same dismiss
+  // semantics as every other surface.
+  private _openBuilderView(c: Comment & { reviewer?: string }): void {
+    this._closeActiveInput(false);
+    const wrap = el('div', 'input');
+    const ta = el('textarea');
+    ta.value = c.text;
+    ta.readOnly = true;
+    ta.rows = 3;
+    wrap.appendChild(ta);
+    const mark = c.status === 'done' ? ' · ✓ Done' : c.status === 'declined' ? ' · ✕ Declined' : '';
+    wrap.appendChild(el('div', 'res', `${c.reviewer ?? 'Reviewer'}${mark}`));
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        this._closeActiveInput(false);
+      }
+    };
+    ta.addEventListener('keydown', onKey);
+    this._ui.root.appendChild(wrap);
+    this._positionInputNearPin(wrap, c.id);
+    const disarm = this._armOutsideDismiss(
+      () => [wrap, this._chipEl],
+      () => this._closeActiveInput(false),
+    );
+    this._activeInput = {
+      wrap,
+      commentId: c.id,
+      cleanup: disarm,
+      save: () => this._closeActiveInput(false),
     };
   }
 

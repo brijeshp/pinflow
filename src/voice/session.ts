@@ -30,8 +30,12 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
   const clock = deps.now ?? Date.now;
   const startedAt = clock();
   let stream: TranscriptionStream | null = null;
-  let settled = false; // committed or discarded — guards idempotency
+  // 'recording' → ('finalizing' →) 'settled': persistence happens exactly once,
+  // on the transition INTO 'settled'. dispose() during 'finalizing' releases
+  // hardware but leaves persistence to the in-flight stop() (codex audit #5).
+  let phase: 'recording' | 'finalizing' | 'settled' = 'recording';
   let disposed = false;
+  const aborted = (): boolean => host.signal?.aborted === true;
   // Aggregated as the MINIMUM across accepted finals — the pessimistic value
   // is the honest one for downstream consumers. Unset if no final carried one.
   let minConfidence: number | undefined;
@@ -55,11 +59,33 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
           render();
         }
       },
-      onError: (err) => host.logger.warn('voice provider error', err),
+      onError: (err) => {
+        host.logger.warn('voice provider error', err);
+        // A post-open provider failure must not leave a dead recording with a
+        // live microphone (codex audit #17): salvage what was heard and stop.
+        if (phase !== 'recording') return;
+        phase = 'settled';
+        void deps.capture.stop();
+        const d = store.display;
+        const interimTail = d.interim.trim();
+        store.close();
+        stream?.close();
+        const text = interimTail
+          ? d.committed
+            ? d.committed + ' ' + interimTail
+            : interimTail
+          : d.committed;
+        persist(text, interimTail.length > 0);
+      },
     });
   } catch (err) {
     host.logger.warn('voice provider open failed', err);
-    host.degradeToText();
+    if (!aborted()) host.degradeToText();
+    return noopSession;
+  }
+  if (aborted()) {
+    // Torn down while the socket was opening: no mic, no dot, no fallback.
+    stream.close();
     return noopSession;
   }
 
@@ -70,9 +96,15 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
     );
   } catch (err) {
     host.logger.warn('mic capture failed', err);
-    deps.capture.stop(); // idempotent — releases anything partially acquired
+    void deps.capture.stop(); // idempotent — releases anything partially acquired
     stream.close();
-    host.degradeToText();
+    if (!aborted()) host.degradeToText();
+    return noopSession;
+  }
+  if (aborted()) {
+    // Mic permission resolved into a torn-down world: release everything.
+    void deps.capture.stop();
+    stream.close();
     return noopSession;
   }
 
@@ -94,25 +126,31 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
 
   return {
     async stop(): Promise<void> {
-      if (settled) return;
-      settled = true;
+      if (phase !== 'recording') return;
+      phase = 'finalizing';
       store.beginFinalize();
-      deps.capture.stop(); // release the mic immediately
+      // Await the flush handshake so the last partial PCM buffer is on the
+      // wire BEFORE the finalize frame (codex audit #21).
+      await deps.capture.stop();
       try {
         await stream?.finalize();
       } catch (err) {
         host.logger.warn('voice finalize failed', err);
       }
+      if (phase !== 'finalizing') return; // provider error settled meanwhile
       store.close();
       stream?.close();
+      phase = 'settled';
       persist(store.text, false);
     },
     dispose(): void {
       if (disposed) return;
       disposed = true;
-      deps.capture.stop();
-      if (!settled) {
-        settled = true;
+      void deps.capture.stop();
+      // 'finalizing' belongs to the in-flight stop(): it will persist exactly
+      // once when finalize resolves — salvaging here would double-commit.
+      if (phase === 'recording') {
+        phase = 'settled';
         // Best-effort salvage: committed finals PLUS any still-pending interim
         // tail (the store is still recording — finalize never ran). The interim
         // flag is set only when interim content actually made it into the text,

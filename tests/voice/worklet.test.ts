@@ -70,3 +70,55 @@ describe('pinflow-pcm worklet downsampler', () => {
     expect(samples()).toBe(16000);
   });
 });
+
+describe('production audit #21: amplitude fidelity + stop flush', () => {
+  function compileCapturing(sampleRate: number): {
+    proc: PcmProcessor;
+    values: () => number[];
+    messages: () => unknown[];
+  } {
+    const values: number[] = [];
+    const messages: unknown[] = [];
+    class FakeAudioWorkletProcessor {
+      port = {
+        postMessage: (data: unknown): void => {
+          if (data instanceof ArrayBuffer) values.push(...Array.from(new Int16Array(data)));
+          else messages.push(data);
+        },
+        onmessage: null as null | ((e: { data: unknown }) => void),
+      };
+    }
+    const registered: Array<new () => PcmProcessor> = [];
+    new Function('AudioWorkletProcessor', 'sampleRate', 'registerProcessor', WORKLET_SOURCE)(
+      FakeAudioWorkletProcessor,
+      sampleRate,
+      (_n: string, c: new () => PcmProcessor) => registered.push(c),
+    );
+    const Ctor = registered[0]!;
+    const proc = new Ctor();
+    return { proc, values: () => values, messages: () => messages };
+  }
+
+  it('a constant 0.5 input stays ~0.5 at 44.1kHz (no fractional-count attenuation)', () => {
+    const { proc, values } = compileCapturing(44100);
+    const block = new Float32Array(128).fill(0.5);
+    for (let fed = 0; fed < 44100; fed += 128) proc.process([[block]]);
+    const v = values();
+    expect(v.length).toBeGreaterThan(10000);
+    const mean = v.reduce((a, b) => a + b, 0) / v.length / 0x7fff;
+    expect(mean).toBeGreaterThan(0.48); // was ~0.422 pre-fix
+    expect(mean).toBeLessThan(0.52);
+  });
+
+  it("the 'flush' handshake emits the partial buffer and answers 'flushed'", () => {
+    const { proc, values, messages } = compileCapturing(16000);
+    // 100 samples at ratio 1 → 100 downsampled values sitting in the buffer.
+    proc.process([[new Float32Array(100).fill(0.25)]]);
+    expect(values().length).toBe(0); // below the 2048 emit threshold
+    (proc as unknown as { port: { onmessage: (e: { data: unknown }) => void } }).port.onmessage({
+      data: 'flush',
+    });
+    expect(values().length).toBe(100); // short recording's audio reaches the wire
+    expect(messages()).toContain('flushed');
+  });
+});

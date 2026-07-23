@@ -229,3 +229,105 @@ describe('startSession', () => {
     expect(host.committed[0]?.voice).toMatchObject({ interim: true });
   });
 });
+
+describe('production audit: lifecycle races', () => {
+  function makeErrProvider(): {
+    provider: TranscriptionProvider;
+    stream: () => FakeStream;
+    fireError: (e: Error) => void;
+    holdFinalize: () => () => void;
+  } {
+    let onError: ((e: Error) => void) | null = null;
+    let theStream: FakeStream | null = null;
+    let finalizeGate: Promise<void> | null = null;
+    let openGate: (() => void) | null = null;
+    const provider: TranscriptionProvider = {
+      engine: 'fake:test',
+      open(opts) {
+        onError = (opts as { onError?: (e: Error) => void }).onError ?? null;
+        theStream = {
+          sendPcm: () => {},
+          finalize: () => finalizeGate ?? Promise.resolve(),
+          close: () => {
+            theStream!.closed = true;
+          },
+          emitInterim: (t) => (opts as { onInterim: (t: string) => void }).onInterim(t),
+          emitFinal: (t, c) => (opts as { onFinal: (t: string, c?: number) => void }).onFinal(t, c),
+          finalized: false,
+          closed: false,
+        };
+        return Promise.resolve(theStream);
+      },
+    };
+    return {
+      provider,
+      stream: () => theStream!,
+      fireError: (e) => onError?.(e),
+      holdFinalize: () => {
+        let release!: () => void;
+        finalizeGate = new Promise<void>((r) => (release = r));
+        return release;
+      },
+    };
+  }
+
+  it('#5: dispose during an in-flight stop persists EXACTLY once, after finalize', async () => {
+    const host = makeHost();
+    const { provider, stream, holdFinalize } = makeErrProvider();
+    const capture = makeCapture();
+    const session = await startSession(host, {
+      provider,
+      capture,
+      view: { update: () => {}, setLevels: () => {} },
+    });
+    stream().emitFinal('committed words');
+    const release = holdFinalize();
+    const stopping = session.stop();
+    session.dispose(); // finalize still pending
+    release();
+    await stopping;
+    expect(host.committed).toHaveLength(1);
+    expect(host.committed[0]!.text).toBe('committed words');
+  });
+
+  it('#17: a post-open provider error salvages the transcript and releases the mic', async () => {
+    const host = makeHost();
+    const { provider, fireError, stream } = makeErrProvider();
+    const capture = makeCapture();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    await startSession(host, {
+      provider,
+      capture,
+      view: { update: () => {}, setLevels: () => {} },
+    });
+    stream().emitFinal('heard so far');
+    stream().emitInterim('and a tail');
+    fireError(new Error('socket dropped'));
+    expect(capture.stopped).toBeGreaterThan(0); // mic released
+    expect(host.committed).toHaveLength(1);
+    expect(host.committed[0]!.text).toBe('heard so far and a tail');
+    expect((host.committed[0]!.voice as { interim?: boolean }).interim).toBe(true);
+    expect(host.degraded).toBe(0); // salvage, not a text-editor fallback
+    warn.mockRestore();
+  });
+
+  it('#4: an aborted host signal stops startup cold — no mic, no fallback editor', async () => {
+    const host = makeHost();
+    const controller = new AbortController();
+    controller.abort();
+    (host as { signal?: AbortSignal }).signal = controller.signal;
+    const { provider, stream } = makeErrProvider();
+    const capture = makeCapture();
+    const startSpy = vi.spyOn(capture, 'start');
+    const session = await startSession(host, {
+      provider,
+      capture,
+      view: { update: () => {}, setLevels: () => {} },
+    });
+    expect(stream().closed).toBe(true);
+    expect(startSpy).not.toHaveBeenCalled();
+    expect(host.degraded).toBe(0);
+    await session.stop(); // noop session
+    expect(host.committed).toHaveLength(0);
+  });
+});

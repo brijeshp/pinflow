@@ -31,9 +31,7 @@ export function createAudioCapture(): AudioCapture {
   let raf = 0;
   let url = '';
 
-  const stop = (): void => {
-    if (raf) cancelAnimationFrame(raf);
-    raf = 0;
+  const teardown = (): void => {
     stream?.getTracks().forEach((t) => t.stop());
     if (node) {
       node.port.onmessage = null;
@@ -47,6 +45,33 @@ export function createAudioCapture(): AudioCapture {
     node = null;
     analyser = null;
     url = '';
+  };
+
+  // Ask the worklet to emit its partial buffer, then tear down. The 100ms
+  // guard covers a dead worklet; PCM ordering is preserved because the flush
+  // reply and the last frames ride the same message port (codex audit #21).
+  const stop = (): Promise<void> => {
+    if (raf) cancelAnimationFrame(raf);
+    raf = 0;
+    const port = node?.port;
+    if (!port) {
+      teardown();
+      return Promise.resolve();
+    }
+    return new Promise<void>((resolve) => {
+      const prev = port.onmessage;
+      const done = (): void => {
+        window.clearTimeout(timer);
+        teardown();
+        resolve();
+      };
+      const timer = window.setTimeout(done, 100);
+      port.onmessage = (e: MessageEvent) => {
+        if (e.data === 'flushed') done();
+        else prev?.call(port, e); // final PCM frames still flow to the sink
+      };
+      port.postMessage('flush');
+    });
   };
 
   return {

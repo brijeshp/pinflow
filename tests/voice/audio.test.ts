@@ -30,7 +30,14 @@ function install(opts: { addModuleError?: Error } = {}): Fakes {
     }
   }
   class FakeWorkletNode {
-    port: { onmessage: unknown } = { onmessage: null };
+    // Echoes the stop/flush handshake: posting 'flush' immediately answers
+    // 'flushed' through onmessage, like the real worklet (codex audit #21).
+    port = {
+      onmessage: null as null | ((e: { data: unknown }) => void),
+      postMessage: (msg: unknown): void => {
+        if (msg === 'flush') this.port.onmessage?.({ data: 'flushed' });
+      },
+    };
     connect = vi.fn();
     disconnect = vi.fn();
   }
@@ -54,7 +61,7 @@ describe('createAudioCapture', () => {
     const fakes = install();
     const capture = createAudioCapture();
     await capture.start(vi.fn());
-    capture.stop();
+    await capture.stop(); // resolves through the flush handshake
     expect(fakes.track.stop).toHaveBeenCalledTimes(1);
     expect(fakes.ctxClose).toHaveBeenCalledTimes(1);
     expect(fakes.revoke).toHaveBeenCalledWith('blob:pinflow-test');
@@ -76,8 +83,8 @@ describe('createAudioCapture', () => {
     const fakes = install({ addModuleError: new Error('nope') });
     const capture = createAudioCapture();
     await expect(capture.start(vi.fn())).rejects.toThrow('nope');
-    capture.stop();
-    capture.stop();
+    await capture.stop();
+    await capture.stop();
     expect(fakes.track.stop).toHaveBeenCalledTimes(1);
   });
 });

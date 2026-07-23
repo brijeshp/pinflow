@@ -10,9 +10,19 @@ class PinflowPCM extends AudioWorkletProcessor {
     super();
     this.ratio = sampleRate / 16000;
     this.acc = 0;
-    this.count = 0;
+    this.n = 0;
+    this.phase = 0;
     this.out = new Int16Array(2048);
     this.len = 0;
+    // Stop/flush handshake: the main thread posts 'flush' during teardown and
+    // waits for 'flushed' so short recordings' partial buffers reach the wire
+    // (codex audit #21).
+    this.port.onmessage = (e) => {
+      if (e.data === 'flush') {
+        this.flush();
+        this.port.postMessage('flushed');
+      }
+    };
   }
   process(inputs) {
     const input = inputs[0];
@@ -20,13 +30,18 @@ class PinflowPCM extends AudioWorkletProcessor {
     const ch = input[0];
     for (let i = 0; i < ch.length; i++) {
       this.acc += ch[i];
-      this.count++;
-      if (this.count >= this.ratio) {
-        let s = this.acc / this.count;
+      this.n++;
+      this.phase++;
+      if (this.phase >= this.ratio) {
+        // Average over the REAL samples accumulated — the fractional-cadence
+        // remainder lives in \`phase\` only, so amplitude is never diluted by
+        // phantom zero samples (codex audit #21: 0.5 in must be ~0.5 out).
+        let s = this.acc / this.n;
         s = s < -1 ? -1 : s > 1 ? 1 : s;
         this.out[this.len++] = s < 0 ? s * 0x8000 : s * 0x7fff;
         this.acc = 0;
-        this.count -= this.ratio;
+        this.n = 0;
+        this.phase -= this.ratio;
         if (this.len >= this.out.length) this.flush();
       }
     }
