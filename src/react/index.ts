@@ -20,7 +20,21 @@ export function Annotator(props: AnnotatorProps): null {
 
   useEffect(() => {
     handleRef.current?.destroy();
-    handleRef.current = init(propsRef.current);
+    const p = propsRef.current;
+    // Function props DELEGATE through propsRef: a rerender's fresh closures
+    // (new state captured by onChange etc.) take effect without re-init
+    // (codex audit #9). Object props (theme/activation/voice/submitTo) are
+    // snapshotted at init — change those via a keyed remount.
+    handleRef.current = init({
+      ...p,
+      ...(p.onChange ? { onChange: (s, c) => propsRef.current.onChange?.(s, c) } : {}),
+      ...(p.onSubmit ? { onSubmit: (s) => propsRef.current.onSubmit?.(s) } : {}),
+      ...(p.source ? { source: () => (propsRef.current.source ?? p.source)!() } : {}),
+      ...(p.routeKey ? { routeKey: () => (propsRef.current.routeKey ?? p.routeKey)!() } : {}),
+      ...(p.describeRoute
+        ? { describeRoute: (k) => (propsRef.current.describeRoute ?? p.describeRoute)!(k) }
+        : {}),
+    });
     return () => {
       handleRef.current?.destroy();
       handleRef.current = null;

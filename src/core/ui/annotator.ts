@@ -104,6 +104,7 @@ export class Annotator {
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
   private _prevBodyCursor = '';
   private _reflowFrame = 0;
+  private _orphanRetryAt = 0;
   private _gesture: GestureController | null = null;
   // Bumped on every teardown (destroy/route change) so in-flight async voice
   // work resolving into a stale world can detect it and self-cancel.
@@ -838,16 +839,31 @@ export class Annotator {
   // Cheap path used on scroll/resize: just reposition existing pins, skipping
   // the querySelector + element-create cost of a full renderPins().
   private _repositionPins(): void {
+    // Orphan recovery is bounded, not per-frame: an anchor that mounted AFTER
+    // the initial render (async host content) re-runs the ladder at most every
+    // 500ms during reflow, so scrolling stays cheap while orphans can heal
+    // (codex audit #22).
+    const t = performance.now();
+    const retryOrphans = t - this._orphanRetryAt > 500;
+    if (retryOrphans) this._orphanRetryAt = t;
     const byId = new Map(this._visibleComments().map((c) => [c.id, c]));
     for (const [id, pin] of this._pins) {
       const c = byId.get(id);
-      if (c) this._placePin(pin, c, this._cachedAnchor(c));
+      if (!c) continue;
+      let target = this._cachedAnchor(c);
+      if (target === null && retryOrphans) {
+        target = resolveAnchor(c.anchor);
+        this._anchorCache.set(c.id, target);
+        if (target) delete pin.dataset['orphaned'];
+      }
+      this._placePin(pin, c, target);
     }
   }
 
   // Reflow path never re-runs the full selector ladder. A cached element that
   // left the DOM (host re-render) is re-resolved once and re-cached; an
-  // orphaned (null) entry stays parked — its position can't change per frame.
+  // orphaned (null) entry stays parked between bounded retries (see
+  // _repositionPins) — its position can't change per frame.
   private _cachedAnchor(c: Comment): Element | null {
     const hit = this._anchorCache.get(c.id);
     if (hit === null || (hit !== undefined && hit.isConnected)) return hit;

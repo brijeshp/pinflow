@@ -85,3 +85,35 @@ describe('React <Annotator />', () => {
     });
   });
 });
+
+it('delegates function props through the latest render — no stale closures, no re-init (codex audit #9)', async () => {
+  const React = await import('react');
+  const { createRoot } = await import('react-dom/client');
+  const { Annotator } = await import('../../src/react/index');
+  const { act } = await import('react');
+
+  const first = vi.fn();
+  const second = vi.fn();
+  const root = createRoot(document.createElement('div'));
+  await act(async () => {
+    root.render(React.createElement(Annotator, { project: 'p', onChange: first }));
+  });
+  await vi.dynamicImportSettled();
+  const initCalls = initMock.mock.calls.length;
+  const config = initMock.mock.calls[initMock.mock.calls.length - 1]![0] as {
+    onChange: (s: unknown, c: unknown) => void;
+  };
+
+  await act(async () => {
+    root.render(React.createElement(Annotator, { project: 'p', onChange: second }));
+  });
+  expect(initMock.mock.calls.length).toBe(initCalls); // callback identity ≠ re-init
+
+  config.onChange({}, {}); // core fires the ORIGINAL delegating closure…
+  expect(second).toHaveBeenCalled(); // …which reaches the LATEST prop
+  expect(first).not.toHaveBeenCalled();
+
+  await act(async () => {
+    root.unmount();
+  });
+});

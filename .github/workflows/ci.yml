@@ -24,9 +24,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm format:check
       - run: pnpm typecheck
-      - run: pnpm test
+      # Build BEFORE tests: the bundle-isolation suites hard-fail in CI when
+      # dist/ is absent instead of silently skipping (codex audit #12).
       - run: pnpm build
+      # Coverage-gated suite — the 80/75 thresholds are enforced here, not
+      # just locally (codex audit #11).
+      - run: pnpm test:coverage
       - run: pnpm size
+      - run: pnpm wiki:check
 
   e2e:
     runs-on: ubuntu-latest

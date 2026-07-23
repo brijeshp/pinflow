@@ -400,9 +400,8 @@ describe('production audit hardening', () => {
   afterEach(() => localStorage.clear());
 
   it('#19: colon-bearing names cannot alias another namespace', async () => {
-    const { saveStore, loadStore, emptyStore, listReviewers } = await import(
-      '../../src/core/storage'
-    );
+    const { saveStore, loadStore, emptyStore, listReviewers } =
+      await import('../../src/core/storage');
     saveStore(localStorage, { ...emptyStore('a', 'b:c'), comments: [] });
     // Same raw concatenation, different scope — must NOT read a:b/c.
     expect(loadStore(localStorage, 'a:b', 'c')).toBeNull();

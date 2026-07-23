@@ -25,7 +25,13 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
       - run: pnpm install --frozen-lockfile
+      # Publishing is gated on the SAME battery CI runs, on this exact SHA —
+      # a push to main can never publish ahead of its checks (codex audit #13).
+      - run: pnpm format:check
+      - run: pnpm typecheck
       - run: pnpm build
+      - run: pnpm test:coverage
+      - run: pnpm size
       - uses: changesets/action@v1
         with:
           publish: pnpm release

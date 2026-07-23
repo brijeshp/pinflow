@@ -444,7 +444,12 @@ it('injection cannot ride ANY interpolated field — reviewer, route, resolution
   };
   const meta = { generatedAt: '2026-01-01T00:00:00.000Z', project: evil('proj') };
   for (const md of [
-    exportReviewer(store, meta, () => false, () => evil('label')),
+    exportReviewer(
+      store,
+      meta,
+      () => false,
+      () => evil('label'),
+    ),
     exportBuilder([store], meta, () => false),
     exportReviewer(store, meta, () => true), // orphan path too
   ]) {

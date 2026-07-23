@@ -101,14 +101,20 @@ describe('Annotator reflow caching', () => {
     expect(getItem.mock.calls.length).toBe(baseline);
   });
 
-  it('reposition performs zero re-resolutions for anchored and orphaned pins (P2.2)', () => {
+  it('reposition performs zero re-resolutions inside the orphan-retry window (P2.2 + #22)', () => {
     seed([bodyAnchored('c1'), orphaned('c2')]);
     annotator = makeAnnotator('reviewer');
+    // First reposition may spend ONE bounded orphan retry (codex #22); pin the
+    // clock so every subsequent frame is inside the 500ms window and must be
+    // pure cache hits — the P2.2 scroll-cost guarantee.
+    const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(1_000);
+    reposition(annotator, 1);
     const baseline = resolveCalls();
 
     reposition(annotator, 5);
 
     expect(resolveCalls()).toBe(baseline);
+    nowSpy.mockRestore();
   });
 
   it('a disconnected cached element is re-resolved exactly once (P2.2)', () => {
@@ -131,5 +137,48 @@ describe('Annotator reflow caching', () => {
     // The re-resolved (connected) element is cached — no further resolutions.
     reposition(annotator, 3);
     expect(resolveCalls()).toBe(baseline + 1);
+  });
+});
+
+describe('bounded orphan recovery (codex audit #22)', () => {
+  afterEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('an anchor that mounts AFTER init heals on a later reflow (throttled), and orphan styling clears', () => {
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, REVIEWER),
+      comments: [
+        makeComment('late', { testid: 'late-el', id: null, css: '#nope', xpath: '/nope' }),
+      ],
+    });
+    const annotator = new Annotator({
+      config: { project: PROJECT },
+      reviewer: REVIEWER,
+      mode: 'reviewer' as Mode,
+      storage: localStorage,
+    });
+    const shadowRoot = document.querySelector('[data-pinflow-root]')!.shadowRoot!;
+    const pin = shadowRoot.querySelector<HTMLElement>('.pin')!;
+    expect(pin.dataset['orphaned']).toBe('true');
+
+    // The element arrives late (async host content).
+    const el = document.createElement('div');
+    el.setAttribute('data-testid', 'late-el');
+    document.body.appendChild(el);
+
+    const nowSpy = vi.spyOn(performance, 'now');
+    nowSpy.mockReturnValue(10_000); // beyond the 500ms retry window
+    (annotator as unknown as Repositionable)._repositionPins();
+    expect(pin.dataset['orphaned']).toBeUndefined();
+
+    // Within the window, a still-missing anchor is NOT re-laddered per frame.
+    const calls = vi.mocked(resolveAnchor).mock.calls.length;
+    nowSpy.mockReturnValue(10_100);
+    (annotator as unknown as Repositionable)._repositionPins();
+    expect(vi.mocked(resolveAnchor).mock.calls.length).toBe(calls); // cache hit only
+    annotator.destroy();
   });
 });
