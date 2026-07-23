@@ -29,6 +29,10 @@ export const Annotator = defineComponent({
     },
     activation: { type: Object as () => ActivationConfig, default: undefined },
     voice: { type: Object as () => VoiceConfig, default: undefined },
+    exportUi: {
+      type: String as () => NonNullable<PinflowConfig['exportUi']>,
+      default: undefined,
+    },
   },
   setup(props) {
     let handle: Handle | null = null;
@@ -44,6 +48,7 @@ export const Annotator = defineComponent({
         ...(props.submitHandler ? { onSubmit: props.submitHandler } : {}),
         ...(props.activation ? { activation: { ...props.activation } } : {}),
         ...(props.voice ? { voice: { ...props.voice } } : {}),
+        ...(props.exportUi !== undefined ? { exportUi: props.exportUi } : {}),
       });
     };
     onMounted(start);
@@ -56,6 +61,7 @@ export const Annotator = defineComponent({
           props.reviewer,
           props.activation?.mode,
           props.voice?.tokenEndpoint,
+          props.exportUi,
         ] as const,
       start,
     );

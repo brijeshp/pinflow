@@ -129,7 +129,11 @@ Treat the builder URL as a soft secret — there is no auth on this mode.
 
 ## Markdown export
 
-The export format is the load-bearing feature. It is designed for direct paste into an AI coding tool — and, with ids and dispositions, doubles as the team-side tracking artifact. A sample:
+The export format is the load-bearing feature. It is designed for direct paste into an AI coding tool — and, with ids and dispositions, doubles as the team-side tracking artifact.
+
+Export is available at any moment, not just at the end. Once the reviewer has a comment, a small count chip (the pins' own visual vocabulary, bottom-left) summons an export sheet; the draft popup carries an `Export all · n` action that saves your comment first; and `⌘/Ctrl+Shift+E` opens the same sheet on desktop. All three ride the standard flow: download + clipboard + the `submitTo` hand-off when configured.
+
+This is governed by `exportUi: 'auto' | 'always' | 'never'` (default `'auto'`): on for local-first installs, off automatically when `source` is configured — a synced host owns collation, so member-side export there would be noise. A sample artifact:
 
 ```markdown
 # Feedback for my-prototype — from Sarah

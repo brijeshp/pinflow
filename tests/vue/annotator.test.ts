@@ -32,6 +32,14 @@ describe('Vue <Annotator />', () => {
     wrapper.unmount();
   });
 
+  it('forwards exportUi to init (codex #1: wrapper contract parity)', async () => {
+    const { Annotator } = await import('../../src/vue/index');
+    const wrapper = mount(Annotator, { project: 'vue-test', exportUi: 'always' });
+    await vi.dynamicImportSettled();
+    expect(initMock).toHaveBeenCalledWith(expect.objectContaining({ exportUi: 'always' }));
+    wrapper.unmount();
+  });
+
   it('snapshots props at init: later mutation of a passed object does not leak (P4.5)', async () => {
     const { Annotator } = await import('../../src/vue/index');
     const activation = { mode: 'stealth' as const };

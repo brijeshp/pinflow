@@ -33,6 +33,7 @@ export function Annotator(props: AnnotatorProps): null {
     props.reviewer,
     props.activation?.mode,
     props.voice?.tokenEndpoint,
+    props.exportUi,
   ]);
 
   return null;

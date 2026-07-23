@@ -221,6 +221,16 @@ export interface PinflowConfig {
    * defaults to `Feedback: <project>`.
    */
   submitTo?: { email: string; subject?: string };
+  /**
+   * Anytime-export affordance (reviewer mode): a small count chip in the
+   * pins' visual vocabulary, shown once the reviewer has a comment; tapping
+   * it summons an export sheet wired to the standard export flow. `'auto'`
+   * (default) enables it on local-first installs and disables it when
+   * `source` is configured — a synced host owns collation, so member-side
+   * export is noise there. `'always'`/`'never'` override in either
+   * direction. Builder mode is unaffected (its drawer already exports).
+   */
+  exportUi?: 'auto' | 'always' | 'never';
   /** Activation strategy. Defaults to `{ mode: 'toggle' }` for v1 back-compat. */
   activation?: ActivationConfig;
   /** Opt-in voice annotation config. Omit for pure pin/text behavior. */
