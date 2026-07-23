@@ -72,7 +72,7 @@ import { Annotator } from 'pinflow/react';
 
 ## Vue wrapper (`src/vue/index.ts`)
 
-Props are an ENUMERATED subset of `PinflowConfig` (`project`, `reviewer`, `mode`, `submitHandler`, `activation`, `voice`, `exportUi`) — **`onSubmit` is exposed as `submitHandler`** (an `on*`-prefixed prop would be treated as an event listener by Vue). Undeclared config keys are NOT forwarded. Re-inits only on stable primitives (incl. `exportUi`).
+Props cover the FULL `PinflowConfig`, with two renames: **`onSubmit` is exposed as `submitHandler`** and **`onChange` as `changeHandler`** (an `on*`-prefixed prop would be treated as an event listener by Vue). Object props (`theme`, `submitTo`, `activation`, `voice`) are snapshotted at init so later mutation can't leak into a live config. Re-inits only on stable primitives (`project`, `mode`, `reviewer`, `activation.mode`, `voice.tokenEndpoint`, `exportUi`).
 
 ```vue
 <script setup>
