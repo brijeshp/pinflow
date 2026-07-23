@@ -31,7 +31,7 @@ The audit ran in two layers. The internal pass landed four fixes (hostile-input 
 
 ## Known open items (tracked elsewhere)
 
-- **Vue wrapper config parity** (`theme`/`source`/`onChange`/`routeKey`/`describeRoute`/`submitTo` not forwarded) — fix in flight in a separate session (task_5e76ee16). `exportUi` already fixed.
+- ~~Vue wrapper config parity~~ — RESOLVED: landed on main from its own session (task_5e76ee16) and merged here; the wrapper now forwards the full `PinflowConfig` (with `changeHandler`/`submitHandler` renames) under test.
 - **npm publish + git remote** — deliberate product decision pending (L3.1); release workflow, changesets, `files` allowlist, `.npmignore`, provenance are staged and audited.
 - CDN/IIFE voice loading is documented as text-degrading (no resolver on that path) — by design for v1.
 
