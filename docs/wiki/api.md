@@ -4,7 +4,7 @@ Everything a host can call, as it exists in code. Entry points, config options, 
 
 ## Package exports
 
-- **`pinflow`** (`src/core/index.ts` → `dist/index.js|cjs`) — core: `init()`, `destroy()`, `routeOf()`, `version`, exported types, plus the artifact toolkit re-exports (`exportReviewer`, `exportBuilder`, `exportJSON`, `exportFilename` and the `DescribeRoute`/`ExportMeta`/`IsOrphaned` types) so hosts can render artifacts from their own data without an active instance.
+- **`pinflow`** (`src/core/index.ts` → `dist/index.js|cjs`) — core: `init()`, `destroy()`, `routeOf()`, `version`, exported types (incl. `PinflowTheme`), plus the artifact toolkit re-exports (`exportReviewer`, `exportBuilder`, `exportJSON`, `exportFilename` and the `DescribeRoute`/`ExportMeta`/`IsOrphaned` types) so hosts can render artifacts from their own data without an active instance.
 - **`pinflow/voice`** (`src/voice/index.ts` → `dist/voice.js|cjs`) — voice module; lazy-loaded by core when `config.voice` is set. Never import it directly.
 - **`pinflow/react`** (`src/react/index.ts` → `dist/react.js|cjs`) — `<Annotator>` component.
 - **`pinflow/vue`** (`src/vue/index.ts` → `dist/vue.js|cjs`) — `<Annotator>` component (registered name `PinflowAnnotator`).
@@ -59,11 +59,11 @@ Required: `project`.
 
 - **`Comment`** — `id`, `createdAt`, `updatedAt`, `route`, `fullUrl`, `text`, `anchor`, `modality: 'text' | 'voice'`, `voice?: VoiceMeta`, plus the server-owned lifecycle disposition: `status?: 'open' | 'done' | 'declined'` and `resolution?: string` (≤500 chars). Disposition is set by the TEAM via the host and arrives through hydration — never written by the reviewer's device; absent = open.
 - **`ReviewerStore`** — `reviewer`, `project`, `createdAt`, `comments[]`.
-- **`Anchor`** — `selectors` (testid, id, css, xpath), `textFingerprint`, `positionPercent` (0..1 x/y), `viewport` (width, height), and optional pin-time `context`: accessible `name`/`role`/nearest `heading` (≤80 chars each), truncated image `src` for image pins, and a `styles` computed-style micro-snapshot (background, backgroundImage, color, fontSize, fontFamily, radius — defaults omitted) capturing what the reviewer actually saw.
+- **`Anchor`** — `selectors` (testid, id, css, xpath), `textFingerprint`, `positionPercent` (0..100 x/y), `viewport` (width, height), and optional pin-time `context`: accessible `name`/`role`/nearest `heading` (≤80 chars each), truncated image `src` for image pins, and a `styles` computed-style micro-snapshot (background, backgroundImage, color, fontSize, fontFamily, radius — defaults omitted) capturing what the reviewer actually saw.
 
 ## React wrapper (`src/react/index.ts`)
 
-`<Annotator {...PinflowConfig} />` renders `null`; mounts on first render. Re-inits only on stable primitives (`project`, `mode`, `reviewer`, `activation.mode`, `voice.tokenEndpoint`, `exportUi`) — memoize inline objects to avoid unnecessary re-inits.
+`<Annotator {...PinflowConfig} />` renders `null`; mounts on first render. Re-inits only on stable primitives (`project`, `mode`, `reviewer`, `activation.mode`, `voice.tokenEndpoint`, `exportUi`). Function props (`onChange`, `onSubmit`, `source`, `routeKey`, `describeRoute`) DELEGATE to the latest render — fresh closures apply without re-init. Object props (`theme`, `activation`, `voice`, `submitTo`) are snapshotted at init; change them via a keyed remount.
 
 ```jsx
 import { Annotator } from 'pinflow/react';

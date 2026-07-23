@@ -11,7 +11,7 @@ Vitest (happy-dom) for units, Playwright for e2e. TDD-first per `CONTRIBUTING.md
 | branches   | 75%       |
 | statements | 80%       |
 
-Excluded from coverage: `src/core/iife.ts`, `src/core/ui/**`, `src/core/types.ts`, `src/core/voice-contract.ts`, `src/core/voice-loader.ts`, `.d.ts` files. Run with `pnpm test:coverage`.
+Excluded from coverage: `src/core/iife.ts`, `src/core/types.ts`, `src/core/voice-contract.ts`, `src/core/voice-loader.ts`, `.d.ts` files. The UI layer (`src/core/ui/**`, incl. the annotator state machine) IS inside the gate. Run with `pnpm test:coverage` — the same command CI enforces.
 
 ## Layout (mirrors `src/`)
 
