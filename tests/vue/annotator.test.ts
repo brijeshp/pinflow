@@ -69,4 +69,63 @@ describe('Vue <Annotator />', () => {
     );
     wrapper.unmount();
   });
+
+  it('maps the changeHandler prop to core onChange (renamed off Vue on* convention)', async () => {
+    const { Annotator } = await import('../../src/vue/index');
+    const changeHandler = vi.fn();
+    const wrapper = mount(Annotator, { project: 'vue-test', changeHandler });
+    expect(initMock).toHaveBeenCalledWith(
+      expect.objectContaining({ project: 'vue-test', onChange: changeHandler }),
+    );
+    wrapper.unmount();
+  });
+
+  it('forwards theme, source, routeKey, describeRoute, and submitTo to init (full config parity)', async () => {
+    const { Annotator } = await import('../../src/vue/index');
+    const source = vi.fn(async () => []);
+    const routeKey = (): string => 'frame-1';
+    const describeRoute = (key: string): string => `Frame ${key}`;
+    const wrapper = mount(Annotator, {
+      project: 'vue-test',
+      theme: { accent: '#ff00ff' },
+      source,
+      routeKey,
+      describeRoute,
+      submitTo: { email: 'builder@example.com', subject: 'Feedback: vue-test' },
+    });
+    expect(initMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        project: 'vue-test',
+        theme: expect.objectContaining({ accent: '#ff00ff' }),
+        source,
+        routeKey,
+        describeRoute,
+        submitTo: expect.objectContaining({
+          email: 'builder@example.com',
+          subject: 'Feedback: vue-test',
+        }),
+      }),
+    );
+    wrapper.unmount();
+  });
+
+  it('snapshots theme and submitTo at init: later mutation does not leak (P4.5 parity)', async () => {
+    const { Annotator } = await import('../../src/vue/index');
+    const theme = { accent: '#ff00ff' };
+    const submitTo = { email: 'builder@example.com' };
+    const wrapper = mount(Annotator, { project: 'vue-test', theme, submitTo });
+
+    theme.accent = '#000000';
+    submitTo.email = 'evil@example.com';
+
+    const config = initMock.mock.calls[0]?.[0] as {
+      theme?: { accent?: string };
+      submitTo?: { email?: string };
+    };
+    expect(config.theme).not.toBe(theme);
+    expect(config.theme?.accent).toBe('#ff00ff');
+    expect(config.submitTo).not.toBe(submitTo);
+    expect(config.submitTo?.email).toBe('builder@example.com');
+    wrapper.unmount();
+  });
 });
