@@ -10,8 +10,6 @@ Figma-style pin-and-comment annotation for any prototype — and the feedback li
 
 ---
 
-
-
 ## The lifecycle
 
 Pinflow covers the whole loop, not just the pin:

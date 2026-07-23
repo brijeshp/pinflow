@@ -43,4 +43,4 @@ Scope: full repo at `main` (`61a66ec`) + this branch's fixes. Method: mechanical
 
 ## Codex certification
 
-See `docs/audits/2026-07-23-production-audit-codex.md` (verdict transcribed verbatim).
+Round 1 (verbatim: `2026-07-23-production-audit-codex.md`): **CHANGES_REQUESTED — 34 findings (17 P1)**, including three defects in this audit's own first draft (partial injection coverage, misleading coverage scope, stale wiki claim). All 34 were resolved across five fix batches on `chore/production-audit`; the round-2 verdict is transcribed in `2026-07-23-production-audit-codex-r2.md`.
