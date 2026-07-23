@@ -395,3 +395,60 @@ describe('storage v2 migration & hardening', () => {
     warn.mockRestore();
   });
 });
+
+describe('production audit hardening', () => {
+  afterEach(() => localStorage.clear());
+
+  it('#19: colon-bearing names cannot alias another namespace', async () => {
+    const { saveStore, loadStore, emptyStore, listReviewers } = await import(
+      '../../src/core/storage'
+    );
+    saveStore(localStorage, { ...emptyStore('a', 'b:c'), comments: [] });
+    // Same raw concatenation, different scope — must NOT read a:b/c.
+    expect(loadStore(localStorage, 'a:b', 'c')).toBeNull();
+    expect(loadStore(localStorage, 'a', 'b:c')).not.toBeNull();
+    expect(listReviewers(localStorage, 'a')).toEqual(['b:c']);
+    expect(listReviewers(localStorage, 'a:b')).toEqual([]);
+  });
+
+  it('#19: pre-encoding corpora (colon-bearing) are still readable via the legacy key', async () => {
+    const { loadStore } = await import('../../src/core/storage');
+    const legacy = {
+      schemaVersion: 3,
+      reviewer: 'b:c',
+      project: 'a',
+      createdAt: 'x',
+      comments: [],
+    };
+    localStorage.setItem('pinflow:c:a:b:c', JSON.stringify(legacy));
+    expect(loadStore(localStorage, 'a', 'b:c')?.reviewer).toBe('b:c');
+  });
+
+  it('#20: non-finite anchor numbers drop the record instead of exporting NaN%', async () => {
+    const { normalizeComments } = await import('../../src/core/storage');
+    const base = {
+      id: 'c1',
+      createdAt: 'x',
+      updatedAt: 'x',
+      route: '/',
+      fullUrl: 'u',
+      text: 't',
+      modality: 'text',
+    };
+    const anchor = (pos: unknown, vp: unknown) => ({
+      selectors: { testid: null, id: null, css: 'body', xpath: '/x' },
+      textFingerprint: '',
+      positionPercent: pos,
+      viewport: vp,
+    });
+    const good = { ...base, anchor: anchor({ x: 1, y: 2 }, { width: 3, height: 4 }) };
+    const nan = { ...base, id: 'c2', anchor: anchor({ x: NaN, y: 2 }, { width: 3, height: 4 }) };
+    const missing = { ...base, id: 'c3', anchor: anchor({ x: 1 }, { width: 3, height: 4 }) };
+    const stringy = {
+      ...base,
+      id: 'c4',
+      anchor: anchor({ x: '1', y: 2 }, { width: 3, height: 4 }),
+    };
+    expect(normalizeComments([good, nan, missing, stringy]).map((c) => c.id)).toEqual(['c1']);
+  });
+});

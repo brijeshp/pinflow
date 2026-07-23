@@ -16,6 +16,7 @@ import {
   loadAllStores,
   loadStore,
   mergeComments,
+  normalizeComments,
   saveStore,
   upsertComment,
 } from '../storage';
@@ -134,7 +135,10 @@ export class Annotator {
     this._startGesture();
     this._hydrateFromSource();
     window.addEventListener('resize', this._onReflow);
-    window.addEventListener('scroll', this._onReflow, { passive: true });
+    // Capture phase: scroll events on nested overflow containers do NOT
+    // bubble, but they DO capture through document — without this, pins over
+    // inner scrollareas keep stale fixed coordinates (codex audit #6).
+    document.addEventListener('scroll', this._onReflow, { passive: true, capture: true });
     // Desktop accelerator for the export sheet. A chord, so it can never
     // collide with typing in host inputs; gated at registration (config is
     // immutable per instance).
@@ -167,10 +171,26 @@ export class Annotator {
   private _hydrateFromSource(): void {
     const source = this._deps.config.source;
     if (!source || this._deps.mode !== 'reviewer' || this._reviewer === null) return;
-    const myGen = this._generation;
-    void source().then(
-      (server) => {
-        if (this._destroyed || myGen !== this._generation) return;
+    // Guarded by destruction and IDENTITY, not the route generation: a SPA
+    // navigating during a slow fetch must still receive its server comments
+    // (codex audit #3). Route changes only re-render; they don't invalidate
+    // the corpus the fetch belongs to.
+    const forReviewer = this._reviewer;
+    // The host callback is called synchronously (tests and hosts may hand
+    // out the resolver immediately) but a synchronous THROW is contained the
+    // same as a rejection, and the payload is normalized like any untrusted
+    // blob — a non-array or malformed entries never reach merge (codex #18).
+    let fetched: Promise<unknown>;
+    try {
+      fetched = Promise.resolve(source());
+    } catch (err) {
+      this._voiceLogger.warn('source hydration failed — using local store', err);
+      return;
+    }
+    void fetched.then(
+      (raw) => {
+        if (this._destroyed || this._reviewer !== forReviewer) return;
+        const server = normalizeComments(raw);
         // Two repair cases (codex r16): an id the server LACKS re-announces
         // as 'add'; an id the server has but with an older updatedAt (a lost
         // update — the merge keeps the local content) re-announces as
@@ -199,7 +219,7 @@ export class Annotator {
   destroy(): void {
     this._generation += 1;
     window.removeEventListener('resize', this._onReflow);
-    window.removeEventListener('scroll', this._onReflow);
+    document.removeEventListener('scroll', this._onReflow, { capture: true });
     document.removeEventListener('keydown', this._onExportHotkey, true);
     this._gesture?.stop();
     // dispose() may synchronously best-effort persist an in-flight transcript,
@@ -294,7 +314,11 @@ export class Annotator {
     const cb = this._deps.config.onChange;
     if (!cb || this._destroyed) return;
     try {
-      cb(this._store, { type, comment });
+      // Promise-wrap so a rejected ASYNC handler is contained exactly like a
+      // synchronous throw (codex audit #10) — the documented guarantee.
+      void Promise.resolve(cb(this._store, { type, comment })).catch((err) =>
+        this._voiceLogger.warn('onChange handler threw', err),
+      );
     } catch (err) {
       this._voiceLogger.warn('onChange handler threw', err);
     }
@@ -659,7 +683,9 @@ export class Annotator {
     this._activeVoice = active;
     const myGen = this._generation;
     const route = this._routeKey();
-    const host = this._buildVoiceHost(mount, anchor, route, active, myGen);
+    // fullUrl freezes WITH the route (codex audit #32): both describe where
+    // the recording began, and navigation mid-finalize must not split them.
+    const host = this._buildVoiceHost(mount, anchor, route, window.location.href, active, myGen);
 
     this._loadVoiceModule()
       .then((mod) => {
@@ -686,6 +712,7 @@ export class Annotator {
     mount: HTMLDivElement,
     anchor: Anchor,
     route: string,
+    fullUrl: string,
     active: ActiveVoice,
     gen: number,
   ): VoiceHost {
@@ -697,7 +724,7 @@ export class Annotator {
         createdAt: t,
         updatedAt: t,
         route,
-        fullUrl: window.location.href,
+        fullUrl,
         text,
         modality: 'voice',
         voice,
@@ -858,6 +885,13 @@ export class Annotator {
     const save = (): void => {
       if (this._destroyed || frozen) return;
       const persisted = this._store.comments.find((c) => c.id === commentId);
+      // Hydration can disposition this very comment while the editor is open;
+      // a resolved record is the team's, so the stale edit is discarded
+      // (codex audit #7).
+      if (persisted && isResolved(persisted)) {
+        this._closeActiveInput(false);
+        return;
+      }
       if (persisted && ta.value !== persisted.text) {
         // Hand-correcting a voice transcript flags the meta as edited (immutably).
         const voicePatch = persisted.voice ? { voice: { ...persisted.voice, edited: true } } : {};
@@ -1072,7 +1106,12 @@ export class Annotator {
   private async _handleReviewerExport(): Promise<void> {
     const [md, filename] = this._buildArtifact();
     download(md, filename);
+    const startedFrom = this._panelEl;
     const copied = await copyToClipboard(md);
+    // A slow clipboard must not resurrect stale UI over whatever the user did
+    // meanwhile (codex audit #23): confirm only if the surface that launched
+    // the export is still the open one (or everything is already closed).
+    if (this._destroyed || (this._panelEl !== null && this._panelEl !== startedFrom)) return;
     this._showConfirmation(copied);
   }
 
@@ -1118,6 +1157,10 @@ export class Annotator {
 
   private async _handleOnSubmit(): Promise<void> {
     if (!this._deps.config.onSubmit) return;
-    await this._deps.config.onSubmit(this._store);
+    try {
+      await this._deps.config.onSubmit(this._store);
+    } catch (err) {
+      this._voiceLogger.warn('onSubmit handler threw', err);
+    }
   }
 }

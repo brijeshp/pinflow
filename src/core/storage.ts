@@ -13,7 +13,16 @@ interface PersistedStore extends ReviewerStore {
   schemaVersion: number;
 }
 
+// Components are URI-encoded so a ':' inside a project or reviewer name can't
+// alias another namespace (codex audit #19: project "a" + reviewer "b:c" must
+// never equal project "a:b" + reviewer "c"). Colon-free values — every real
+// deployment observed — encode to themselves, so existing keys are unchanged.
 export function storageKey(project: string, reviewer: string): string {
+  return `${KEY_PREFIX}${encodeURIComponent(project)}:${encodeURIComponent(reviewer)}`;
+}
+
+/** Pre-encoding key shape; read-side fallback only, never written. */
+function legacyStorageKey(project: string, reviewer: string): string {
   return `${KEY_PREFIX}${project}:${reviewer}`;
 }
 
@@ -40,15 +49,28 @@ function isPersistedStore(v: unknown): v is {
 // The anchor sub-shape export/render dereference without guards: selectors
 // (with a string `css`), positionPercent, and viewport must all be objects or
 // the record is dropped rather than admitted to crash export later.
+function finite(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
 function hasValidAnchor(c: Record<string, unknown>): boolean {
   const anchor = c['anchor'];
   if (!isObject(anchor)) return false;
   const selectors = anchor['selectors'];
+  const pos = anchor['positionPercent'];
+  const vp = anchor['viewport'];
+  // Numeric leaves are dereferenced unguarded downstream (Math.round on
+  // export, pixel math on render) — NaN/absent must drop the record, not
+  // produce "NaN%" artifacts (codex audit #20).
   return (
     isObject(selectors) &&
     typeof selectors['css'] === 'string' &&
-    isObject(anchor['positionPercent']) &&
-    isObject(anchor['viewport'])
+    isObject(pos) &&
+    finite(pos['x']) &&
+    finite(pos['y']) &&
+    isObject(vp) &&
+    finite(vp['width']) &&
+    finite(vp['height'])
   );
 }
 
@@ -56,7 +78,9 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
 // string fields downstream code dereferences unguarded, and guarantee every
 // survivor carries a `modality` (v1 stores predate the field). v3 disposition
 // fields are optional: an invalid status/resolution is stripped, not fatal.
-function normalizeComments(input: unknown): Comment[] {
+// Exported for the source-hydration boundary: host-supplied payloads get the
+// exact same distrust as localStorage blobs (codex audit #18).
+export function normalizeComments(input: unknown): Comment[] {
   if (!Array.isArray(input)) return [];
   return input
     .filter(
@@ -99,7 +123,10 @@ export function loadStore(
   project: string,
   reviewer: string,
 ): ReviewerStore | null {
-  const raw = storage.getItem(storageKey(project, reviewer));
+  const raw =
+    storage.getItem(storageKey(project, reviewer)) ??
+    // Corpora written before component encoding (colon-bearing names only).
+    storage.getItem(legacyStorageKey(project, reviewer));
   if (!raw) return null;
   let parsed: unknown;
   try {
@@ -128,12 +155,16 @@ export function saveStore(storage: Storage, store: ReviewerStore): void {
 }
 
 export function listReviewers(storage: Storage, project: string): string[] {
-  const prefix = `${KEY_PREFIX}${project}:`;
+  const prefix = `${KEY_PREFIX}${encodeURIComponent(project)}:`;
   const out: string[] = [];
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
     if (key && key.startsWith(prefix)) {
-      out.push(key.slice(prefix.length));
+      try {
+        out.push(decodeURIComponent(key.slice(prefix.length)));
+      } catch {
+        /* foreign malformed key — skip */
+      }
     }
   }
   return out.sort();

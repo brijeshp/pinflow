@@ -27,9 +27,20 @@ export function memoryStorage(): Storage {
 export function acquireStorage(): Storage {
   try {
     const s = window.localStorage;
-    if (s) return s;
+    // A WRITE probe, not just a read: Safari private mode and some embed
+    // policies expose a readable store whose setItem throws — a session
+    // there must run on the memory shim from the start or every comment is
+    // silently lost on re-init (codex audit #8). The probe key is removed
+    // immediately; quota exhaustion later still degrades via saveStore's
+    // single warning.
+    if (s) {
+      const probe = 'pinflow:probe';
+      s.setItem(probe, '1');
+      s.removeItem(probe);
+      return s;
+    }
   } catch {
-    /* storage blocked — fall through to the shim */
+    /* storage blocked or write-denied — fall through to the shim */
   }
   return memoryStorage();
 }

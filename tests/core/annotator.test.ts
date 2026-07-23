@@ -675,17 +675,31 @@ describe('Annotator source hydration (L2.1)', () => {
     expect(document.querySelector('[data-pinflow-root]')).toBeNull();
   });
 
-  it('a late resolution after refreshRoute() is dropped (generation guard)', async () => {
+  it('a late resolution SURVIVES refreshRoute() — SPA navigation must not drop the corpus (codex audit #3)', async () => {
     seedStore(makeComment('mine'));
     let resolve!: (v: Comment[]) => void;
     annotator = makeWithSource(() => new Promise<Comment[]>((r) => (resolve = r)));
 
-    annotator.refreshRoute();
+    annotator.refreshRoute(); // navigation mid-fetch
+    resolve([serverComment()]);
+    await flushMicrotasks();
+
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments.map((c) => c.id).sort()).toEqual(['c1', 'c_server'].sort());
+  });
+
+  it('a late resolution after destroy() is still dropped', async () => {
+    seedStore(makeComment('mine'));
+    let resolve!: (v: Comment[]) => void;
+    annotator = makeWithSource(() => new Promise<Comment[]>((r) => (resolve = r)));
+
+    annotator.destroy();
     resolve([serverComment()]);
     await flushMicrotasks();
 
     const store = loadStore(localStorage, PROJECT, REVIEWER);
     expect(store?.comments.map((c) => c.id)).toEqual(['c1']);
+    annotator = null;
   });
 
   it('a rejected source warns and leaves localStorage authoritative', async () => {
@@ -912,5 +926,71 @@ describe('pin accessibility (production audit)', () => {
     // a pointer takes. Assert the click path opens the editor.
     (pin as HTMLButtonElement).click();
     expect(shadow().querySelector('.input textarea')).not.toBeNull();
+  });
+});
+
+describe('source hydration boundary (codex audit #18)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('a synchronously-throwing source is contained after UI install', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    seedStore(makeComment('mine'));
+    annotator = new Annotator({
+      config: {
+        project: PROJECT,
+        source: () => {
+          throw new Error('sync boom');
+        },
+      },
+      reviewer: REVIEWER,
+      mode: 'reviewer',
+      storage: localStorage,
+    });
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(1); // UI intact
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('a non-array resolution is treated as empty, not a crash', async () => {
+    seedStore(makeComment('mine'));
+    annotator = new Annotator({
+      config: {
+        project: PROJECT,
+        source: () => Promise.resolve({ nope: true } as unknown as Comment[]),
+      },
+      reviewer: REVIEWER,
+      mode: 'reviewer',
+      storage: localStorage,
+    });
+    await flushMicrotasks();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('mine');
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(1);
+  });
+
+  it('malformed server entries are dropped by normalization before merge', async () => {
+    seedStore(makeComment('mine'));
+    annotator = new Annotator({
+      config: {
+        project: PROJECT,
+        source: () =>
+          Promise.resolve([
+            { id: 'bad', anchor: null } as unknown as Comment,
+            { ...makeComment('ok'), id: 'c_good' },
+          ]),
+      },
+      reviewer: REVIEWER,
+      mode: 'reviewer',
+      storage: localStorage,
+    });
+    await flushMicrotasks();
+    const ids = loadStore(localStorage, PROJECT, REVIEWER)?.comments.map((c) => c.id) ?? [];
+    expect(ids.sort()).toEqual(['c1', 'c_good'].sort());
   });
 });
