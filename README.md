@@ -10,8 +10,6 @@ Figma-style pin-and-comment annotation for any prototype — and the feedback li
 
 ---
 
-![Demo GIF placeholder — recording in progress](./docs/demo.gif)
-
 ## The lifecycle
 
 Pinflow covers the whole loop, not just the pin:
@@ -115,7 +113,7 @@ window.Pinflow.init({
 });
 ```
 
-See [`specs/pinflow_v1_spec.md`](./specs/pinflow_v1_spec.md) for the full API.
+The full, current API surface lives in [`docs/wiki/api.md`](./docs/wiki/api.md) (agent-maintained, drift-checked in CI); [`specs/pinflow_v1_spec.md`](./specs/pinflow_v1_spec.md) is the original v1 spec and predates voice, the lifecycle, and anytime export.
 
 ## Sync
 

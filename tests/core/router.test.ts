@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { routeOf, watchRoute } from '../../src/core/router';
+import { watchRoute } from '../../src/core/router';
+import { routeKey as routeOf } from '../../src/core/route-key';
 
 describe('router', () => {
   it('routeOf extracts pathname + search', () => {

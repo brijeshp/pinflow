@@ -74,7 +74,7 @@
     "wiki:check": "node scripts/wiki-check.mjs",
     "changeset": "changeset",
     "release": "pnpm build && changeset publish",
-    "prepublishOnly": "pnpm build && pnpm test && pnpm size"
+    "prepublishOnly": "pnpm build && pnpm test:coverage && pnpm size"
   },
   "peerDependencies": {
     "react": ">=18",
@@ -116,7 +116,7 @@
     {
       "name": "core (IIFE, gz)",
       "path": "dist/pinflow.iife.js",
-      "limit": "12.5 KB",
+      "limit": "13.45 KB",
       "gzip": true,
       "ignore": [
         "pinflow/voice"
@@ -125,7 +125,7 @@
     {
       "name": "core (ESM, gz)",
       "path": "dist/index.js",
-      "limit": "12.15 KB",
+      "limit": "13.1 KB",
       "gzip": true,
       "ignore": [
         "pinflow/voice"
@@ -134,13 +134,13 @@
     {
       "name": "voice (ESM, gz)",
       "path": "dist/voice.js",
-      "limit": "4.2 KB",
+      "limit": "4.45 KB",
       "gzip": true
     },
     {
       "name": "react wrapper (ESM, gz)",
       "path": "dist/react.js",
-      "limit": "0.4 KB",
+      "limit": "0.47 KB",
       "gzip": true,
       "ignore": [
         "pinflow",

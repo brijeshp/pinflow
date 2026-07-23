@@ -1,3 +1,5 @@
+import { routeKey } from './route-key';
+
 export interface RouteWatcher {
   stop(): void;
 }
@@ -6,11 +8,11 @@ export interface RouteWatcher {
 // restores the originals on `stop()`. `queueMicrotask` lets the nav
 // complete before we re-read `location`.
 export function watchRoute(onChange: (route: string) => void): RouteWatcher {
-  let route = routeOf();
+  let route = routeKey();
   let stopped = false;
   const emit = (): void => {
     if (stopped) return; // an orphaned wrapper (see stop) must never emit
-    const next = routeOf();
+    const next = routeKey();
     if (next !== route) {
       route = next;
       onChange(route);
@@ -46,13 +48,4 @@ export function watchRoute(onChange: (route: string) => void): RouteWatcher {
       window.removeEventListener('hashchange', emit);
     },
   };
-}
-
-export function routeOf(url: string = window.location.href): string {
-  try {
-    const u = new URL(url);
-    return u.pathname + u.search;
-  } catch {
-    return '/';
-  }
 }

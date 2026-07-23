@@ -18,3 +18,9 @@ describe('routeKey', () => {
     expect(routeKey('not a url')).toBe('/');
   });
 });
+
+it('#25: the public routeOf strips pinflow params exactly like the default routeKey', async () => {
+  const { routeOf } = await import('../../src/core/index');
+  expect(routeOf('https://x.test/a/b?reviewer=Sam&mode=builder&keep=1')).toBe('/a/b?keep=1');
+  expect(routeOf('https://x.test/a/b?reviewer=Sam')).toBe('/a/b');
+});

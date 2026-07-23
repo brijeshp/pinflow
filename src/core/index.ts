@@ -1,5 +1,6 @@
 import { modeFromUrl, resolveReviewer } from './identity';
-import { routeOf, watchRoute } from './router';
+import { watchRoute } from './router';
+import { routeKey as routeOf } from './route-key';
 import { acquireStorage } from './safe-storage';
 import type { Mode, PinflowConfig } from './types';
 import { Annotator } from './ui/annotator';
@@ -12,6 +13,7 @@ export type {
   Mode,
   Modality,
   PinflowConfig,
+  PinflowTheme,
   PositionPercent,
   ReviewerStore,
   SelectorCandidates,

@@ -675,17 +675,31 @@ describe('Annotator source hydration (L2.1)', () => {
     expect(document.querySelector('[data-pinflow-root]')).toBeNull();
   });
 
-  it('a late resolution after refreshRoute() is dropped (generation guard)', async () => {
+  it('a late resolution SURVIVES refreshRoute() — SPA navigation must not drop the corpus (codex audit #3)', async () => {
     seedStore(makeComment('mine'));
     let resolve!: (v: Comment[]) => void;
     annotator = makeWithSource(() => new Promise<Comment[]>((r) => (resolve = r)));
 
-    annotator.refreshRoute();
+    annotator.refreshRoute(); // navigation mid-fetch
+    resolve([serverComment()]);
+    await flushMicrotasks();
+
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments.map((c) => c.id).sort()).toEqual(['c1', 'c_server'].sort());
+  });
+
+  it('a late resolution after destroy() is still dropped', async () => {
+    seedStore(makeComment('mine'));
+    let resolve!: (v: Comment[]) => void;
+    annotator = makeWithSource(() => new Promise<Comment[]>((r) => (resolve = r)));
+
+    annotator.destroy();
     resolve([serverComment()]);
     await flushMicrotasks();
 
     const store = loadStore(localStorage, PROJECT, REVIEWER);
     expect(store?.comments.map((c) => c.id)).toEqual(['c1']);
+    annotator = null;
   });
 
   it('a rejected source warns and leaves localStorage authoritative', async () => {
@@ -889,4 +903,216 @@ describe('Annotator voice host generation guards (P0.6)', () => {
     // No editor may open — the recording's route is no longer on screen.
     expect(shadow().querySelector('.input')).toBeNull();
   });
+});
+
+describe('pin accessibility (production audit)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  it('pins are real buttons with accessible names — keyboard operable by construction', () => {
+    seedStore(makeComment('needs a11y'));
+    annotator = makeAnnotator();
+    const pin = shadow().querySelector('.pin');
+    expect(pin?.tagName).toBe('BUTTON');
+    expect((pin as HTMLButtonElement).type).toBe('button');
+    expect(pin?.getAttribute('aria-label')).toBeTruthy();
+    // Enter/Space on a button dispatch click natively; the same handler path
+    // a pointer takes. Assert the click path opens the editor.
+    (pin as HTMLButtonElement).click();
+    expect(shadow().querySelector('.input textarea')).not.toBeNull();
+  });
+});
+
+describe('source hydration boundary (codex audit #18)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('a synchronously-throwing source is contained after UI install', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    seedStore(makeComment('mine'));
+    annotator = new Annotator({
+      config: {
+        project: PROJECT,
+        source: () => {
+          throw new Error('sync boom');
+        },
+      },
+      reviewer: REVIEWER,
+      mode: 'reviewer',
+      storage: localStorage,
+    });
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(1); // UI intact
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('a non-array resolution is treated as empty, not a crash', async () => {
+    seedStore(makeComment('mine'));
+    annotator = new Annotator({
+      config: {
+        project: PROJECT,
+        source: () => Promise.resolve({ nope: true } as unknown as Comment[]),
+      },
+      reviewer: REVIEWER,
+      mode: 'reviewer',
+      storage: localStorage,
+    });
+    await flushMicrotasks();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('mine');
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(1);
+  });
+
+  it('malformed server entries are dropped by normalization before merge', async () => {
+    seedStore(makeComment('mine'));
+    annotator = new Annotator({
+      config: {
+        project: PROJECT,
+        source: () =>
+          Promise.resolve([
+            { id: 'bad', anchor: null } as unknown as Comment,
+            { ...makeComment('ok'), id: 'c_good' },
+          ]),
+      },
+      reviewer: REVIEWER,
+      mode: 'reviewer',
+      storage: localStorage,
+    });
+    await flushMicrotasks();
+    const ids = loadStore(localStorage, PROJECT, REVIEWER)?.comments.map((c) => c.id) ?? [];
+    expect(ids.sort()).toEqual(['c1', 'c_good'].sort());
+  });
+});
+
+describe('builder mode is functional (codex audit #14)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  function seedTwoReviewers(): void {
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, 'Alice'),
+      comments: [{ ...makeComment('from alice'), id: 'a1' }],
+    });
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, 'Bob'),
+      comments: [{ ...makeComment('from bob'), id: 'b1', status: 'done' as const }],
+    });
+  }
+
+  function makeBuilder(): Annotator {
+    return new Annotator({
+      config: { project: PROJECT },
+      reviewer: 'Builder',
+      mode: 'builder',
+      storage: localStorage,
+    });
+  }
+
+  it('reviewer checkboxes actually filter pins', () => {
+    seedTwoReviewers();
+    annotator = makeBuilder();
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(2);
+
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click(); // open drawer
+    const alice = shadow().querySelector<HTMLInputElement>('input[data-reviewer="Alice"]')!;
+    alice.checked = false;
+    alice.dispatchEvent(new Event('change'));
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(1);
+
+    alice.checked = true;
+    alice.dispatchEvent(new Event('change'));
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(2);
+  });
+
+  it('a builder pin opens a read-only view with attribution and disposition', () => {
+    seedTwoReviewers();
+    annotator = makeBuilder();
+    const pins = Array.from(shadow().querySelectorAll<HTMLButtonElement>('.pin'));
+    pins[0]!.click();
+    const ta = shadow().querySelector<HTMLTextAreaElement>('.input textarea');
+    expect(ta).not.toBeNull();
+    expect(ta!.readOnly).toBe(true);
+    const res = shadow().querySelector('.input .res')?.textContent ?? '';
+    expect(res === 'Alice' || res.startsWith('Bob')).toBe(true);
+    // Escape closes; nothing was mutated anywhere.
+    ta!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(shadow().querySelector('.input')).toBeNull();
+    expect(loadStore(localStorage, PROJECT, 'Alice')?.comments[0]?.text).toBe('from alice');
+    expect(loadStore(localStorage, PROJECT, 'Bob')?.comments[0]?.text).toBe('from bob');
+  });
+});
+
+describe('voice transcript survives destroy during in-flight stop (codex audit #5)', () => {
+  afterEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  it('a commit landing AFTER destroy() persists storage-only (no DOM, no loss)', async () => {
+    let capturedHost: VoiceHost | null = null;
+    const loadVoice = (): Promise<VoiceModule> =>
+      Promise.resolve({
+        start: (host: VoiceHost) => {
+          capturedHost = host;
+          return Promise.resolve({ stop: () => Promise.resolve(), dispose: () => {} });
+        },
+      });
+    const annotator = makeAnnotator({ voice: true, loadVoice });
+    (
+      annotator as unknown as { _placeCommentAt(x: number, y: number, t: Element): void }
+    )._placeCommentAt(10, 10, document.body);
+    await flushMicrotasks();
+    expect(capturedHost).not.toBeNull();
+
+    annotator.destroy(); // world torn down while the recording finalizes
+
+    capturedHost!.commit({ text: 'words that must survive', voice: { durationMs: 1200 } });
+    const stored = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(stored?.comments.some((c) => c.text === 'words that must survive')).toBe(true);
+    // And absolutely no DOM resurrection:
+    expect(document.querySelector('[data-pinflow-root]')).toBeNull();
+  });
+});
+
+it('#32 (r2): the voice DEGRADE path keeps the frozen fullUrl, not the navigated one', async () => {
+  let capturedHost: VoiceHost | null = null;
+  const loadVoice = (): Promise<VoiceModule> =>
+    Promise.resolve({
+      start: (host: VoiceHost) => {
+        capturedHost = host;
+        return Promise.resolve({ stop: () => Promise.resolve(), dispose: () => {} });
+      },
+    });
+  const annotator = makeAnnotator({ voice: true, loadVoice });
+  const frozenUrl = window.location.href;
+  (
+    annotator as unknown as { _placeCommentAt(x: number, y: number, t: Element): void }
+  )._placeCommentAt(10, 10, document.body);
+  await flushMicrotasks();
+  history.pushState({}, '', '/navigated-away');
+  capturedHost!.degradeToText();
+  const stored = loadStore(localStorage, PROJECT, REVIEWER);
+  const voiceComment = stored?.comments[stored.comments.length - 1];
+  expect(voiceComment?.fullUrl).toBe(frozenUrl);
+  history.pushState({}, '', frozenUrl);
+  annotator.destroy();
+  localStorage.clear();
+  document.body.innerHTML = '';
 });

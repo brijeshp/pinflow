@@ -4,15 +4,26 @@
 // ArrayBuffers — all off the main thread.
 // Exported for tests only — the test harness compiles this string with the
 // AudioWorklet globals stubbed (there is no worklet runtime in happy-dom).
+// Inside the template: stop/flush handshake ('flush' in → partial buffer +
+// 'flushed' out, codex #21) and average-over-REAL-samples decimation (the
+// fractional cadence lives in `phase` alone, so amplitude never dilutes).
+// Comments must stay OUT of the template — it ships verbatim in the bundle.
 export const WORKLET_SOURCE = `
 class PinflowPCM extends AudioWorkletProcessor {
   constructor() {
     super();
     this.ratio = sampleRate / 16000;
     this.acc = 0;
-    this.count = 0;
+    this.n = 0;
+    this.phase = 0;
     this.out = new Int16Array(2048);
     this.len = 0;
+    this.port.onmessage = (e) => {
+      if (e.data === 'flush') {
+        this.flush();
+        this.port.postMessage('flushed');
+      }
+    };
   }
   process(inputs) {
     const input = inputs[0];
@@ -20,13 +31,15 @@ class PinflowPCM extends AudioWorkletProcessor {
     const ch = input[0];
     for (let i = 0; i < ch.length; i++) {
       this.acc += ch[i];
-      this.count++;
-      if (this.count >= this.ratio) {
-        let s = this.acc / this.count;
+      this.n++;
+      this.phase++;
+      if (this.phase >= this.ratio) {
+        let s = this.acc / this.n;
         s = s < -1 ? -1 : s > 1 ? 1 : s;
         this.out[this.len++] = s < 0 ? s * 0x8000 : s * 0x7fff;
         this.acc = 0;
-        this.count -= this.ratio;
+        this.n = 0;
+        this.phase -= this.ratio;
         if (this.len >= this.out.length) this.flush();
       }
     }

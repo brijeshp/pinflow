@@ -10,6 +10,10 @@ Writes each comment as a page in a Notion database via a Vercel serverless funct
 4. Deploy to Vercel with these env vars:
    - `NOTION_API_KEY` — your integration token
    - `NOTION_DATABASE_ID` — the database ID from the URL
+   - `ALLOWED_ORIGIN` — the exact origin your page is served from (e.g.
+     `https://your-app.vercel.app`). The endpoint refuses other origins; this
+     limits drive-by abuse from arbitrary sites but is NOT authentication —
+     put the endpoint behind real auth for production use.
 
 ```bash
 vercel deploy

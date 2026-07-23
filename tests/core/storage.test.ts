@@ -395,3 +395,110 @@ describe('storage v2 migration & hardening', () => {
     warn.mockRestore();
   });
 });
+
+describe('production audit hardening', () => {
+  afterEach(() => localStorage.clear());
+
+  it('#19: colon-bearing names cannot alias another namespace', async () => {
+    const { saveStore, loadStore, emptyStore, listReviewers } =
+      await import('../../src/core/storage');
+    saveStore(localStorage, { ...emptyStore('a', 'b:c'), comments: [] });
+    // Same raw concatenation, different scope — must NOT read a:b/c.
+    expect(loadStore(localStorage, 'a:b', 'c')).toBeNull();
+    expect(loadStore(localStorage, 'a', 'b:c')).not.toBeNull();
+    expect(listReviewers(localStorage, 'a')).toEqual(['b:c']);
+    expect(listReviewers(localStorage, 'a:b')).toEqual([]);
+  });
+
+  it('#19: pre-encoding corpora (colon-bearing) are still readable via the legacy key', async () => {
+    const { loadStore } = await import('../../src/core/storage');
+    const legacy = {
+      schemaVersion: 3,
+      reviewer: 'b:c',
+      project: 'a',
+      createdAt: 'x',
+      comments: [],
+    };
+    localStorage.setItem('pinflow:c:a:b:c', JSON.stringify(legacy));
+    expect(loadStore(localStorage, 'a', 'b:c')?.reviewer).toBe('b:c');
+  });
+
+  it('#20: non-finite anchor numbers drop the record instead of exporting NaN%', async () => {
+    const { normalizeComments } = await import('../../src/core/storage');
+    const base = {
+      id: 'c1',
+      createdAt: 'x',
+      updatedAt: 'x',
+      route: '/',
+      fullUrl: 'u',
+      text: 't',
+      modality: 'text',
+    };
+    const anchor = (pos: unknown, vp: unknown) => ({
+      selectors: { testid: null, id: null, css: 'body', xpath: '/x' },
+      textFingerprint: '',
+      positionPercent: pos,
+      viewport: vp,
+    });
+    const good = { ...base, anchor: anchor({ x: 1, y: 2 }, { width: 3, height: 4 }) };
+    const nan = { ...base, id: 'c2', anchor: anchor({ x: NaN, y: 2 }, { width: 3, height: 4 }) };
+    const missing = { ...base, id: 'c3', anchor: anchor({ x: 1 }, { width: 3, height: 4 }) };
+    const stringy = {
+      ...base,
+      id: 'c4',
+      anchor: anchor({ x: '1', y: 2 }, { width: 3, height: 4 }),
+    };
+    expect(normalizeComments([good, nan, missing, stringy]).map((c) => c.id)).toEqual(['c1']);
+  });
+});
+
+it('#19 (r2): a legacy raw-key blob is rejected when its embedded scope mismatches', async () => {
+  const { loadStore } = await import('../../src/core/storage');
+  // Raw key "pinflow:c:a:b:c" is reachable as project "a", reviewer "b:c" —
+  // but the blob says it belongs to project "a:b", reviewer "c".
+  localStorage.setItem(
+    'pinflow:c:a:b:c',
+    JSON.stringify({
+      schemaVersion: 3,
+      reviewer: 'c',
+      project: 'a:b',
+      createdAt: 'x',
+      comments: [],
+    }),
+  );
+  expect(loadStore(localStorage, 'a', 'b:c')).toBeNull(); // scope mismatch → refused
+  expect(loadStore(localStorage, 'a:b', 'c')?.reviewer).toBe('c'); // true owner reads fine
+  localStorage.clear();
+});
+
+it('#20 (r3): context/fingerprint/voice shapes are validated at their REAL locations', async () => {
+  const { normalizeComments } = await import('../../src/core/storage');
+  const base = (id: string, anchorExtra: object, commentExtra: object = {}) => ({
+    id,
+    createdAt: 'x',
+    updatedAt: 'x',
+    route: '/',
+    fullUrl: 'u',
+    text: 't',
+    modality: 'text',
+    anchor: {
+      selectors: { testid: null, id: null, css: 'body', xpath: '/x' },
+      textFingerprint: '',
+      positionPercent: { x: 1, y: 2 },
+      viewport: { width: 3, height: 4 },
+      ...anchorExtra,
+    },
+    ...commentExtra,
+  });
+  const kept = normalizeComments([
+    base('ok', {}),
+    base('okctx', { context: { name: 'n', styles: { color: 'red' } } }),
+    base('badctx', { context: 'not-an-object' }),
+    base('badstyles', { context: { styles: { color: 42 } } }),
+    base('badfp', { textFingerprint: 42 }),
+    base('badvoice', {}, { voice: { durationMs: 'long' } }),
+    base('badconf', {}, { voice: { durationMs: 100, confidence: 7 } }),
+    base('okvoice', {}, { voice: { durationMs: 100, confidence: 0.5, interim: true } }),
+  ]).map((c) => c.id);
+  expect(kept.sort()).toEqual(['ok', 'okctx', 'okvoice'].sort());
+});

@@ -7,6 +7,26 @@ export interface ExportMeta {
   project: string;
 }
 
+// EVERY interpolated field is untrusted (localStorage, URL params, host
+// callbacks, source hydration) — not just comment text. A newline in a
+// reviewer name, route key, selector, or resolution note could fabricate
+// top-level markdown structure (fake headings, instructions) in an artifact
+// that gets pasted into coding agents. `inline()` collapses all newline forms
+// into a space; `code()` additionally keeps backtick-wrapped fields from
+// closing their own code span. (Codex audit #2 — never weaken.)
+function inline(v: unknown): string {
+  return String(v ?? '').replace(/[\r\n\u2028\u2029]+/g, ' ');
+}
+
+function code(v: unknown): string {
+  return inline(v).replace(/`/g, "'");
+}
+
+// Blockquote continuation must cover bare \r too.
+function quoted(text: string): string {
+  return `> ${text.replace(/\r\n|\r|\n/g, '\n> ')}`;
+}
+
 // Called per-comment to decide if the anchor still resolves. Comments for
 // which this returns true are pulled into the "Orphaned comments" section
 // (spec §5.2, §7.2).
@@ -18,27 +38,27 @@ export type DescribeRoute = (key: string) => string;
 function tagFromCss(css: string): string {
   const last = css.split('>').pop()?.trim() ?? '';
   const tag = last.split(/[.:#[]/)[0];
-  return tag || 'element';
+  return inline(tag) || 'element';
 }
 
 function elementLabel(comment: Comment): string {
   const { selectors, textFingerprint } = comment.anchor;
   const tag = tagFromCss(selectors.css);
   const attr = selectors.testid
-    ? ` data-testid="${selectors.testid}"`
+    ? ` data-testid="${code(selectors.testid)}"`
     : selectors.id
-      ? ` id="${selectors.id}"`
+      ? ` id="${code(selectors.id)}"`
       : '';
-  const text = textFingerprint ? ` ("${textFingerprint}")` : '';
+  const text = textFingerprint ? ` ("${inline(textFingerprint)}")` : '';
   return `\`<${tag}${attr}>\`${text}`;
 }
 
 function selectorLines(comment: Comment): string {
   const { selectors } = comment.anchor;
   return [
-    `- testid: ${selectors.testid ? `\`${selectors.testid}\`` : '(none)'}`,
-    `- css: \`${selectors.css}\``,
-    `- xpath: \`${selectors.xpath}\``,
+    `- testid: ${selectors.testid ? `\`${code(selectors.testid)}\`` : '(none)'}`,
+    `- css: \`${code(selectors.css)}\``,
+    `- xpath: \`${code(selectors.xpath)}\``,
   ].join('\n');
 }
 
@@ -54,7 +74,7 @@ function viewportLabel(comment: Comment): string {
 function commentHeading(comment: Comment, index: number, reviewer?: string): string {
   const s = comment.status;
   const disp = s === 'done' || s === 'declined' ? ` — ${s}` : '';
-  return `### [${comment.id}] Comment ${index} — ${reviewer ? `${reviewer}, ` : ''}${comment.createdAt}${disp}`;
+  return `### [${inline(comment.id)}] Comment ${index} — ${reviewer ? `${inline(reviewer)}, ` : ''}${inline(comment.createdAt)}${disp}`;
 }
 
 // "the ‘Continue’ button under ‘Next section’" — the human twin of the CSS
@@ -62,8 +82,8 @@ function commentHeading(comment: Comment, index: number, reviewer?: string): str
 function contextLine(comment: Comment): string {
   const ctx = comment.anchor.context;
   if (!ctx) return '';
-  return `**Context:** the ${ctx.name ? `‘${ctx.name}’ ` : ''}${ctx.role ?? 'element'}${
-    ctx.heading ? ` under ‘${ctx.heading}’` : ''
+  return `**Context:** the ${ctx.name ? `‘${inline(ctx.name)}’ ` : ''}${inline(ctx.role ?? 'element')}${
+    ctx.heading ? ` under ‘${inline(ctx.heading)}’` : ''
   }`;
 }
 
@@ -75,15 +95,15 @@ function visualLines(comment: Comment): string[] {
   if (!ctx) return [];
   const s = ctx.styles;
   const parts: string[] = [];
-  if (s?.background) parts.push(`background ${s.background}`);
-  if (s?.color) parts.push(`text ${s.color}`);
+  if (s?.background) parts.push(`background ${inline(s.background)}`);
+  if (s?.color) parts.push(`text ${inline(s.color)}`);
   if (s?.fontSize || s?.fontFamily)
-    parts.push(`font ${[s.fontSize, s.fontFamily].filter(Boolean).join(' ')}`);
-  if (s?.radius) parts.push(`radius ${s.radius}`);
-  if (s?.backgroundImage) parts.push(`bg-image ${s.backgroundImage}`);
+    parts.push(`font ${inline([s.fontSize, s.fontFamily].filter(Boolean).join(' '))}`);
+  if (s?.radius) parts.push(`radius ${inline(s.radius)}`);
+  if (s?.backgroundImage) parts.push(`bg-image ${inline(s.backgroundImage)}`);
   const lines: string[] = [];
   if (parts.length) lines.push(`**Computed:** ${parts.join(', ')}`);
-  if (ctx.src) lines.push(`**Image:** ${ctx.src}`);
+  if (ctx.src) lines.push(`**Image:** ${inline(ctx.src)}`);
   return lines;
 }
 
@@ -102,9 +122,9 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
     `**Viewport at time of comment:** ${viewportLabel(comment)}`,
     // The team's "why" — the disposition heading suffix says WHAT happened,
     // this line says the reason. Together they close the loop in the artifact.
-    ...(comment.resolution ? [`**Resolution:** ${comment.resolution}`] : []),
+    ...(comment.resolution ? [`**Resolution:** ${inline(comment.resolution)}`] : []),
     '',
-    `> ${comment.text.replace(/\r?\n/g, '\n> ')}`,
+    quoted(comment.text),
   ].join('\n');
 }
 
@@ -118,10 +138,10 @@ function orphanBlock(comment: Comment & { reviewer?: string }, index: number): s
     `**Last known element:** ${elementLabel(comment)}`,
     ...(ctx ? [ctx] : []),
     ...visualLines(comment),
-    `**Last known selector:** \`${comment.anchor.selectors.css}\``,
-    `**Route:** ${comment.route}`,
+    `**Last known selector:** \`${code(comment.anchor.selectors.css)}\``,
+    `**Route:** ${inline(comment.route)}`,
     '',
-    `> ${comment.text.replace(/\r?\n/g, '\n> ')}`,
+    quoted(comment.text),
   ].join('\n');
 }
 
@@ -145,7 +165,7 @@ function groupByRoute(comments: Array<Comment & { reviewer?: string }>): RouteGr
 function routesCovered(groups: RouteGroup[]): string {
   if (groups.length === 0) return '(none)';
   return groups
-    .map((g) => g.route)
+    .map((g) => inline(g.route))
     .sort()
     .join(', ');
 }
@@ -185,7 +205,9 @@ function bodyFromGroups(
       // `## <label>` with the stable key in backticks beneath when the host
       // labels this key; the plain v1 heading otherwise.
       const label = describeRoute?.(g.route);
-      const heading = label ? `## ${label}\n\`${g.route}\`` : `## Route: ${g.route}`;
+      const heading = label
+        ? `## ${inline(label)}\n\`${code(g.route)}\``
+        : `## Route: ${inline(g.route)}`;
       return [heading, '', blocks.join('\n\n---\n\n')].join('\n');
     })
     .join('\n\n---\n\n');
@@ -200,10 +222,10 @@ export function exportReviewer(
   const { live, orphaned } = partitionOrphans(store.comments, isOrphaned);
   const groups = groupByRoute(live);
   const header = [
-    `# Feedback for ${meta.project} — from ${store.reviewer}`,
+    `# Feedback for ${inline(meta.project)} — from ${inline(store.reviewer)}`,
     '',
-    `Generated: ${meta.generatedAt}`,
-    `Reviewer: ${store.reviewer}`,
+    `Generated: ${inline(meta.generatedAt)}`,
+    `Reviewer: ${inline(store.reviewer)}`,
     `Total comments: ${store.comments.length}`,
     `Routes covered: ${routesCovered(groups)}`,
     '',
@@ -223,9 +245,11 @@ function summarize(
 ): string {
   const total = groups.reduce((sum, g) => sum + g.comments.length, 0);
   const byReviewerLines = reviewers
-    .map((r) => `- ${r} — ${byReviewer.get(r) ?? 0} comments`)
+    .map((r) => `- ${inline(r)} — ${byReviewer.get(r) ?? 0} comments`)
     .join('\n');
-  const byRouteLines = groups.map((g) => `- ${g.route} — ${g.comments.length} comments`).join('\n');
+  const byRouteLines = groups
+    .map((g) => `- ${inline(g.route)} — ${g.comments.length} comments`)
+    .join('\n');
   return [
     '## Summary',
     '',
@@ -256,10 +280,10 @@ export function exportBuilder(
   const groups = groupByRoute(live);
 
   const header = [
-    `# Feedback for ${meta.project}`,
+    `# Feedback for ${inline(meta.project)}`,
     '',
-    `Generated: ${meta.generatedAt}`,
-    `Reviewers: ${reviewers.join(', ')} (${reviewers.length} total, ${allComments.length} comments)`,
+    `Generated: ${inline(meta.generatedAt)}`,
+    `Reviewers: ${reviewers.map(inline).join(', ')} (${reviewers.length} total, ${allComments.length} comments)`,
     `Routes covered: ${routesCovered(groups)}`,
     '',
     '---',

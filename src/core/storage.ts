@@ -13,7 +13,16 @@ interface PersistedStore extends ReviewerStore {
   schemaVersion: number;
 }
 
+// Components are URI-encoded so a ':' inside a project or reviewer name can't
+// alias another namespace (codex audit #19: project "a" + reviewer "b:c" must
+// never equal project "a:b" + reviewer "c"). Colon-free values — every real
+// deployment observed — encode to themselves, so existing keys are unchanged.
 export function storageKey(project: string, reviewer: string): string {
+  return `${KEY_PREFIX}${encodeURIComponent(project)}:${encodeURIComponent(reviewer)}`;
+}
+
+/** Pre-encoding key shape; read-side fallback only, never written. */
+function legacyStorageKey(project: string, reviewer: string): string {
   return `${KEY_PREFIX}${project}:${reviewer}`;
 }
 
@@ -40,15 +49,71 @@ function isPersistedStore(v: unknown): v is {
 // The anchor sub-shape export/render dereference without guards: selectors
 // (with a string `css`), positionPercent, and viewport must all be objects or
 // the record is dropped rather than admitted to crash export later.
+function finite(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v);
+}
+
+function optStr(v: unknown): boolean {
+  return v === null || v === undefined || typeof v === 'string';
+}
+
+function validContext(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!isObject(v)) return false;
+  if (!optStr(v['name']) || !optStr(v['role']) || !optStr(v['heading']) || !optStr(v['src']))
+    return false;
+  const styles = v['styles'];
+  if (styles === undefined) return true;
+  return isObject(styles) && Object.values(styles).every((s) => typeof s === 'string');
+}
+
+function validVoice(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!isObject(v)) return false;
+  const conf = v['confidence'];
+  return (
+    finite(v['durationMs']) &&
+    v['durationMs'] >= 0 &&
+    (conf === undefined || (finite(conf) && conf >= 0 && conf <= 1)) &&
+    (v['interim'] === undefined || typeof v['interim'] === 'boolean') &&
+    (v['edited'] === undefined || typeof v['edited'] === 'boolean') &&
+    optStr(v['engine'])
+  );
+}
+
 function hasValidAnchor(c: Record<string, unknown>): boolean {
   const anchor = c['anchor'];
   if (!isObject(anchor)) return false;
   const selectors = anchor['selectors'];
+  const pos = anchor['positionPercent'];
+  const vp = anchor['viewport'];
+  // Numeric leaves are dereferenced unguarded downstream (Math.round on
+  // export, pixel math on render) — NaN/absent must drop the record, not
+  // produce "NaN%" artifacts (codex audit #20).
   return (
     isObject(selectors) &&
     typeof selectors['css'] === 'string' &&
-    isObject(anchor['positionPercent']) &&
-    isObject(anchor['viewport'])
+    optStr(selectors['testid']) &&
+    optStr(selectors['id']) &&
+    typeof selectors['xpath'] === 'string' &&
+    isObject(pos) &&
+    finite(pos['x']) &&
+    finite(pos['y']) &&
+    pos['x'] >= 0 &&
+    pos['x'] <= 100 &&
+    pos['y'] >= 0 &&
+    pos['y'] <= 100 &&
+    isObject(vp) &&
+    finite(vp['width']) &&
+    finite(vp['height']) &&
+    vp['width'] > 0 &&
+    vp['height'] > 0 &&
+    // Optional shapes at their REAL locations (codex r3: context lives on
+    // the anchor, not the comment): reject records whose context, fingerprint,
+    // or voice metadata would corrupt export or render.
+    optStr(anchor['textFingerprint']) &&
+    validContext(anchor['context']) &&
+    validVoice(c['voice'])
   );
 }
 
@@ -56,7 +121,9 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
 // string fields downstream code dereferences unguarded, and guarantee every
 // survivor carries a `modality` (v1 stores predate the field). v3 disposition
 // fields are optional: an invalid status/resolution is stripped, not fatal.
-function normalizeComments(input: unknown): Comment[] {
+// Exported for the source-hydration boundary: host-supplied payloads get the
+// exact same distrust as localStorage blobs (codex audit #18).
+export function normalizeComments(input: unknown): Comment[] {
   if (!Array.isArray(input)) return [];
   return input
     .filter(
@@ -99,7 +166,13 @@ export function loadStore(
   project: string,
   reviewer: string,
 ): ReviewerStore | null {
-  const raw = storage.getItem(storageKey(project, reviewer));
+  let raw = storage.getItem(storageKey(project, reviewer));
+  let legacy = false;
+  if (!raw) {
+    // Corpora written before component encoding (colon-bearing names only).
+    raw = storage.getItem(legacyStorageKey(project, reviewer));
+    legacy = raw !== null;
+  }
   if (!raw) return null;
   let parsed: unknown;
   try {
@@ -107,7 +180,11 @@ export function loadStore(
   } catch {
     return null; // corrupt blob — discard
   }
-  return migrate(parsed);
+  const store = migrate(parsed);
+  // A legacy raw key is ambiguous ("a:b:c" parses two ways) — trust it only
+  // when the blob's OWN embedded scope matches the request (codex audit #19).
+  if (legacy && store && (store.project !== project || store.reviewer !== reviewer)) return null;
+  return store;
 }
 
 // Persistence failing (quota, private mode) is worth exactly one signal per
@@ -128,12 +205,16 @@ export function saveStore(storage: Storage, store: ReviewerStore): void {
 }
 
 export function listReviewers(storage: Storage, project: string): string[] {
-  const prefix = `${KEY_PREFIX}${project}:`;
+  const prefix = `${KEY_PREFIX}${encodeURIComponent(project)}:`;
   const out: string[] = [];
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
     if (key && key.startsWith(prefix)) {
-      out.push(key.slice(prefix.length));
+      try {
+        out.push(decodeURIComponent(key.slice(prefix.length)));
+      } catch {
+        /* foreign malformed key — skip */
+      }
     }
   }
   return out.sort();

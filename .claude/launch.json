@@ -13,6 +13,20 @@
       "port": 3000
     },
     {
+      "name": "refinement-frontend",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/brijeshpatel/Apps/ShareVoice-worktrees/reflection-refinement/sensavera-frontend",
+        "run",
+        "dev",
+        "--",
+        "--port",
+        "3111"
+      ],
+      "port": 3111
+    },
+    {
       "name": "pinflow-demo-preview",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "demo", "preview"],

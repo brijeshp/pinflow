@@ -10,6 +10,13 @@ const VOICE_SYMBOLS = /getUserMedia|AudioContext|AudioWorklet|registerProcessor|
 describe('bundle isolation', () => {
   const built = CORE_BUNDLES.filter((f) => existsSync(f));
 
+  it.runIf(Boolean(process.env['CI']))(
+    'CI must run against a build — a skip here is a broken pipeline (codex #12)',
+    () => {
+      expect(built, 'dist/ missing in CI: build before testing').toEqual(CORE_BUNDLES);
+    },
+  );
+
   it.runIf(built.length > 0)('keeps voice code out of the core bundles', () => {
     for (const file of built) {
       const contents = readFileSync(file, 'utf8');

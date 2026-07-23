@@ -13,6 +13,13 @@ export interface Logger {
  * the store or the `Annotator` instance directly — it talks back through here.
  */
 export interface VoiceHost {
+  /**
+   * Aborted when the annotator tears down or navigates while startup is still
+   * in flight (token mint, socket open, mic permission). Startup checks it at
+   * every side-effect boundary so a torn-down world never gains a socket or a
+   * mic prompt's stream (codex audit #4).
+   */
+  signal?: AbortSignal;
   readonly config: Readonly<VoiceConfig>;
   /** A host-owned node inside the shadow root, positioned next to the dot. */
   readonly mount: HTMLElement;

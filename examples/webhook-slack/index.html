@@ -40,13 +40,18 @@
     <h1>Slack Webhook Example</h1>
     <p>
       Comments are sent to a Slack channel via incoming webhook when the reviewer taps "Send to
-      builder". Replace <code>SLACK_WEBHOOK_URL</code> below.
+      builder". The webhook URL lives in <code>server.example.mjs</code>, never in this page.
     </p>
     <button data-testid="cta">Click me to test annotation</button>
 
-    <script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="slack-demo"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pinflow@latest"></script>
     <script>
-      const SLACK_WEBHOOK_URL = 'https://hooks.slack.com/services/YOUR/WEBHOOK/URL';
+      // SECURITY: a Slack webhook URL is a REUSABLE CREDENTIAL. Never ship it
+      // in browser-delivered HTML — anyone who views source can spam your
+      // channel forever. Post to YOUR OWN endpoint instead and keep the
+      // webhook URL server-side (see server.example.mjs next to this file,
+      // which also authenticates and rate-limits the endpoint).
+      const FEEDBACK_ENDPOINT = '/api/feedback';
 
       window.Pinflow.init({
         project: 'slack-demo',
@@ -58,19 +63,11 @@
               text: `*${c.anchor.textFingerprint || 'element'}* (${c.route})\n> ${c.text}`,
             },
           }));
-          await fetch(SLACK_WEBHOOK_URL, {
+          await fetch(FEEDBACK_ENDPOINT, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              text: `Pinflow feedback from ${payload.reviewer}`,
-              blocks: [
-                {
-                  type: 'header',
-                  text: { type: 'plain_text', text: `Feedback from ${payload.reviewer}` },
-                },
-                ...blocks,
-              ],
-            }),
+            headers: { 'Content-Type': 'application/json', 'x-feedback-token': 'CHANGE-ME' },
+            // The server owns the Slack webhook URL and forwards these blocks.
+            body: JSON.stringify({ reviewer: payload.reviewer, blocks }),
           });
         },
       });

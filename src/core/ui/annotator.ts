@@ -16,6 +16,7 @@ import {
   loadAllStores,
   loadStore,
   mergeComments,
+  normalizeComments,
   saveStore,
   upsertComment,
 } from '../storage';
@@ -60,6 +61,8 @@ interface AnnotatorDeps {
 interface ActiveVoice {
   mount: HTMLDivElement;
   session: VoiceSession | null;
+  /** Aborts in-flight startup (token/socket/mic) on teardown — codex #4. */
+  abort: AbortController;
 }
 
 interface ActiveInput {
@@ -83,7 +86,7 @@ export class Annotator {
   private _reviewer: string | null;
   private _store: ReviewerStore;
   private _annotating = false;
-  private _pins = new Map<string, HTMLDivElement>();
+  private _pins = new Map<string, HTMLButtonElement>();
   // Reflow-path caches (P2.1/P2.2): repositioning runs at up to 60fps, so it
   // must never re-scan localStorage or re-run the selector ladder per frame.
   // Both are dropped whenever data or route changes (persist / renderPins).
@@ -103,6 +106,9 @@ export class Annotator {
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
   private _prevBodyCursor = '';
   private _reflowFrame = 0;
+  private _orphanRetryAt = 0;
+  // Builder-mode reviewer filter: unchecked reviewers' pins hide (codex #14).
+  private readonly _builderHidden = new Set<string>();
   private _gesture: GestureController | null = null;
   // Bumped on every teardown (destroy/route change) so in-flight async voice
   // work resolving into a stale world can detect it and self-cancel.
@@ -134,7 +140,10 @@ export class Annotator {
     this._startGesture();
     this._hydrateFromSource();
     window.addEventListener('resize', this._onReflow);
-    window.addEventListener('scroll', this._onReflow, { passive: true });
+    // Capture phase: scroll events on nested overflow containers do NOT
+    // bubble, but they DO capture through document — without this, pins over
+    // inner scrollareas keep stale fixed coordinates (codex audit #6).
+    document.addEventListener('scroll', this._onReflow, { passive: true, capture: true });
     // Desktop accelerator for the export sheet. A chord, so it can never
     // collide with typing in host inputs; gated at registration (config is
     // immutable per instance).
@@ -167,10 +176,26 @@ export class Annotator {
   private _hydrateFromSource(): void {
     const source = this._deps.config.source;
     if (!source || this._deps.mode !== 'reviewer' || this._reviewer === null) return;
-    const myGen = this._generation;
-    void source().then(
-      (server) => {
-        if (this._destroyed || myGen !== this._generation) return;
+    // Guarded by destruction and IDENTITY, not the route generation: a SPA
+    // navigating during a slow fetch must still receive its server comments
+    // (codex audit #3). Route changes only re-render; they don't invalidate
+    // the corpus the fetch belongs to.
+    const forReviewer = this._reviewer;
+    // The host callback is called synchronously (tests and hosts may hand
+    // out the resolver immediately) but a synchronous THROW is contained the
+    // same as a rejection, and the payload is normalized like any untrusted
+    // blob — a non-array or malformed entries never reach merge (codex #18).
+    let fetched: Promise<unknown>;
+    try {
+      fetched = Promise.resolve(source());
+    } catch (err) {
+      this._voiceLogger.warn('source hydration failed — using local store', err);
+      return;
+    }
+    void fetched.then(
+      (raw) => {
+        if (this._destroyed || this._reviewer !== forReviewer) return;
+        const server = normalizeComments(raw);
         // Two repair cases (codex r16): an id the server LACKS re-announces
         // as 'add'; an id the server has but with an older updatedAt (a lost
         // update — the merge keeps the local content) re-announces as
@@ -199,7 +224,7 @@ export class Annotator {
   destroy(): void {
     this._generation += 1;
     window.removeEventListener('resize', this._onReflow);
-    window.removeEventListener('scroll', this._onReflow);
+    document.removeEventListener('scroll', this._onReflow, { capture: true });
     document.removeEventListener('keydown', this._onExportHotkey, true);
     this._gesture?.stop();
     // dispose() may synchronously best-effort persist an in-flight transcript,
@@ -219,6 +244,7 @@ export class Annotator {
     const v = this._activeVoice;
     if (!v) return;
     this._activeVoice = null;
+    v.abort.abort(); // startup still in flight must not gain a socket or mic
     v.session?.dispose();
     v.mount.remove();
   }
@@ -247,6 +273,9 @@ export class Annotator {
     const v = this._activeVoice;
     if (v) {
       this._activeVoice = null;
+      // A session already RECORDING finalizes normally; startup still in
+      // flight aborts (no session yet to stop) — codex #4.
+      if (!v.session) v.abort.abort();
       const mount = v.mount;
       void Promise.resolve(v.session?.stop()).finally(() => mount.remove());
     }
@@ -294,7 +323,11 @@ export class Annotator {
     const cb = this._deps.config.onChange;
     if (!cb || this._destroyed) return;
     try {
-      cb(this._store, { type, comment });
+      // Promise-wrap so a rejected ASYNC handler is contained exactly like a
+      // synchronous throw (codex audit #10) — the documented guarantee.
+      void Promise.resolve(cb(this._store, { type, comment })).catch((err) =>
+        this._voiceLogger.warn('onChange handler threw', err),
+      );
     } catch (err) {
       this._voiceLogger.warn('onChange handler threw', err);
     }
@@ -498,6 +531,12 @@ export class Annotator {
         cb.type = 'checkbox';
         cb.checked = true;
         cb.dataset['reviewer'] = s.reviewer;
+        cb.checked = !this._builderHidden.has(s.reviewer);
+        cb.addEventListener('change', () => {
+          if (cb.checked) this._builderHidden.delete(s.reviewer);
+          else this._builderHidden.add(s.reviewer);
+          this._renderPins();
+        });
         label.appendChild(cb);
         label.appendChild(document.createTextNode(` ${s.reviewer} (${s.comments.length})`));
         drawer.appendChild(label);
@@ -609,13 +648,15 @@ export class Annotator {
     this._commitTextComment(anchor, '', true);
   }
 
-  // `route` defaults to the current route; the voice degrade path passes the
-  // FROZEN route captured at dot creation (voice-contract.ts frozen-route rule).
+  // `route`/`fullUrl` default to the current location; the voice degrade path
+  // passes BOTH frozen at dot creation — they describe one moment and must
+  // never split across a navigation (codex audit #32).
   private _commitTextComment(
     anchor: Anchor,
     text: string,
     openForEdit: boolean,
     route?: string,
+    fullUrl?: string,
   ): void {
     const t = now();
     const comment: Comment = {
@@ -623,7 +664,7 @@ export class Annotator {
       createdAt: t,
       updatedAt: t,
       route: route ?? this._routeKey(),
-      fullUrl: window.location.href,
+      fullUrl: fullUrl ?? window.location.href,
       text,
       modality: 'text',
       anchor,
@@ -655,11 +696,13 @@ export class Annotator {
     );
     this._ui.root.appendChild(mount);
 
-    const active: ActiveVoice = { mount, session: null };
+    const active: ActiveVoice = { mount, session: null, abort: new AbortController() };
     this._activeVoice = active;
     const myGen = this._generation;
     const route = this._routeKey();
-    const host = this._buildVoiceHost(mount, anchor, route, active, myGen);
+    // fullUrl freezes WITH the route (codex audit #32): both describe where
+    // the recording began, and navigation mid-finalize must not split them.
+    const host = this._buildVoiceHost(mount, anchor, route, window.location.href, active, myGen);
 
     this._loadVoiceModule()
       .then((mod) => {
@@ -686,6 +729,7 @@ export class Annotator {
     mount: HTMLDivElement,
     anchor: Anchor,
     route: string,
+    fullUrl: string,
     active: ActiveVoice,
     gen: number,
   ): VoiceHost {
@@ -697,7 +741,7 @@ export class Annotator {
         createdAt: t,
         updatedAt: t,
         route,
-        fullUrl: window.location.href,
+        fullUrl,
         text,
         modality: 'voice',
         voice,
@@ -714,11 +758,35 @@ export class Annotator {
       mount,
       anchor,
       route,
-      // destroy() guards: after teardown the world is gone — a late callback
-      // must not write to storage or touch the DOM. (A same-tick commit during
-      // destroy()'s own dispose() is still allowed — see destroy().)
+      // destroy() guards: after teardown a late callback must not touch the
+      // DOM or instance state — but a transcript that finished finalizing
+      // AFTER destroy() (stop() was in flight when the host tore down) is
+      // still the reviewer's words: persist it STORAGE-ONLY so it is not
+      // lost (codex audit #5). Reads the stored corpus fresh because
+      // `this._store` is part of the dead world.
       commit: ({ text, voice }) => {
-        if (this._destroyed) return;
+        if (this._destroyed) {
+          if (text.trim().length === 0 || this._reviewer === null) return;
+          const t = now();
+          const stored =
+            loadStore(this._deps.storage, this._deps.config.project, this._reviewer) ??
+            emptyStore(this._deps.config.project, this._reviewer);
+          saveStore(
+            this._deps.storage,
+            upsertComment(stored, {
+              id: createId(),
+              createdAt: t,
+              updatedAt: t,
+              route,
+              fullUrl,
+              text,
+              modality: 'voice',
+              voice,
+              anchor,
+            }),
+          );
+          return;
+        }
         commitVoice(text, voice);
       },
       discard: () => {
@@ -736,9 +804,10 @@ export class Annotator {
         const live = gen === this._generation;
         const text = prefill ?? '';
         if (!live && text.length === 0) return;
-        this._commitTextComment(anchor, text, live, route);
+        this._commitTextComment(anchor, text, live, route, fullUrl);
       },
       logger: this._voiceLogger,
+      signal: active.abort.signal,
     };
   }
 
@@ -749,11 +818,13 @@ export class Annotator {
     const route = this._routeKey();
     this._visibleCache =
       this._deps.mode === 'builder'
-        ? this._allStores().flatMap((s) =>
-            s.comments
-              .filter((c) => c.route === route)
-              .map((c) => ({ ...c, reviewer: s.reviewer })),
-          )
+        ? this._allStores()
+            .filter((s) => !this._builderHidden.has(s.reviewer))
+            .flatMap((s) =>
+              s.comments
+                .filter((c) => c.route === route)
+                .map((c) => ({ ...c, reviewer: s.reviewer })),
+            )
         : this._store.comments.filter((c) => c.route === route);
     return this._visibleCache;
   }
@@ -770,7 +841,10 @@ export class Annotator {
     comments.forEach((c, i) => {
       const target = resolveAnchor(c.anchor);
       this._anchorCache.set(c.id, target);
-      const pin = el('div', 'pin', String(i + 1));
+      // A real <button>: keyboard operability (Enter/Space) and focusability
+      // come from the platform, not from re-implemented key handlers.
+      const pin = el('button', 'pin', String(i + 1));
+      pin.type = 'button';
       if (!target) pin.dataset['orphaned'] = 'true';
       // L2.3: dispositioned pins render muted (styles.ts); done swaps the
       // number for a ✓, with the index preserved in the title.
@@ -782,9 +856,13 @@ export class Annotator {
         }
       }
       if (c.reviewer) pin.title = c.reviewer;
+      pin.setAttribute('aria-label', pin.title || `Comment ${i + 1}`);
       pin.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (this._deps.mode === 'builder') return;
+        if (this._deps.mode === 'builder') {
+          this._openBuilderView(c);
+          return;
+        }
         this._openInput(c.id);
       });
       this._placePin(pin, c, target);
@@ -794,7 +872,7 @@ export class Annotator {
     if (this._controlEl) this._controlEl.textContent = this._controlLabel();
   }
 
-  private _placePin(pin: HTMLDivElement, comment: Comment, target: Element | null): void {
+  private _placePin(pin: HTMLButtonElement, comment: Comment, target: Element | null): void {
     if (!target) {
       // Orphaned pin: park at last-known percentage within the viewport.
       const { positionPercent: p } = comment.anchor;
@@ -807,16 +885,31 @@ export class Annotator {
   // Cheap path used on scroll/resize: just reposition existing pins, skipping
   // the querySelector + element-create cost of a full renderPins().
   private _repositionPins(): void {
+    // Orphan recovery is bounded, not per-frame: an anchor that mounted AFTER
+    // the initial render (async host content) re-runs the ladder at most every
+    // 500ms during reflow, so scrolling stays cheap while orphans can heal
+    // (codex audit #22).
+    const t = performance.now();
+    const retryOrphans = t - this._orphanRetryAt > 500;
+    if (retryOrphans) this._orphanRetryAt = t;
     const byId = new Map(this._visibleComments().map((c) => [c.id, c]));
     for (const [id, pin] of this._pins) {
       const c = byId.get(id);
-      if (c) this._placePin(pin, c, this._cachedAnchor(c));
+      if (!c) continue;
+      let target = this._cachedAnchor(c);
+      if (target === null && retryOrphans) {
+        target = resolveAnchor(c.anchor);
+        this._anchorCache.set(c.id, target);
+        if (target) delete pin.dataset['orphaned'];
+      }
+      this._placePin(pin, c, target);
     }
   }
 
   // Reflow path never re-runs the full selector ladder. A cached element that
   // left the DOM (host re-render) is re-resolved once and re-cached; an
-  // orphaned (null) entry stays parked — its position can't change per frame.
+  // orphaned (null) entry stays parked between bounded retries (see
+  // _repositionPins) — its position can't change per frame.
   private _cachedAnchor(c: Comment): Element | null {
     const hit = this._anchorCache.get(c.id);
     if (hit === null || (hit !== undefined && hit.isConnected)) return hit;
@@ -854,6 +947,13 @@ export class Annotator {
     const save = (): void => {
       if (this._destroyed || frozen) return;
       const persisted = this._store.comments.find((c) => c.id === commentId);
+      // Hydration can disposition this very comment while the editor is open;
+      // a resolved record is the team's, so the stale edit is discarded
+      // (codex audit #7).
+      if (persisted && isResolved(persisted)) {
+        this._closeActiveInput(false);
+        return;
+      }
       if (persisted && ta.value !== persisted.text) {
         // Hand-correcting a voice transcript flags the meta as edited (immutably).
         const voicePatch = persisted.voice ? { voice: { ...persisted.voice, edited: true } } : {};
@@ -919,6 +1019,41 @@ export class Annotator {
       commentId,
       cleanup: disarm,
       save: () => (frozen ? this._closeActiveInput() : save()),
+    };
+  }
+
+  // Builder pins open a READ-ONLY view (codex #14): the aggregate is the
+  // team's record, so text is selectable/copyable but never editable here,
+  // with the reviewer attribution and any disposition beneath. Same dismiss
+  // semantics as every other surface.
+  private _openBuilderView(c: Comment & { reviewer?: string }): void {
+    this._closeActiveInput(false);
+    const wrap = el('div', 'input');
+    const ta = el('textarea');
+    ta.value = c.text;
+    ta.readOnly = true;
+    ta.rows = 3;
+    wrap.appendChild(ta);
+    const mark = c.status === 'done' ? ' · ✓ Done' : c.status === 'declined' ? ' · ✕ Declined' : '';
+    wrap.appendChild(el('div', 'res', `${c.reviewer ?? 'Reviewer'}${mark}`));
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        this._closeActiveInput(false);
+      }
+    };
+    ta.addEventListener('keydown', onKey);
+    this._ui.root.appendChild(wrap);
+    this._positionInputNearPin(wrap, c.id);
+    const disarm = this._armOutsideDismiss(
+      () => [wrap, this._chipEl],
+      () => this._closeActiveInput(false),
+    );
+    this._activeInput = {
+      wrap,
+      commentId: c.id,
+      cleanup: disarm,
+      save: () => this._closeActiveInput(false),
     };
   }
 
@@ -1068,7 +1203,12 @@ export class Annotator {
   private async _handleReviewerExport(): Promise<void> {
     const [md, filename] = this._buildArtifact();
     download(md, filename);
+    const startedFrom = this._panelEl;
     const copied = await copyToClipboard(md);
+    // A slow clipboard must not resurrect stale UI (codex audit #23): the
+    // confirmation appears only if the EXACT surface that launched the export
+    // is still open — a closed or replaced panel invalidates it entirely.
+    if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
     this._showConfirmation(copied);
   }
 
@@ -1114,6 +1254,10 @@ export class Annotator {
 
   private async _handleOnSubmit(): Promise<void> {
     if (!this._deps.config.onSubmit) return;
-    await this._deps.config.onSubmit(this._store);
+    try {
+      await this._deps.config.onSubmit(this._store);
+    } catch (err) {
+      this._voiceLogger.warn('onSubmit handler threw', err);
+    }
   }
 }

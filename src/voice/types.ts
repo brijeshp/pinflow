@@ -6,7 +6,7 @@ export interface AudioCapture {
   /** Acquire the mic and begin streaming linear16 PCM frames + waveform levels. */
   start(onPcm: (frame: ArrayBuffer) => void, onLevels?: (levels: number[]) => void): Promise<void>;
   /** Stop tracks and release the AudioContext. Idempotent. */
-  stop(): void;
+  stop(): Promise<void> | void;
 }
 
 export interface TranscriptionStream {

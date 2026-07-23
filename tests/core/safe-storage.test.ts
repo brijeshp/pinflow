@@ -40,3 +40,51 @@ describe('safe-storage', () => {
     }
   });
 });
+
+it('#8: a readable store whose setItem throws yields the memory shim (write probe)', async () => {
+  const { acquireStorage } = await import('../../src/core/safe-storage');
+  const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  const readOnly = {
+    getItem: () => null,
+    setItem: () => {
+      throw new Error('QuotaExceededError');
+    },
+    removeItem: () => {},
+    key: () => null,
+    length: 0,
+    clear: () => {},
+  } as unknown as Storage;
+  Object.defineProperty(window, 'localStorage', { value: readOnly, configurable: true });
+  try {
+    const s = acquireStorage();
+    expect(() => s.setItem('k', 'v')).not.toThrow();
+    expect(s.getItem('k')).toBe('v'); // memory shim semantics, not the broken store
+  } finally {
+    if (original) Object.defineProperty(window, 'localStorage', original);
+  }
+});
+
+it('#8 (r2): the memory shim is a page-level singleton — re-acquisition keeps the corpus', async () => {
+  const { acquireStorage } = await import('../../src/core/safe-storage');
+  const original = Object.getOwnPropertyDescriptor(window, 'localStorage');
+  const broken = {
+    getItem: () => null,
+    setItem: () => {
+      throw new Error('denied');
+    },
+    removeItem: () => {},
+    key: () => null,
+    length: 0,
+    clear: () => {},
+  } as unknown as Storage;
+  Object.defineProperty(window, 'localStorage', { value: broken, configurable: true });
+  try {
+    const first = acquireStorage();
+    first.setItem('pinflow:c:p:R', '{"x":1}');
+    const second = acquireStorage(); // re-init (e.g. React remount)
+    expect(second.getItem('pinflow:c:p:R')).toBe('{"x":1}');
+    second.removeItem('pinflow:c:p:R');
+  } finally {
+    if (original) Object.defineProperty(window, 'localStorage', original);
+  }
+});

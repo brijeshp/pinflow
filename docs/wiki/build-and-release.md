@@ -16,10 +16,10 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 | Entry         | Budget (gz) |
 | ------------- | ----------- |
-| core IIFE     | 12.5 KB     |
-| core ESM      | 12.15 KB    |
-| voice ESM     | 4.2 KB      |
-| react wrapper | 0.4 KB      |
+| core IIFE     | 13.45 KB    |
+| core ESM      | 13.1 KB     |
+| voice ESM     | 4.45 KB     |
+| react wrapper | 0.47 KB     |
 | vue wrapper   | 0.6 KB      |
 
 `pnpm size` gates CI (`verify` job) and publishing (`prepublishOnly` runs build + test + size). Policy: budgets only ratchet **down** between features — kept razor-thin over actuals so regressions surface immediately. (The core budgets were raised one notch as a deliberate, changeset-documented trade for the v3 lifecycle features, then re-ratcheted to actuals.) Check budget impact after any core change.
@@ -32,8 +32,8 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 ## CI (`.github/workflows/`)
 
-- **`ci.yml`** — `verify` job: `format:check`, `typecheck`, `test`, `build`, `size`. `e2e` job: build + Playwright across chromium / mobile-chrome / mobile-safari. pnpm caching in both.
-- **`release.yml`** — changesets publish on push to `main`.
+- **`ci.yml`** — `verify` job: `format:check`, `typecheck`, `build` (BEFORE tests so bundle-isolation hard-fails rather than skips), `test:coverage` (the 80/75 thresholds are enforced in CI), `size`, `wiki:check`. `e2e` job: build + Playwright across chromium / mobile-chrome / mobile-safari. pnpm caching in both.
+- **`release.yml`** — changesets publish on push to `main`, gated by re-running the full battery (format/typecheck/build/coverage/size/E2E/wiki-check) on the exact SHA before publishing; `prepublishOnly` independently runs build + coverage + size.
 - ⚠️ The repo currently has **no git remote**; both workflows are dormant until pinflow is pushed to GitHub. `AGENTS.md` documents the local-only workflow.
 
 ## Command reference (`package.json` scripts)

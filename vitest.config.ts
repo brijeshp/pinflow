@@ -26,7 +26,6 @@ export default defineConfig({
       include: ['src/core/**/*.ts'],
       exclude: [
         'src/core/iife.ts',
-        'src/core/ui/**',
         'src/core/types.ts',
         'src/core/voice-contract.ts',
         'src/core/voice-loader.ts',

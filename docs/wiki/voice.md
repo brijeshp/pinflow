@@ -13,7 +13,7 @@ Voice loads on demand via `src/core/voice-loader.ts` `loadVoice()`, a dynamic im
 
 The contract lives in `src/core/voice-contract.ts`:
 
-- `VoiceHost` — the narrow port core hands voice: mount element, config, anchor, and three callbacks (`commit`, `discard`, `degradeToText`).
+- `VoiceHost` — the narrow port core hands voice: mount element, config, anchor, an optional `signal` (AbortSignal — checked before the token mint (which aborts its fetch), before the socket opens, and around mic acquisition, so teardown mid-startup never gains a socket or mic stream), and three callbacks (`commit`, `discard`, `degradeToText`).
 - `VoiceSession` — one live recording with idempotent `stop()` and `dispose()`.
 - `VoiceModule` — the default export shape: `{ start(host: VoiceHost): Promise<VoiceSession> }`.
 
@@ -35,7 +35,7 @@ Voice activation happens in `src/core/ui/annotator.ts` `_startVoiceDot()`:
 - **getUserMedia:** audio with echoCancellation and noiseSuppression, `channelCount: 1`.
 - **AudioWorklet:** `src/voice/capture/worklet.ts` ships as a Blob-URL string loaded via `ctx.audioWorklet.addModule()`. It downsamples the AudioContext's native rate (typically 48 kHz) to 16 kHz mono linear16 PCM, emitting transferable ArrayBuffers off the main thread (ratio = sampleRate / 16000; samples clamped to [-1, 1] then scaled to Int16).
 - **Waveform levels:** an AnalyserNode samples 5-band frequency data on a parallel rAF loop, feeding the 5-bar visual in `src/voice/ui/dot.ts`. The dot HUD consumes the host theme's surface/text/font tokens (`--pf-surface`, `--pf-text`, `--pf-font-family`) so it matches a themed embed.
-- **Cleanup:** `stop()` releases mic tracks (OS indicator clears), closes the AudioContext, detaches the worklet, cancels rAF, revokes the Blob URL — every acquired resource is released even on partial failure.
+- **Cleanup:** `stop()` first completes a flush handshake with the worklet ('flush' → partial PCM buffer + 'flushed'), then releases mic tracks (OS indicator clears), closes the AudioContext, detaches the worklet, cancels rAF, revokes the Blob URL — every acquired resource is released even on partial failure. The downsampler averages over REAL accumulated samples (fractional cadence tracked separately), so amplitude is never attenuated at 44.1kHz-family rates.
 
 ## Deepgram streaming & WebSocket lifecycle
 
@@ -46,7 +46,7 @@ Voice activation happens in `src/core/ui/annotator.ts` `_startVoiceDot()`:
 - **Keepalive:** 4-second interval frame to prevent inactivity timeout.
 - **Finalize:** `stop()` sends a finalize frame and waits for the `from_finalize` ack in Results, with a 1-second fallback timeout — captures the sentence tail on slow links.
 - **Close:** detaches all handlers before closing to avoid spurious errors after teardown.
-- **Errors:** pre-open errors reject; post-open errors surface through the provider's `onError`.
+- **Errors:** pre-open errors reject; post-open errors surface through the provider's `onError`, where the session salvages the transcript heard so far, releases the microphone, and settles — a dead socket never leaves a live recording.
 
 The provider emits `onInterim` (live, replaceable) and `onFinal` (appended, immutable). `src/voice/transcript-store.ts` `TranscriptStore` enforces the invariants: finals append (so "tap to add more" works); late interims/finals are dropped after `beginFinalize()` or close.
 
@@ -67,7 +67,7 @@ The session orchestrator in `src/voice/session.ts` `startSession()` chains provi
 - **finalizing:** interims ignored; provider-tail finals still land (finalize blocks until ack or timeout).
 - **closed:** all input dropped.
 
-`session.stop()` and `dispose()` are idempotent, guaranteeing exactly-once persistence. On the core side, the Annotator's generation guards prevent late resolutions from touching storage or DOM post-destroy, and the **route frozen at dot creation** is the one the comment persists to.
+`session.stop()` and `dispose()` run a three-phase machine (recording → finalizing → settled): persistence happens exactly once on the transition into settled, and a dispose() during an in-flight stop() releases hardware while leaving persistence to the stop that owns it. On the core side, the Annotator's generation guards prevent late resolutions from touching storage or DOM post-destroy, and the **route frozen at dot creation** is the one the comment persists to.
 
 ## What an agent must NOT do here
 
