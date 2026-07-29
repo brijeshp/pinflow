@@ -66,7 +66,15 @@ export function getCssPath(el: Element, maxDepth = 6): string {
 export function getXPath(el: Element): string {
   const parts: string[] = [];
   let current: Element | null = el;
-  while (current && current.nodeType === 1 && current.tagName !== 'HTML') {
+  // Stop at BODY as well as HTML: the '/html/body/' prefix below already
+  // covers both, so including body in the walk emitted '/html/body/body[1]/…'
+  // — an xpath that resolves to nothing.
+  while (
+    current &&
+    current.nodeType === 1 &&
+    current.tagName !== 'HTML' &&
+    current.tagName !== 'BODY'
+  ) {
     let idx = 1;
     let sibling = current.previousElementSibling;
     while (sibling) {
