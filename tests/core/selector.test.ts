@@ -61,6 +61,14 @@ describe('selector', () => {
     expect(getTextFingerprint(p)).toHaveLength(80);
   });
 
+  it('xpath starts at body children — never the /html/body/body[1] double (live artifact bug)', () => {
+    document.body.innerHTML = '<div><div><p>target</p></div></div>';
+    const p = document.querySelector('p')!;
+    const sels = buildSelectors(p);
+    expect(sels.xpath).toBe('/html/body/div[1]/div[1]/p[1]');
+    expect(sels.xpath).not.toContain('body/body');
+  });
+
   it('buildSelectors returns all four + matches back via findByCandidates', () => {
     document.body.innerHTML =
       '<main><button data-testid="cta" class="primary">Get started</button></main>';
