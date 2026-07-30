@@ -19,6 +19,10 @@
 
   Vue wrapper budget notched 0.6 → 0.61 KB gz: the scoped import specifier is
   longer; measured cost 4 B.
+  Core ceilings notched to 13.48 (IIFE) / 13.14 KB (ESM) gz: the externalized
+  `@brijeshp/pinflow/voice` specifier ships verbatim in core (+10 chars), and
+  linux CI gzip runs a few bytes over the macOS measurement — CI is the
+  enforcing environment, so ceilings are set from CI actuals (13.46 / 13.12).
 
 ## 0.1.1
 
