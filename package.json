@@ -1,6 +1,6 @@
 {
   "name": "pinflow",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero backend, one-line install, AI-agent-ready markdown export.",
   "keywords": [
     "annotation",
@@ -116,7 +116,7 @@
     {
       "name": "core (IIFE, gz)",
       "path": "dist/pinflow.iife.js",
-      "limit": "13.45 KB",
+      "limit": "13.46 KB",
       "gzip": true,
       "ignore": [
         "pinflow/voice"
@@ -125,7 +125,7 @@
     {
       "name": "core (ESM, gz)",
       "path": "dist/index.js",
-      "limit": "13.1 KB",
+      "limit": "13.12 KB",
       "gzip": true,
       "ignore": [
         "pinflow/voice"

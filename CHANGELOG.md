@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.1.2
+
+### Patch Changes
+
+- ffccd44: Fix nested-target capture: pins now anchor to the nearest `[data-testid]`
+  ancestor of the click target. Clicking a label span or icon nested inside an
+  anchored control previously recorded `testid: (none)` and fell back to brittle
+  css/xpath selectors, defeating host-side test-id contracts. The whole anchor —
+  selectors, text fingerprint, context, and `positionPercent` — is now built from
+  the anchored ancestor, so re-pinning stays coherent with the recorded rect.
+  Empty/whitespace `data-testid` values are skipped, and elements with no
+  anchored ancestor behave exactly as before. (Backport of the fix released on
+  the 0.2.x line; vendored tarball lineage for ShareVoice.) Core ceilings
+  notched to actuals for the ancestor walk: 13.46 KB IIFE / 13.12 KB ESM gz
+  (+13/+18 B).
+
 ## 0.1.1
 
 ### Patch Changes
