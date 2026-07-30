@@ -14,7 +14,7 @@ Open `http://localhost:5173/?reviewer=YourName`.
 ## Integration
 
 ```tsx
-import { Annotator } from 'pinflow/react';
+import { Annotator } from '@brijeshp/pinflow/react';
 
 function App() {
   return (

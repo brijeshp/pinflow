@@ -25,7 +25,7 @@ Vitest picks up `tests/**/*.test.ts` and colocated `src/**/*.test.ts`.
 ## Test infrastructure
 
 - **`tests/setup.ts`** — MemoryStorage polyfill (newer Node localStorage quirks), `IS_REACT_ACT_ENVIRONMENT`, `CSS.escape` polyfill.
-- **Aliases** (`vitest.config.ts`): `pinflow/voice` and bare `pinflow` resolve to `src/` sources so lazy voice stays lazy and wrappers exercise core internals without a build step.
+- **Aliases** (`vitest.config.ts`): `@brijeshp/pinflow/voice` and bare `pinflow` resolve to `src/` sources so lazy voice stays lazy and wrappers exercise core internals without a build step.
 - **Playwright** (`playwright.config.ts`): baseURL `http://localhost:4173`; projects chromium, mobile-chrome, mobile-safari; CI retries 2×, traces on first retry; reporter `github` in CI, `list` locally.
 
 ## How to run

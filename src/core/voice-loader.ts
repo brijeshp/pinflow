@@ -1,7 +1,7 @@
 import type { VoiceModule } from './voice-contract';
 
 /**
- * The ONLY place the `pinflow/voice` specifier appears in core. It is marked
+ * The ONLY place the `@brijeshp/pinflow/voice` specifier appears in core. It is marked
  * `external` in the build, so this dynamic import stays a runtime reference —
  * voice code is never bundled into the core / IIFE output (CI greps for this).
  *
@@ -10,7 +10,7 @@ import type { VoiceModule } from './voice-contract';
  * text (a dedicated CDN voice loader is deferred to v2.1).
  */
 export function loadVoice(): Promise<VoiceModule> {
-  return import('pinflow/voice').then((m) => {
+  return import('@brijeshp/pinflow/voice').then((m) => {
     // Interop hardening: prefer the ESM default, fall back to a CJS-shaped
     // namespace, and reject cleanly (into the existing degrade path) if
     // neither carries the contract.
