@@ -9,9 +9,9 @@ import {
   type Mode,
   type PinflowConfig,
   type VoiceConfig,
-} from 'pinflow';
+} from '@brijeshp/pinflow';
 
-export type { PinflowConfig } from 'pinflow';
+export type { PinflowConfig } from '@brijeshp/pinflow';
 
 export const Annotator = defineComponent({
   name: 'PinflowAnnotator',

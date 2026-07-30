@@ -3,7 +3,10 @@
 Figma-style pin-and-comment annotation for any prototype — and the feedback lifecycle around it. Zero backend by default, bring-your-own-backend by contract. Exports to markdown that drops straight into Claude Code or Cursor.
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="my-prototype"></script>
+<script
+  src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow@latest"
+  data-project="my-prototype"
+></script>
 ```
 
 [Live demo](https://pinflow.dev) · [Spec](./specs/pinflow_v1_spec.md) · [Sync protocol](./PROTOCOL.md) · [Examples](./examples) · MIT
@@ -25,17 +28,20 @@ Pinflow covers the whole loop, not just the pin:
 **Vanilla / script tag** (default):
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/pinflow@latest" data-project="my-prototype"></script>
+<script
+  src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow@latest"
+  data-project="my-prototype"
+></script>
 ```
 
 **React:**
 
 ```bash
-npm install pinflow
+npm install @brijeshp/pinflow
 ```
 
 ```jsx
-import { Annotator } from 'pinflow/react';
+import { Annotator } from '@brijeshp/pinflow/react';
 
 export default function App() {
   return (
@@ -50,7 +56,7 @@ export default function App() {
 **Vue:**
 
 ```js
-import { Annotator } from 'pinflow/vue';
+import { Annotator } from '@brijeshp/pinflow/vue';
 ```
 
 **Next.js:** use inside a `'use client'` wrapper — see [`examples/nextjs`](./examples/nextjs).

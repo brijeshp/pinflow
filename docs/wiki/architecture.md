@@ -21,7 +21,7 @@ src/
     route-key.ts      logical screen key derivation (strips pinflow URL params)
     export.ts         markdown export (the product's actual output)
     voice-contract.ts type-only port core exposes to voice (VoiceHost/VoiceSession)
-    voice-loader.ts   the ONLY place voice is imported — dynamic import('pinflow/voice')
+    voice-loader.ts   the ONLY place voice is imported — dynamic import('@brijeshp/pinflow/voice')
     iife.ts           CDN/script-tag auto-init shim
   voice/              optional module: mic capture, Deepgram streaming, dot UI
   react/index.ts      thin wrapper (<Annotator> component)
@@ -32,7 +32,7 @@ Tests mirror this layout under `tests/` (see [testing.md](./testing.md)).
 
 ## The one boundary that matters: core↔voice
 
-Voice must cost text-only users **0 bytes**. `pinflow/voice` is marked external in every core build config (`tsup.config.ts`), so the dynamic import in `src/core/voice-loader.ts` stays a runtime reference and voice code never enters the core graph. The interface between the two sides is the type-only contract in `src/core/voice-contract.ts`. `tests/voice/bundle-isolation.test.ts` enforces this in CI. Full detail: [voice.md](./voice.md).
+Voice must cost text-only users **0 bytes**. `@brijeshp/pinflow/voice` is marked external in every core build config (`tsup.config.ts`), so the dynamic import in `src/core/voice-loader.ts` stays a runtime reference and voice code never enters the core graph. The interface between the two sides is the type-only contract in `src/core/voice-contract.ts`. `tests/voice/bundle-isolation.test.ts` enforces this in CI. Full detail: [voice.md](./voice.md).
 
 ## Data flow (happy path)
 

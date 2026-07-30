@@ -1,5 +1,5 @@
 // Types-only contract shared between the core engine and the lazily-loaded
-// `pinflow/voice` module. The voice module imports these with `import type`
+// `@brijeshp/pinflow/voice` module. The voice module imports these with `import type`
 // (erased at build), so there is no runtime cycle and no bundling edge.
 import type { Anchor, VoiceConfig, VoiceMeta } from './types';
 
@@ -43,7 +43,7 @@ export interface VoiceSession {
   dispose(): void;
 }
 
-/** The default export of `pinflow/voice`. */
+/** The default export of `@brijeshp/pinflow/voice`. */
 export interface VoiceModule {
   start(host: VoiceHost): Promise<VoiceSession>;
 }

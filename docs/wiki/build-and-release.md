@@ -4,8 +4,8 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 ## Build configs (`tsup.config.ts`)
 
-- **Core + voice** (`src/core/index.ts`, `src/voice/index.ts`): ESM + CJS. Core externalizes `pinflow/voice` so the lazy `import('pinflow/voice')` stays a runtime reference — voice never enters the core graph ("0 bytes for text users").
-- **IIFE** (`src/core/iife.ts` → `dist/pinflow.iife.js`): minified standalone bundle for CDN (unpkg/jsdelivr). Also externalizes `pinflow/voice`.
+- **Core + voice** (`src/core/index.ts`, `src/voice/index.ts`): ESM + CJS. Core externalizes `@brijeshp/pinflow/voice` so the lazy `import('@brijeshp/pinflow/voice')` stays a runtime reference — voice never enters the core graph ("0 bytes for text users").
+- **IIFE** (`src/core/iife.ts` → `dist/pinflow.iife.js`): minified standalone bundle for CDN (unpkg/jsdelivr). Also externalizes `@brijeshp/pinflow/voice`.
 - **Wrappers** (`src/react/index.ts`, `src/vue/index.ts`): ESM + CJS. They import bare `pinflow` (not dist paths), resolved by the consumer's bundler through this package's `exports` map — prevents shipping a second copy of core inside each wrapper and keeps wrappers ~1 KB.
 
 **Private-member mangling:** `mangleProps: /^_/` (the `MANGLE_PRIVATE` regex in `tsup.config.ts`) is applied to every config. `_`-prefixed members (Annotator, GestureController, TranscriptStore, …) are renamed during minification — never rename or un-prefix them casually; they are part of the minification contract.

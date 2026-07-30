@@ -4,15 +4,15 @@ import { defineConfig } from 'vitest/config';
 export default defineConfig({
   resolve: {
     alias: {
-      // The lazy `import('pinflow/voice')` self-reference can't resolve in the
+      // The lazy `import('@brijeshp/pinflow/voice')` self-reference can't resolve in the
       // test runtime (no built dist) — point it at the source so import-analysis
       // is satisfied. The import stays lazy; only voice-activation tests run it.
-      'pinflow/voice': fileURLToPath(new URL('./src/voice/index.ts', import.meta.url)),
+      '@brijeshp/pinflow/voice': fileURLToPath(new URL('./src/voice/index.ts', import.meta.url)),
       // Bare self-reference used by the react/vue wrappers (kept external in
-      // the build — see tsup.config.ts). Must stay AFTER 'pinflow/voice':
-      // aliases match in order and a bare 'pinflow' entry also matches
-      // 'pinflow/voice' as a prefix.
-      pinflow: fileURLToPath(new URL('./src/core/index.ts', import.meta.url)),
+      // the build — see tsup.config.ts). Must stay AFTER '@brijeshp/pinflow/voice':
+      // aliases match in order and a bare '@brijeshp/pinflow' entry also
+      // matches '@brijeshp/pinflow/voice' as a prefix.
+      '@brijeshp/pinflow': fileURLToPath(new URL('./src/core/index.ts', import.meta.url)),
     },
   },
   test: {

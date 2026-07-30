@@ -4,12 +4,12 @@ The voice module is optional and lazily loaded so text-only users pay 0 bytes. T
 
 ## Lazy loading & the externalization contract
 
-Voice loads on demand via `src/core/voice-loader.ts` `loadVoice()`, a dynamic import of the `pinflow/voice` specifier marked `external` in `tsup.config.ts` (both ESM and IIFE configs). Consequences:
+Voice loads on demand via `src/core/voice-loader.ts` `loadVoice()`, a dynamic import of the `@brijeshp/pinflow/voice` specifier marked `external` in `tsup.config.ts` (both ESM and IIFE configs). Consequences:
 
 - Core bundles (`dist/index.js`, `dist/pinflow.iife.js`) never include voice code; the import stays a runtime reference.
-- `tsup.config.ts` sets `external: ['pinflow/voice']` so the seam holds across all output formats.
+- `tsup.config.ts` sets `external: ['@brijeshp/pinflow/voice']` so the seam holds across all output formats.
 - `tests/voice/bundle-isolation.test.ts` asserts core bundles contain no voice symbols (getUserMedia, AudioContext, Deepgram API calls).
-- On the ESM path, the consumer's bundler resolves `pinflow/voice` via the package exports map. On the IIFE/CDN path the import fails gracefully and the caller degrades to text; a dedicated CDN voice loader is deferred.
+- On the ESM path, the consumer's bundler resolves `@brijeshp/pinflow/voice` via the package exports map. On the IIFE/CDN path the import fails gracefully and the caller degrades to text; a dedicated CDN voice loader is deferred.
 
 The contract lives in `src/core/voice-contract.ts`:
 
@@ -71,7 +71,7 @@ The session orchestrator in `src/voice/session.ts` `startSession()` chains provi
 
 ## What an agent must NOT do here
 
-- ❌ Import voice from core: `import ... from 'pinflow/voice'` anywhere in `src/core/**` other than the dynamic import inside `voice-loader.ts`.
+- ❌ Import voice from core: `import ... from '@brijeshp/pinflow/voice'` anywhere in `src/core/**` other than the dynamic import inside `voice-loader.ts`.
 - ❌ Value-imports of voice types in core — use `import type` (as `voice-contract.ts` does); type-only imports are erased at compile time.
 - ❌ Re-export voice values from `src/core/index.ts` (breaks the externalization contract).
 - ❌ Rename `_`-prefixed members (tsup mangles `/^_/`) — treat as breaking.

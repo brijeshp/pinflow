@@ -54,7 +54,7 @@ interface AnnotatorDeps {
   storage: Storage;
   /** Resolves (and may prompt for) the reviewer identity at first activation. */
   resolveIdentity?: () => string | null;
-  /** Injectable for tests; defaults to the real lazy `import('pinflow/voice')`. */
+  /** Injectable for tests; defaults to the real lazy `import('@brijeshp/pinflow/voice')`. */
   loadVoice?: () => Promise<VoiceModule>;
 }
 
