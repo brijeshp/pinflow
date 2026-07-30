@@ -37,7 +37,7 @@ Voice must cost text-only users **0 bytes**. `@brijeshp/pinflow/voice` is marked
 ## Data flow (happy path)
 
 1. **Activate**: control button, or stealth gesture (`src/core/gesture/`) in `stealth`/`both` modes.
-2. **Pin**: click an element → `buildAnchor()` (`src/core/anchor.ts`) captures selector candidates (`src/core/selector.ts`), a text fingerprint, and percentage offsets.
+2. **Pin**: click an element → `buildAnchor()` (`src/core/anchor.ts`) resolves the nearest `data-testid` ancestor of the click target, then captures selector candidates (`src/core/selector.ts`), a text fingerprint, and percentage offsets from it.
 3. **Comment**: text via the explicit-save editor popup, or voice via the lazily-loaded module streaming Deepgram transcripts back through `VoiceHost.commit`.
 4. **Persist**: `upsertComment()` → `saveStore()` (`src/core/storage.ts`) under `pinflow:c:<project>:<reviewer>`; `onChange` fires after each persisted mutation.
 5. **Hydrate** (hosts with a backend): `config.source()` fetched once at identity resolution, merged by comment id (`mergeComments()`); server wins disposition, local-only/newer comments re-announce through `onChange` so sync losses self-heal.
