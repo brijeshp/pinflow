@@ -12,3 +12,6 @@ coverage
 playwright-report
 test-results
 demo/dist
+
+# private working docs — never published
+docs/private/
