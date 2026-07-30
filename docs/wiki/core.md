@@ -22,7 +22,7 @@ Outside-dismiss of the draft popup and the export sheet (shared `_armOutsideDism
 
 **`safe-storage.ts`** — Fallback to an in-memory `Map`-backed Storage shim when real localStorage is blocked (third-party embeds, sandboxed iframes, private browsing). `acquireStorage()` runs a WRITE probe (set+remove of a probe key) — Safari-private read-only stores get the shim up front instead of silently losing every comment; failures return `memoryStorage()` (non-persistent for the session).
 
-**`anchor.ts`** — Element-to-pin anchoring. `buildAnchor()` captures selectors + fingerprint + click-to-percentage offset, plus the pin-time `context`: accessible name (image `alt` included, capped at 80), role, nearest heading, truncated image `src`, and a computed-style micro-snapshot of what feedback is usually about (background, color, font, radius; defaults omitted). `resolveAnchor()` re-finds the element on re-render via the selector ladder. `anchorToScreen()` converts percentage offsets back to viewport coords. `currentViewport()` records dimensions for orphan fallback.
+**`anchor.ts`** — Element-to-pin anchoring. `buildAnchor()` first resolves the click target to the nearest ancestor with a non-empty `data-testid` (private `anchorTarget()`; the raw target is used when no ancestor is anchored) so nested labels/icons inside an anchored control never lose the host's test-id contract, then captures selectors + fingerprint + click-to-percentage offset — all measured on that anchored element, plus the pin-time `context`: accessible name (image `alt` included, capped at 80), role, nearest heading, truncated image `src`, and a computed-style micro-snapshot of what feedback is usually about (background, color, font, radius; defaults omitted). `resolveAnchor()` re-finds the element on re-render via the selector ladder. `anchorToScreen()` converts percentage offsets back to viewport coords. `currentViewport()` records dimensions for orphan fallback.
 
 **`selector.ts`** — Selector generation and resolution. `buildSelectors()` produces `SelectorCandidates` (testid, id, css, xpath). The CSS path uses `nth-of-type()` and filters framework-generated IDs (React `useId`, Radix, auto-hashed tokens). `getTextFingerprint()` returns the first 80 chars, whitespace-collapsed. `findByCandidates()` implements the ladder (testid → id → CSS → XPath → fingerprint walk, capped at 2000 elements).
 
@@ -38,7 +38,7 @@ Outside-dismiss of the draft popup and the export sheet (shared `_armOutsideDism
 
 ## Data flow
 
-**Gesture → pin creation:** click (or long-press via `GestureController`) → `_placeCommentAt()` → `buildAnchor()` captures candidates, fingerprint, viewport, percentage offset. With voice configured, `_startVoiceDot()` lazy-loads the voice module and starts a session; otherwise `_commitTextComment()` runs immediately with empty text and `openForEdit=true` to show the editor.
+**Gesture → pin creation:** click (or long-press via `GestureController`) → `_placeCommentAt()` → `buildAnchor()` resolves the nearest `data-testid` ancestor and captures candidates, fingerprint, viewport, percentage offset from it. With voice configured, `_startVoiceDot()` lazy-loads the voice module and starts a session; otherwise `_commitTextComment()` runs immediately with empty text and `openForEdit=true` to show the editor.
 
 **Text input → persistence:** the `.input` popup saves on Save click or Cmd/Ctrl+Enter. Saving calls `upsertComment()` then `_persist()` → `saveStore()`. Empty comments are auto-deleted on dismiss. `onChange` fires after persist.
 
