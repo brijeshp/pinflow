@@ -1,4 +1,4 @@
-import { buildSelectors, findByCandidates, getTextFingerprint } from './selector';
+import { buildSelectors, findByCandidates, getTestId, getTextFingerprint } from './selector';
 import type { Anchor, PositionPercent, Viewport } from './types';
 
 export function currentViewport(): Viewport {
@@ -60,7 +60,21 @@ function visualSnapshot(el: Element): NonNullable<Anchor['context']>['styles'] |
   return Object.keys(styles).length ? styles : undefined;
 }
 
-export function buildAnchor(el: Element, clientX: number, clientY: number): Anchor {
+// Hosts put data-testid on the CONTROL (button, slider track), but the click
+// lands on whatever is nested inside it (label span, icon). Anchoring the raw
+// target would drop the testid and fall back to brittle css/xpath — so the
+// whole anchor (selectors, fingerprint, context, positionPercent) is built
+// from the nearest anchored ancestor. getTestId, not `closest('[data-testid]')`,
+// so empty/whitespace testids are skipped consistently with capture.
+function anchorTarget(el: Element): Element {
+  for (let cur: Element | null = el; cur; cur = cur.parentElement) {
+    if (getTestId(cur)) return cur;
+  }
+  return el;
+}
+
+export function buildAnchor(target: Element, clientX: number, clientY: number): Anchor {
+  const el = anchorTarget(target);
   const fingerprint = getTextFingerprint(el);
   // Best-effort human context (accessible name, role, nearest heading) —
   // exports render "the 'Continue' button under 'Next section'" from it.

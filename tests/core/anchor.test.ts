@@ -82,6 +82,55 @@ describe('anchor', () => {
   });
 });
 
+describe('nested-target capture (anchored ancestor)', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('clicking a nested element records the nearest ancestor data-testid', () => {
+    document.body.innerHTML = '<button data-testid="cta"><span>Hello</span></button>';
+    const span = document.querySelector('span')!;
+    const a = buildAnchor(span, 0, 0);
+    expect(a.selectors.testid).toBe('cta');
+    expect(resolveAnchor(a, document)).toBe(document.querySelector('button'));
+  });
+
+  it('re-bases positionPercent on the anchored ancestor rect', () => {
+    document.body.innerHTML = '<button data-testid="cta"><span>Hello</span></button>';
+    const btn = document.querySelector('button')!;
+    const span = document.querySelector('span')!;
+    btn.getBoundingClientRect = () => ({ left: 0, top: 0, width: 100, height: 40 }) as DOMRect;
+    span.getBoundingClientRect = () => ({ left: 20, top: 10, width: 60, height: 20 }) as DOMRect;
+    const a = buildAnchor(span, 30, 15);
+    // 30/15 is 30%/37.5% of the button rect — NOT 16.67%/25% of the span rect.
+    expect(a.positionPercent).toEqual({ x: 30, y: 37.5 });
+  });
+
+  it('fingerprint and context describe the anchored ancestor', () => {
+    document.body.innerHTML =
+      '<section><h2>Next section</h2><button data-testid="cta" aria-label="Continue"><span class="icon">→</span></button></section>';
+    const span = document.querySelector('span')!;
+    const a = buildAnchor(span, 0, 0);
+    expect(a.textFingerprint).toBe('→');
+    expect(a.context).toMatchObject({ name: 'Continue', role: 'button', heading: 'Next section' });
+  });
+
+  it('skips ancestors whose data-testid is empty or whitespace', () => {
+    document.body.innerHTML =
+      '<div data-testid="outer"><div data-testid="  "><span>Deep</span></div></div>';
+    const a = buildAnchor(document.querySelector('span')!, 0, 0);
+    expect(a.selectors.testid).toBe('outer');
+  });
+
+  it('falls back to the raw target when no ancestor is anchored', () => {
+    document.body.innerHTML = '<div><span id="leaf">Plain</span></div>';
+    const span = document.getElementById('leaf')!;
+    const a = buildAnchor(span, 0, 0);
+    expect(a.selectors.testid).toBeNull();
+    expect(resolveAnchor(a, document)).toBe(span);
+  });
+});
+
 describe('visual context capture (agent blast radius)', () => {
   afterEach(() => {
     document.body.innerHTML = '';
