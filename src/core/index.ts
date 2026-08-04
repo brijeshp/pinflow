@@ -152,8 +152,9 @@ function initLive(config: PinflowConfig): Handle {
   current = handle;
   const n = annotator._count;
   console.info(
+    // Fallback must mirror Annotator._activationMode's default.
     `[pinflow] v${version} ready — mode=${mode}, activation=${
-      config.activation?.mode ?? 'toggle'
+      config.activation?.mode ?? 'both'
     }, ${n} comment${n === 1 ? '' : 's'}`,
   );
   return handle;

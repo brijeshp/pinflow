@@ -23,12 +23,29 @@ describe('download', () => {
       }
       return document.createElement(tag);
     });
-    vi.spyOn(document.body, 'appendChild').mockImplementation((n) => n);
-    vi.spyOn(document.body, 'removeChild').mockImplementation((n) => n);
+    const append = vi.spyOn(document.body, 'appendChild').mockImplementation((n) => n);
 
     download('# Hello', 'test.md');
     expect(createUrl).toHaveBeenCalled();
     expect(clickSpy).toHaveBeenCalled();
+    expect(revokeUrl).not.toHaveBeenCalled(); // deferred revoke
+    // The anchor must stay DETACHED: an attached anchor's synthetic click
+    // propagates through document and the ARMED annotate handler would treat
+    // it as a page click — placing a bogus pin and closing the export panel.
+    expect(append).not.toHaveBeenCalled();
+  });
+
+  it('a download during armed annotate mode never reaches document listeners', () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    const seen = vi.fn();
+    document.addEventListener('click', seen, true);
+    try {
+      download('# Hello', 'test.md');
+      expect(seen).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('click', seen, true);
+    }
   });
 });
 

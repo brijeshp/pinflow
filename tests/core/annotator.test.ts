@@ -39,11 +39,12 @@ function seedStore(comment: Comment): void {
 function makeAnnotator(extra?: {
   voice?: true;
   loadVoice?: () => Promise<VoiceModule>;
+  mode?: 'reviewer' | 'builder';
 }): Annotator {
   return new Annotator({
     config: { project: PROJECT, ...(extra?.voice ? { voice: {} } : {}) },
     reviewer: REVIEWER,
-    mode: 'reviewer',
+    mode: extra?.mode ?? 'reviewer',
     storage: localStorage,
     ...(extra?.loadVoice ? { loadVoice: extra.loadVoice } : {}),
   });
@@ -305,13 +306,10 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     document.body.innerHTML = '';
   });
 
+  // Two-step contract (first-user feedback): the control button ARMS
+  // annotate mode by itself — no separate "Add comment" press.
   function enterAnnotateMode(): void {
     shadow().querySelector<HTMLButtonElement>('.control')?.click();
-    const add = Array.from(shadow().querySelectorAll('button')).find(
-      (b) => b.textContent === 'Add comment',
-    );
-    if (!add) throw new Error('Add comment button not found');
-    add.click();
   }
 
   it('restores the host page cursor it found, not a hardcoded empty string', () => {
@@ -321,6 +319,52 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     expect(document.body.style.cursor).toBe('crosshair');
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(document.body.style.cursor).toBe('pointer');
+  });
+
+  it('control click arms annotate immediately: button then page = pin (3 steps → 2)', () => {
+    annotator = makeAnnotator();
+    enterAnnotateMode();
+    expect(document.body.style.cursor).toBe('crosshair');
+    const target = document.createElement('p');
+    target.textContent = 'host paragraph';
+    document.body.appendChild(target);
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(shadow().querySelector('textarea')).not.toBeNull();
+  });
+
+  it('the opened panel offers Stop (not Add comment) while armed', () => {
+    annotator = makeAnnotator();
+    enterAnnotateMode();
+    const labels = Array.from(shadow().querySelectorAll('button')).map((b) => b.textContent);
+    expect(labels).toContain('Stop');
+    expect(labels).not.toContain('Add comment');
+  });
+
+  it('second control click disarms and closes the panel', () => {
+    annotator = makeAnnotator();
+    enterAnnotateMode();
+    shadow().querySelector<HTMLButtonElement>('.control')?.click();
+    expect(document.body.style.cursor).toBe('');
+    const target = document.createElement('p');
+    document.body.appendChild(target);
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(shadow().querySelector('textarea')).toBeNull();
+  });
+
+  it('placing a pin closes the menu — focus moves to the draft popup', () => {
+    annotator = makeAnnotator();
+    enterAnnotateMode();
+    const target = document.createElement('p');
+    document.body.appendChild(target);
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(shadow().querySelector('textarea')).not.toBeNull();
+    expect(shadow().querySelector('.panel h3')).toBeNull();
+  });
+
+  it('builder mode control click keeps its drawer-only behavior (no crosshair)', () => {
+    annotator = makeAnnotator({ mode: 'builder' });
+    shadow().querySelector<HTMLButtonElement>('.control')?.click();
+    expect(document.body.style.cursor).toBe('');
   });
 });
 

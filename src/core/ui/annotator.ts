@@ -255,7 +255,10 @@ export class Annotator {
   }
 
   private _activationMode(): NonNullable<ActivationConfig['mode']> {
-    return this._deps.config.activation?.mode ?? 'toggle';
+    // 'both' by default: the button stays discoverable AND Alt+click /
+    // long-press work out of the box (first-user feedback: the obvious power
+    // move silently failing reads as broken). 'toggle' remains the opt-out.
+    return this._deps.config.activation?.mode ?? 'both';
   }
 
   // Stealth/both modes add a capture-phase long-press (touch) + Alt+click
@@ -365,6 +368,8 @@ export class Annotator {
   private _togglePanel(): void {
     if (this._panelEl) {
       this._closePanel();
+      // Control toggle is a full stop: closing the menu also disarms.
+      if (this._annotating) this._exitAnnotateMode();
       return;
     }
     this._panelAnchor = this._controlEl;
@@ -373,6 +378,9 @@ export class Annotator {
       this._deps.mode === 'builder' ? this._renderBuilderPanel() : this._renderReviewerPanel();
     this._ui.root.appendChild(this._panelEl);
     this._positionPanel();
+    // Two-step pinning: opening the reviewer menu arms annotate mode in the
+    // same gesture — button, then page. (Was: button → "Add comment" → page.)
+    if (this._deps.mode === 'reviewer' && !this._annotating) this._enterAnnotateMode(true);
   }
 
   private _closePanel(): void {
@@ -500,7 +508,7 @@ export class Annotator {
     const count = this._store.comments.length;
     const panel = this._makePanel(
       `You have ${count} comment${count === 1 ? '' : 's'}`,
-      'Click below, then tap any element to pin a comment.',
+      'Tap any element to pin a comment.',
       [
         this._makeButton(
           this._annotating ? 'Stop' : 'Add comment',
@@ -589,14 +597,15 @@ export class Annotator {
     else this._enterAnnotateMode();
   }
 
-  private _enterAnnotateMode(): void {
+  private _enterAnnotateMode(keepPanel = false): void {
     this._annotating = true;
     if (this._controlEl) this._controlEl.dataset['active'] = 'true';
     document.addEventListener('click', this._onDocumentClick, true);
     document.addEventListener('keydown', this._onKeyDown);
     this._prevBodyCursor = document.body.style.cursor;
     document.body.style.cursor = 'crosshair';
-    this._closePanel();
+    if (!keepPanel) this._closePanel();
+    this._refreshMenuPanel();
   }
 
   private _exitAnnotateMode(): void {
@@ -606,6 +615,18 @@ export class Annotator {
     document.removeEventListener('keydown', this._onKeyDown);
     document.body.style.cursor = this._prevBodyCursor;
     this._prevBodyCursor = '';
+    // An open menu shows the armed/disarmed primary — keep its label honest.
+    this._refreshMenuPanel();
+  }
+
+  // Rebuild the menu panel in place so Stop ⇄ Add comment tracks _annotating.
+  private _refreshMenuPanel(): void {
+    if (this._panelKind !== 'menu' || !this._panelEl) return;
+    this._panelEl.remove();
+    this._panelEl =
+      this._deps.mode === 'builder' ? this._renderBuilderPanel() : this._renderReviewerPanel();
+    this._ui.root.appendChild(this._panelEl);
+    this._positionPanel();
   }
 
   private _onKeyDown = (e: KeyboardEvent): void => {
@@ -614,10 +635,17 @@ export class Annotator {
 
   private _onDocumentClick = (e: MouseEvent): void => {
     const target = e.target as Element | null;
+    // contains() covers the retargeted (host-level) case; composedPath covers
+    // environments/edges where the capture target is the shadow-internal node
+    // itself — without it, an armed click on pinflow's own UI would both
+    // place a bogus pin AND stopPropagation away the control's handler.
     if (!target || this._ui.host.contains(target)) return;
+    if (e.composedPath?.().includes(this._ui.host)) return;
     e.preventDefault();
     e.stopPropagation();
     this._exitAnnotateMode();
+    // The menu's job is done once a pin lands — focus moves to the draft.
+    this._closePanel();
     this._placeCommentAt(e.clientX, e.clientY, target);
   };
 

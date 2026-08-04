@@ -5,9 +5,10 @@ export function download(content: string, filename: string, type = 'text/markdow
   a.href = url;
   a.download = filename;
   a.rel = 'noopener';
-  document.body.appendChild(a);
+  // Deliberately DETACHED: modern browsers download from unattached anchors,
+  // and a detached node's click never propagates to document — an attached
+  // one would hit the armed annotate handler and place a bogus pin.
   a.click();
-  document.body.removeChild(a);
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 

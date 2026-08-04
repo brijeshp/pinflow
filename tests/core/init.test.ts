@@ -240,8 +240,35 @@ describe('fail-loud boot (first-user feedback: silent failure cost a 30-minute d
     const handle = init({ project: 'boot' });
     expect(info).toHaveBeenCalledTimes(1);
     expect(info).toHaveBeenCalledWith(
-      expect.stringMatching(/^\[pinflow\] v.+ ready — mode=reviewer, activation=toggle, 0 comments$/),
+      expect.stringMatching(/^\[pinflow\] v.+ ready — mode=reviewer, activation=both, 0 comments$/),
     );
+    handle.destroy();
+  });
+
+  it("Alt+click works with ZERO activation config — the default is 'both' (first-user feedback: the obvious power move must not feel broken)", async () => {
+    const { init } = await import('../../src/core/index');
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    localStorage.setItem('pinflow:r:defboth', 'Tester');
+    const target = document.createElement('p');
+    target.textContent = 'host content';
+    document.body.appendChild(target);
+    const handle = init({ project: 'defboth' });
+    altClick(target);
+    const root = document.querySelector('[data-pinflow-root]');
+    expect(root?.shadowRoot?.querySelector('textarea')).not.toBeNull();
+    handle.destroy();
+  });
+
+  it("explicit activation 'toggle' still opts out of the gesture", async () => {
+    const { init } = await import('../../src/core/index');
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    localStorage.setItem('pinflow:r:opttoggle', 'Tester');
+    const target = document.createElement('p');
+    document.body.appendChild(target);
+    const handle = init({ project: 'opttoggle', activation: { mode: 'toggle' } });
+    altClick(target);
+    const root = document.querySelector('[data-pinflow-root]');
+    expect(root?.shadowRoot?.querySelector('textarea')).toBeNull();
     handle.destroy();
   });
 
