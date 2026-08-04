@@ -12,7 +12,7 @@ Everything a host can call, as it exists in code. Entry points, config options, 
 
 ## Core functions (`src/core/index.ts`)
 
-- **`init(config: PinflowConfig): Handle`** — initializes the layer. Throws if `config.voice.devOnlyToken` is set on a non-local origin. Calling `init()` while another instance is active destroys the previous one and warns.
+- **`init(config: PinflowConfig): Handle`** — initializes the layer. Prints one `console.info` ready line on success (version, mode, activation, comment count) and a `console.error` before rethrowing on failure; inert paths (SSR, declined identity) stay silent. Throws if `config.voice.devOnlyToken` is set on a non-local origin. Calling `init()` while another instance is active destroys the previous one and warns.
 - **`destroy(): void`** — destroys the global singleton; no-op if none active.
 - **`routeOf(url: string): string`** — route key from a full URL: `pathname + search` with pinflow params (`?reviewer=`, `?mode=`) stripped.
 - **`version: string`** — compile-time `__PINFLOW_VERSION__` define (falls back to `'0.0.0'` under test).

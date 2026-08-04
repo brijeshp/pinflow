@@ -1,215 +1,591 @@
 # Pinflow
 
-Figma-style pin-and-comment annotation for any prototype — and the feedback lifecycle around it. Zero backend by default, bring-your-own-backend by contract. Exports to markdown that drops straight into Claude Code or Cursor.
+Put feedback directly on a web page.
+
+Pinflow adds a small annotation layer to a prototype or web app. Reviewers point to an
+interface element, leave a text or voice comment, and keep moving. Each comment remembers
+what was selected, where it appeared, and enough surrounding context to make the feedback
+useful later.
+
+Feedback can stay in the reviewer's browser, be exported as Markdown or JSON, or be sent to
+your own backend. Pinflow has no runtime dependencies, no required account, and no telemetry.
+
+[![npm version](https://img.shields.io/npm/v/%40brijeshp%2Fpinflow.svg)](https://www.npmjs.com/package/@brijeshp/pinflow)
+[![license](https://img.shields.io/npm/l/%40brijeshp%2Fpinflow.svg)](https://github.com/brijeshp/pinflow/blob/main/LICENSE)
+
+[Quick start](#quick-start) · [Frameworks](#frameworks) · [Configuration](#configuration) ·
+[Examples](https://github.com/brijeshp/pinflow/tree/main/examples) ·
+[API reference](https://github.com/brijeshp/pinflow/blob/main/docs/wiki/api.md)
+
+## What Pinflow does
+
+- Adds numbered pins to elements on any web page.
+- Accepts written feedback and optional voice feedback.
+- Keeps pins attached as the page scrolls, resizes, or changes slightly.
+- Records useful element context: accessible name, nearby heading, selectors, position, and a
+  small visual-style snapshot.
+- Groups feedback by page, route, or application-defined screen.
+- Exports readable Markdown and structured JSON.
+- Works without a backend, but can sync through callbacks when you need shared or durable
+  storage.
+- Lets a team return a simple `done` or `declined` status and a resolution note to the reviewer.
+
+Pinflow is a good fit for design reviews, acceptance testing, stakeholder walkthroughs, and
+feedback on generated or hand-built prototypes. It works with plain HTML as well as React,
+Vue, Next.js, Vite, Remix, Astro, Lovable, Bolt, and similar tools.
+
+## Quick start
+
+Add one script tag to the page you want reviewed:
 
 ```html
 <script
   src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow@latest"
-  data-project="my-prototype"
-  onerror="console.error('pinflow failed to load')"
+  data-project="checkout-redesign"
+  onerror="console.error('Pinflow failed to load')"
 ></script>
 ```
 
-On success pinflow prints one boot line to the console (`[pinflow] vX ready — …`); if you see neither that nor the onerror message, the script never ran.
+Open the page. Pinflow asks for the reviewer's name once, then shows its control in the
+bottom-right corner.
 
-[Live demo](https://pinflow.dev) · [Spec](./specs/pinflow_v1_spec.md) · [Sync protocol](./PROTOCOL.md) · [Examples](./examples) · MIT
+1. Select the Pinflow control, then select an element on the page.
+2. Write a comment and choose **Save**.
+3. Repeat as needed.
+4. Choose **Export & share** to download the feedback as Markdown and copy it to the
+   clipboard.
 
----
+Reviewers can also place a pin with **Alt+click** (**Option+click** on macOS) or a 500 ms
+long-press on touch devices. These shortcuts work alongside the visible control by default.
 
-## The lifecycle
+The `data-project` value separates one prototype's feedback from another. Choose a stable,
+descriptive value and keep it unchanged for the life of the review.
 
-Pinflow covers the whole loop, not just the pin:
-
-- **Capture** — reviewers pin any element and comment by text or voice (`voice: { tokenEndpoint }`); the visible button, Alt+click (⌥-click on Mac), and a 500 ms long-press on touch all work out of the box; `activation: { mode: 'stealth' }` hides the button for gesture-only, `'toggle'` is button-only.
-- **Export** — one action collates everything into markdown or JSON (`handle.exportMarkdown()` / `exportJSON()`), each comment carrying its stable id, a friendly frame heading (`describeRoute`), and element context — "the 'Continue' button under 'Next section'", not just a CSS path.
-- **Submit** — with `submitTo: { email }`, the post-export confirmation opens a prefilled `mailto:` while the artifact is already downloaded and on the clipboard: a complete zero-backend hand-off.
-- **Sync** — pair `source` (read) with `onChange` (write) and any backend that implements three verbs becomes durable storage; the whole contract is [`PROTOCOL.md`](./PROTOCOL.md).
-- **Resolve** — the team sets `status`/`resolution` on their side; the reviewer's own pins render the disposition in situ — muted ✓ for done, struck for declined, the note shown read-only in the popup.
-
-## Install
-
-**Vanilla / script tag** (default):
+For production deployments, pin the package to a version instead of using `latest`:
 
 ```html
 <script
-  src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow@latest"
-  data-project="my-prototype"
-  onerror="console.error('pinflow failed to load')"
+  src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow@0.3.0"
+  data-project="checkout-redesign"
 ></script>
 ```
 
-On success pinflow prints one boot line to the console (`[pinflow] vX ready — …`); if you see neither that nor the onerror message, the script never ran.
+## How feedback is stored
 
-**React:**
+With no additional configuration, Pinflow saves comments to `localStorage` in the reviewer's
+browser. This is the simplest setup: there is no server, account system, or database to run.
+
+Local storage also defines the limits of that setup:
+
+- Feedback stays on the browser and device where it was created.
+- Clearing site data removes it.
+- Builder mode can only aggregate reviewers whose comments exist in that same browser.
+- If the browser blocks local storage, Pinflow falls back to memory for the current page
+  session; those comments do not survive a reload.
+
+Use [backend sync](#connect-your-own-backend) when feedback must follow a reviewer across
+devices, appear in a team workspace, or survive cleared browser data.
+
+## Frameworks
+
+Install the package when your app uses a bundler:
 
 ```bash
 npm install @brijeshp/pinflow
 ```
 
-```jsx
+The script-tag setup does not require Node.js. Package consumers and contributors need Node.js
+18 or newer. React and Vue are optional peer dependencies; install only the framework you
+use.
+
+### JavaScript or TypeScript
+
+```ts
+import { init } from '@brijeshp/pinflow';
+
+const pinflow = init({
+  project: 'checkout-redesign',
+});
+```
+
+`init()` returns a handle for lifecycle, route refresh, and export operations. Pinflow is a
+singleton: calling `init()` again replaces the active instance. Call `pinflow.destroy()` when
+the host app is torn down.
+
+### React
+
+```tsx
 import { Annotator } from '@brijeshp/pinflow/react';
 
 export default function App() {
   return (
     <>
-      <Annotator project="my-prototype" />
-      {/* rest of your app */}
+      <Annotator project="checkout-redesign" />
+      <YourApp />
     </>
   );
 }
 ```
 
-**Vue:**
+`<Annotator>` renders no visible React node of its own. It mounts Pinflow's isolated interface
+when the component mounts and removes it when the component unmounts.
 
-```js
-import { Annotator } from '@brijeshp/pinflow/vue';
+### Next.js
+
+Pinflow uses browser APIs, so put the React wrapper behind a client-component boundary:
+
+```tsx
+// app/pinflow-provider.tsx
+'use client';
+
+import { Annotator } from '@brijeshp/pinflow/react';
+
+export function PinflowProvider() {
+  return <Annotator project="checkout-redesign" />;
+}
 ```
 
-**Next.js:** use inside a `'use client'` wrapper — see [`examples/nextjs`](./examples/nextjs).
+Mount `PinflowProvider` from your layout or page. See the complete
+[Next.js example](https://github.com/brijeshp/pinflow/tree/main/examples/nextjs).
 
-## How it works
+### Vue
 
-1. **Builder** ships a prototype (Lovable, Bolt, Replit, Vercel preview — anything).
-2. **Reviewer** opens the URL. Identity comes from `?reviewer=NAME` or a one-time prompt.
-3. Reviewer clicks any element to drop a pin, types a comment, hits Save. Stored in localStorage.
-4. Reviewer hits "Export & share" → the markdown downloads and lands on the clipboard; with `submitTo` configured, one more click opens a prefilled email to the builder.
-5. Builder pastes the markdown into Claude Code as the next prompt.
+```vue
+<script setup lang="ts">
+import { Annotator } from '@brijeshp/pinflow/vue';
+</script>
 
-With a synced backend ([`PROTOCOL.md`](./PROTOCOL.md)), the loop closes:
+<template>
+  <Annotator project="checkout-redesign" />
+</template>
+```
 
-6. Builder marks comments done or declined — with a one-line note — through their own backend.
-7. Reviewer's next visit hydrates via `source`: their pins render resolved (✓ / struck), frozen, note visible.
-
-No accounts, no servers, no auth. Ever — pinflow ships contracts and hooks, never a backend.
+Vue exposes `onSubmit` as `submitHandler` and `onChange` as `changeHandler` because `on*`
+props have special meaning in Vue. The other configuration names are unchanged.
 
 ## Configuration
 
-```js
-window.Pinflow.init({
-  project: 'my-prototype', // localStorage namespace
-  reviewer: 'Sarah', // override URL param
-  mode: 'reviewer', // 'reviewer' | 'builder'
-  theme: {
-    // Optional design tokens so the widget matches your product.
-    // All optional; omit the object entirely for the stock look.
-    fontFamily: 'DM Sans',
-    accent: '#2d8b8b', // buttons, pins, active states
-    accentContrast: '#f1faee', // text on accent surfaces
-    surface: '#ffffff', // panel/popup background
-    text: '#1a2332',
-    textMuted: '#4a5568',
-    danger: '#e07a5f', // delete + recording indicator
-    radius: '14px',
-    shadow: '0 4px 20px rgba(26,35,50,0.1)',
-  },
+Only `project` is required.
 
-  // Lifecycle (all optional; see PROTOCOL.md for the sync contract)
-  routeKey: () => app.currentStep, // logical screen key when screens change without a URL change
-  describeRoute: (key) => stepLabels[key] ?? '', // friendly frame headings in exports
-  submitTo: { email: 'builder@example.com' }, // "Email it to the builder" after export
-  source: async () => {
-    // Read half of sync: hydrate this reviewer's comments (with team-set
-    // status/resolution) once at init. Failures fall back to localStorage.
-    const res = await fetch('/api/feedback-annotations');
-    return res.json();
+```ts
+import { init } from '@brijeshp/pinflow';
+
+const pinflow = init({
+  project: 'checkout-redesign',
+  reviewer: 'Sam',
+  activation: { mode: 'both' },
+  exportUi: 'auto',
+  submitTo: {
+    email: 'team@example.com',
+    subject: 'Checkout review',
   },
-  onChange: (store, change) => {
-    // Write half of sync — fires after every persisted add/update/delete.
-    // You own debouncing/batching; exceptions are caught and logged.
-    void fetch('/api/feedback-events', { method: 'POST', body: JSON.stringify(change) });
-  },
-  onSubmit: async (payload) => {
-    // Optional: POST the full store to your own endpoint on explicit submit
-    await fetch('/api/feedback', { method: 'POST', body: JSON.stringify(payload) });
+  theme: {
+    accent: '#6d4aff',
+    accentContrast: '#ffffff',
+    radius: '12px',
   },
 });
 ```
 
-The full, current API surface lives in [`docs/wiki/api.md`](./docs/wiki/api.md) (agent-maintained, drift-checked in CI); [`specs/pinflow_v1_spec.md`](./specs/pinflow_v1_spec.md) is the original v1 spec and predates voice, the lifecycle, and anytime export.
+| Option          | Purpose                                                                      |
+| --------------- | ---------------------------------------------------------------------------- |
+| `project`       | Required storage namespace for the reviewed experience.                      |
+| `reviewer`      | Sets the display name instead of reading `?reviewer=` or prompting.          |
+| `mode`          | Uses reviewer mode by default; set `'builder'` for the local aggregate view. |
+| `activation`    | Chooses the visible control, gestures, or both.                              |
+| `exportUi`      | Controls the reviewer's export controls: `'auto'`, `'always'`, or `'never'`. |
+| `submitTo`      | Adds a prefilled email action after export.                                  |
+| `onSubmit`      | Sends the current reviewer's full store through a host-provided function.    |
+| `source`        | Loads this reviewer's saved comments from your backend.                      |
+| `onChange`      | Reports each saved add, update, and delete to your backend.                  |
+| `routeKey`      | Identifies the current screen when the URL is not enough.                    |
+| `describeRoute` | Gives route keys readable names in exported feedback.                        |
+| `theme`         | Applies Pinflow's optional visual design tokens.                             |
+| `voice`         | Enables voice comments through a short-lived token provider.                 |
 
-## Sync
+See the [API reference](https://github.com/brijeshp/pinflow/blob/main/docs/wiki/api.md) for
+complete types, wrapper behavior, and the returned handle.
 
-localStorage is the zero-config default. To make feedback durable — and to close the loop with team dispositions rendered on the reviewer's own pins — pair `source` (read: hydrate comments from your backend at init) with `onChange` (write: upsert/delete by comment id). The full contract, including merge semantics and the server-owned `status`/`resolution` fields, is three verbs documented in [`PROTOCOL.md`](./PROTOCOL.md).
+### Choose how reviewers activate Pinflow
+
+```ts
+init({
+  project: 'checkout-redesign',
+  activation: { mode: 'both' },
+});
+```
+
+- `'both'` is the default: visible control, Alt/Option+click, and touch long-press.
+- `'toggle'` shows the control and disables the gestures.
+- `'stealth'` hides the control and uses gestures only.
+
+Stealth mode also delays the name prompt until the reviewer first tries to leave feedback, so
+the page loads without any visible Pinflow interaction.
+
+### Identify a reviewer
+
+Pinflow resolves the display name in this order:
+
+1. The `reviewer` configuration value.
+2. The `?reviewer=NAME` query parameter.
+3. A one-time browser prompt.
+
+For example:
+
+```text
+https://preview.example.com/checkout?reviewer=Sam
+```
+
+The reviewer name is a label, not authentication. If access control or verified identity
+matters, enforce it in your application and backend.
+
+### Review multi-step and single-page experiences
+
+By default, Pinflow groups comments by `pathname + search` and automatically follows browser
+navigation. If several screens share one URL, provide your own stable screen key and tell
+Pinflow when it changes:
+
+```ts
+let currentStep = 'shipping';
+const stepLabels: Record<string, string> = {
+  shipping: 'Shipping details',
+  payment: 'Payment',
+  confirmation: 'Confirmation',
+};
+
+const pinflow = init({
+  project: 'checkout-redesign',
+  routeKey: () => currentStep,
+  describeRoute: (key) => stepLabels[key] ?? key,
+});
+
+function moveToStep(nextStep: string) {
+  currentStep = nextStep;
+  pinflow.refreshRoute();
+}
+```
+
+Pins from other screens are hidden, and the readable label appears in exported feedback.
+
+### Match your product's visual style
+
+```ts
+init({
+  project: 'checkout-redesign',
+  theme: {
+    fontFamily: 'Inter',
+    accent: '#2d6a4f',
+    accentContrast: '#ffffff',
+    surface: '#ffffff',
+    text: '#17221d',
+    textMuted: '#66736c',
+    danger: '#c2413b',
+    radius: '14px',
+    shadow: '0 12px 32px rgba(23, 34, 29, 0.16)',
+  },
+});
+```
+
+All theme values are optional. Pinflow renders inside a Shadow DOM so host styles do not leak
+into the widget, and Pinflow styles do not leak into the host page.
+
+## Export and share feedback
+
+The default export action does two things: it downloads a Markdown file and copies the same
+content to the clipboard. The result is readable on its own and can be pasted into an issue,
+pull request, project document, or coding assistant.
+
+Each comment includes the reviewer's words plus the information needed to find the target
+again:
+
+```markdown
+## Route: /checkout
+
+### [cmt_9f2kx1abq] Comment 1 — 2026-08-04T14:24:00Z
+
+**Element:** `<button data-testid="place-order">` ("Place order")
+**Context:** the 'Place order' button under 'Review your order'
+**Selector candidates:**
+
+- testid: `place-order`
+- css: `main > section:nth-of-type(2) > button.primary`
+- xpath: `/html/body/main/section[2]/button[1]`
+
+**Position:** 47% from left, 38% from top of element
+**Viewport at time of comment:** 390×844 (mobile)
+
+> This button needs a clearer disabled state.
+```
+
+You can also export from your own interface:
+
+```ts
+const pinflow = init({ project: 'checkout-redesign' });
+
+const markdown = pinflow.exportMarkdown();
+const json = pinflow.exportJSON();
+
+// Downloads Markdown and copies it to the clipboard.
+pinflow.downloadExport();
+```
+
+Reviewer mode exports that reviewer's comments. Builder mode exports all comments available
+to the local builder view. The package also exports DOM-free helpers—`exportReviewer`,
+`exportBuilder`, `exportJSON`, and `exportFilename`—for generating artifacts from stored data
+on a server or in another application.
+
+If a page change removes an annotated element, Pinflow hides the now-misleading pin but keeps
+the comment. The export reports it as unanchored and preserves the last known element context.
+
+### Email handoff without a backend
+
+Add `submitTo` to show an **Email it to the builder** action after export:
+
+```ts
+init({
+  project: 'checkout-redesign',
+  submitTo: {
+    email: 'team@example.com',
+    subject: 'Feedback on checkout',
+  },
+});
+```
+
+Pinflow opens a prefilled `mailto:` link. The Markdown file has already been downloaded and
+copied, so the reviewer can attach or paste it into the message. Email delivery is handled by
+the reviewer's mail application, not by Pinflow.
+
+### Submit through your own function
+
+Use `onSubmit` when your application already has an endpoint or submission flow:
+
+```ts
+init({
+  project: 'checkout-redesign',
+  onSubmit: async (store) => {
+    await fetch('/api/feedback', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(store),
+    });
+  },
+});
+```
+
+When `onSubmit` is present, Pinflow shows a **Send to builder** action. Your function owns
+authentication, transport, retries, and the user-facing delivery policy.
+
+## Connect your own backend
+
+Use `source` to read saved comments and `onChange` to report edits:
+
+```ts
+init({
+  project: 'checkout-redesign',
+
+  source: async () => {
+    const response = await fetch('/api/feedback/comments');
+    if (!response.ok) throw new Error('Could not load feedback');
+    return response.json();
+  },
+
+  onChange: async (_store, change) => {
+    const response = await fetch('/api/feedback/changes', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(change),
+    });
+    if (!response.ok) throw new Error('Could not save feedback');
+  },
+});
+```
+
+`source` returns the current reviewer's comments. `onChange` receives an `add`, `update`, or
+`delete` event after each saved change. Your backend should upsert by the comment's stable
+`id` and treat deleting a missing id as a successful no-op.
+
+Pinflow keeps local storage as a safety net. If loading from the backend fails, the local copy
+continues to work. On the next successful load, local comments that never reached the server
+are reported again through `onChange`.
+
+When `source` is configured, `exportUi: 'auto'` hides the reviewer-side export controls because
+the host normally owns collection. Set `exportUi: 'always'` if you want backend sync and local
+export at the same time.
+
+The full merge behavior, data shape, and backend responsibilities are documented in the
+[sync protocol](https://github.com/brijeshp/pinflow/blob/main/PROTOCOL.md).
+
+### Return a resolution to the reviewer
+
+Your backend can return two team-owned fields through `source`:
+
+```json
+{
+  "status": "done",
+  "resolution": "Increased the contrast and added a disabled label."
+}
+```
+
+Supported statuses are `open`, `done`, and `declined`. Done and declined comments become
+read-only in the reviewer interface and show the team's note. Pinflow displays this state; it
+does not include a team dashboard for setting it.
+
+## Voice comments
+
+Voice is optional and loaded only when configured. Text-only integrations do not download the
+voice module.
+
+```ts
+init({
+  project: 'checkout-redesign',
+  voice: {
+    tokenEndpoint: '/api/pinflow/deepgram-token',
+  },
+});
+```
+
+The endpoint must return a short-lived Deepgram grant token:
+
+```json
+{
+  "access_token": "short-lived-token",
+  "expires_in": 30
+}
+```
+
+Never put a Deepgram API key in browser code. `devOnlyToken` accepts a short-lived grant token
+on local origins only and throws during initialization anywhere else. If microphone access,
+token minting, or transcription fails, Pinflow falls back to a text comment.
+
+Voice is available through the installed ESM/CJS package. It is not supported by the CDN/IIFE
+build. See the
+[voice documentation](https://github.com/brijeshp/pinflow/blob/main/docs/wiki/voice.md) for
+the token flow and failure behavior.
 
 ## Builder mode
 
-Open your prototype URL with `?mode=builder` to see all comments from every reviewer whose comments are in this browser's localStorage. Hit "Export all" to download an aggregated markdown file.
+Open the reviewed page with `?mode=builder` to inspect all reviewer stores available in the
+current browser:
 
-Treat the builder URL as a soft secret — there is no auth on this mode.
-
-## Markdown export
-
-The export format is the load-bearing feature. It is designed for direct paste into an AI coding tool — and, with ids and dispositions, doubles as the team-side tracking artifact.
-
-Export is available at any moment, not just at the end. Once the reviewer has a comment, a small count chip (the pins' own visual vocabulary, bottom-left) summons an export sheet; the draft popup carries an `Export all · n` action that saves your comment first; and `⌘/Ctrl+Shift+E` opens the same sheet on desktop. All three ride the standard flow: download + clipboard + the `submitTo` hand-off when configured.
-
-This is governed by `exportUi: 'auto' | 'always' | 'never'` (default `'auto'`): on for local-first installs, off automatically when `source` is configured — a synced host owns collation, so member-side export there would be noise. A sample artifact:
-
-```markdown
-# Feedback for my-prototype — from Sarah
-
-Generated: 2026-04-15T14:45:00Z
-Reviewer: Sarah
-Total comments: 2
-Routes covered: /, /pricing
-
----
-
-## Route: /
-
-### [cmt_9f2kx1abq] Comment 1 — 2026-04-15T14:24:00Z — done
-
-**Element:** `<button data-testid="primary-cta">` ("Get started for free")
-**Context:** the ‘Get started for free’ button under ‘Ship faster’
-**Selector candidates:**
-
-- testid: `primary-cta`
-- css: `main > section:nth-of-type(1) > button.cta-primary`
-- xpath: `/html/body/main/section[1]/button[1]`
-  **Position:** 47% from left, 38% from top of element
-  **Viewport at time of comment:** 390×844 (mobile)
-
-> This CTA gets lost against the background.
+```text
+https://preview.example.com/checkout?mode=builder
 ```
 
-The `— done` suffix appears only when the team has set a disposition, so backendless exports stay noise-free. `exportJSON()` emits the same corpus machine-readably (`{ pinflowExport: 3, comments: [...] }`); both generators are pure and DOM-free, so hosts run them server-side too. See [`specs/pinflow_v1_spec.md` §7](./specs/pinflow_v1_spec.md#7-markdown-export-specification) for the base format.
+Builder mode provides reviewer filters, read-only pins, aggregate export, and local clearing.
+It is a convenience for backend-free reviews, not an administrative or authenticated area.
+Treat the URL as a soft secret and do not rely on it for access control.
 
-## Production case study
+## Privacy and security
 
-[Sensavera](https://sensavera.com), a voice research platform, runs pinflow in production embedded in a phased single-URL experience: `routeKey` scopes pins to each frame of the flow, `onChange`/`source` stream every annotation to its backend live (the named reference implementation in [`PROTOCOL.md`](./PROTOCOL.md)), and the theme tokens restyle the whole widget — voice HUD included — to its design system.
+Pinflow does not send telemetry. With the default configuration, it makes no network requests
+and stores feedback only in the reviewer's browser.
 
-## Privacy
+Network activity begins only when you configure one of these features:
 
-- All comments live in the reviewer's browser localStorage.
-- No telemetry. Ever.
-- No network calls unless you configure them: `onSubmit`, `onChange`, `source`, or voice transcription (`voice.tokenEndpoint`).
-- Element text content is captured as a fingerprint — be aware of this when deploying on prototypes containing sensitive data.
-- Each pin also captures the nearest heading's text (plus the target's accessible name and role), a small computed-style snapshot (background/color/font/radius), and image URLs — both `<img src>` for image pins and CSS `background-image` URLs, which may include signed/tokenized CDN links — as element context so agents know what is pinned. The same caution applies.
+- `source`, `onChange`, or `onSubmit`
+- voice transcription
+- the browser's normal request for the CDN script, if you use the script-tag installation
+
+A comment contains more than its written text. To help find the selected element again,
+Pinflow may record:
+
+- element text, accessible name, and role;
+- the nearest heading;
+- test id, id, CSS, and XPath selector candidates;
+- viewport size and relative click position;
+- selected computed styles such as color, font, background, and radius;
+- image and CSS background-image URLs, which may contain signed or tokenized CDN values.
+
+Treat exported and synced comments as potentially sensitive user-generated data. Avoid using
+Pinflow on pages that expose secrets or personal information unless your storage and access
+controls are appropriate. Keep webhook URLs, API keys, and other reusable credentials on the
+server.
+
+Exported comment content is also untrusted input. Pinflow escapes its generated Markdown to
+prevent comments or captured page text from creating new top-level instructions, but any
+system that consumes feedback should still apply its normal validation and authorization
+rules.
+
+## Browser support and limitations
+
+- Current and previous major versions of Chrome, Safari, Firefox, and Edge
+- Mobile Safari and Chrome for Android
+- React 18 or newer
+- Vue 3 or newer
+- Server rendering through the React and Vue wrappers; Pinflow becomes active in the browser
+
+Known limitations:
+
+- Elements inside iframes cannot be annotated.
+- The CDN/IIFE build does not support voice comments.
+- Builder mode reads local browser data; all-reviewer backend hydration is not included.
+- Pinflow provides annotation and integration hooks, not user accounts, permissions, a hosted
+  database, or a team dashboard.
+
+## Troubleshooting
+
+On a successful browser initialization, Pinflow logs one line like this:
+
+```text
+[pinflow] v0.3.0 ready — mode=reviewer, activation=both, 0 comments
+```
+
+If the widget does not appear:
+
+1. Check the browser console for the ready line or an initialization error.
+2. Confirm the CDN script loaded successfully, or confirm the installed package is present in
+   your bundle.
+3. Make sure `project` is a non-empty, stable string.
+4. In Next.js, confirm the wrapper is mounted from a `'use client'` component.
+5. Remember that stealth mode has no visible control and that iframe contents are outside
+   Pinflow's reach.
+
+## API at a glance
+
+| Import                    | Use                                                                   |
+| ------------------------- | --------------------------------------------------------------------- |
+| `@brijeshp/pinflow`       | Core `init`, `destroy`, `routeOf`, version, types, and export helpers |
+| `@brijeshp/pinflow/react` | React `<Annotator>` wrapper                                           |
+| `@brijeshp/pinflow/vue`   | Vue `<Annotator>` wrapper                                             |
+| `@brijeshp/pinflow/voice` | Internal lazy voice entry; do not import directly                     |
+
+The handle returned by `init()` exposes:
+
+| Method             | Use                                                            |
+| ------------------ | -------------------------------------------------------------- |
+| `destroy()`        | Remove Pinflow and release its listeners and active resources. |
+| `refreshRoute()`   | Re-read `routeKey` and display pins for the current screen.    |
+| `exportMarkdown()` | Return the current feedback as Markdown.                       |
+| `exportJSON()`     | Return the current feedback as versioned JSON.                 |
+| `downloadExport()` | Download Markdown and copy it to the clipboard.                |
+
+For full signatures and types, see the
+[API reference](https://github.com/brijeshp/pinflow/blob/main/docs/wiki/api.md).
 
 ## Examples
 
-- [`vanilla-html`](./examples/vanilla-html) — single script tag
-- [`react-vite`](./examples/react-vite) — React + Vite
-- [`nextjs`](./examples/nextjs) — Next.js App Router
-- [`lovable-prototype`](./examples/lovable-prototype) — Lovable / Bolt output
-- [`webhook-discord`](./examples/webhook-discord) — post to Discord
-- [`webhook-slack`](./examples/webhook-slack) — post to Slack
-- [`webhook-vercel-notion`](./examples/webhook-vercel-notion) — Vercel function → Notion
-
-## Browser and framework support
-
-Last 2 versions of Chrome, Safari, Firefox, Edge. Mobile Safari and Chrome Android. Vanilla JS, React 18+, Vue 3+. Works out of the box with Next.js, Remix, Vite, Astro, Lovable, and Bolt.
-
-Iframes are not annotated in v1.
-
-## Deliberately deferred
-
-Threading, @mentions, severity, assignees, sketching, real-time collaboration, screenshot capture, AI reviewers, issue-tracker integrations, auth, servers. See [spec §3](./specs/pinflow_v1_spec.md#3-scope) and [§12](./specs/pinflow_v1_spec.md#12-deferred-to-v2-and-beyond).
+- [Vanilla HTML](https://github.com/brijeshp/pinflow/tree/main/examples/vanilla-html) — one
+  script tag, no build step
+- [React + Vite](https://github.com/brijeshp/pinflow/tree/main/examples/react-vite) — the React
+  wrapper in a Vite app
+- [Next.js](https://github.com/brijeshp/pinflow/tree/main/examples/nextjs) — App Router with a
+  client boundary
+- [Lovable or Bolt prototype](https://github.com/brijeshp/pinflow/tree/main/examples/lovable-prototype) —
+  add Pinflow to generated output
+- [Slack](https://github.com/brijeshp/pinflow/tree/main/examples/webhook-slack) — send feedback
+  through a server-side webhook proxy
+- [Discord](https://github.com/brijeshp/pinflow/tree/main/examples/webhook-discord) — send feedback
+  through a server-side webhook proxy
+- [Vercel + Notion](https://github.com/brijeshp/pinflow/tree/main/examples/webhook-vercel-notion) —
+  store submissions with a serverless function
 
 ## Contributing
 
-See [`CONTRIBUTING.md`](./CONTRIBUTING.md). TL;DR: zero runtime deps, hard size budgets enforced by `pnpm size` (`size-limit` in `package.json`), UI layer stays in Shadow DOM.
+See
+[CONTRIBUTING.md](https://github.com/brijeshp/pinflow/blob/main/CONTRIBUTING.md)
+for local setup and project conventions. Pinflow uses pnpm, keeps zero runtime dependencies,
+enforces bundle-size budgets, and requires tests for behavior changes.
 
 ## License
 
-MIT
+[MIT](https://github.com/brijeshp/pinflow/blob/main/LICENSE)

@@ -640,3 +640,171 @@ describe('sheet surfaces unanchored comments (0.3.0 orphan tray-row)', () => {
     );
   });
 });
+
+describe('secondary panel actions disarm annotate mode (codex 0.3.0 #4)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    document.body.style.cursor = '';
+    vi.restoreAllMocks();
+  });
+
+  function pageClickOpensDraft(): boolean {
+    const t = document.createElement('p');
+    t.textContent = 'host target paragraph';
+    document.body.appendChild(t);
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    return shadow().querySelector('textarea') !== null;
+  }
+
+  it('Export & share exits armed mode — a later host click is the host’s again', async () => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    seedStore([makeComment('c1', 'x')]);
+    annotator = makeAnnotator();
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    [...shadow().querySelectorAll('button')]
+      .find((b) => b.textContent === 'Export & share')!
+      .click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pageClickOpensDraft()).toBe(false);
+  });
+
+  it('Clear all → Cancel exits armed mode', () => {
+    seedStore([makeComment('c1', 'x')]);
+    annotator = makeAnnotator();
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Clear all')!.click();
+    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!.click();
+    expect(pageClickOpensDraft()).toBe(false);
+  });
+});
+
+describe('orphan state stays live through reposition (codex 0.3.0 #9)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('a target that disappears AFTER mount re-orphans the pin, and the sheet reports it', () => {
+    const t = document.createElement('div');
+    t.id = 'goes-away';
+    t.textContent = 'temporary content nobody else has';
+    document.body.appendChild(t);
+    const c = makeComment('c1', 'note');
+    c.anchor = {
+      ...c.anchor,
+      selectors: { testid: null, id: 'goes-away', css: '#goes-away', xpath: '/html/body/div[1]' },
+      textFingerprint: 'temporary content nobody else has',
+    };
+    seedStore([c]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    const pin = shadow().querySelector<HTMLElement>('.pin')!;
+    expect(pin.dataset['orphaned']).toBeUndefined();
+
+    t.remove();
+    vi.spyOn(performance, 'now').mockReturnValue(10_000);
+    (annotator as unknown as { _repositionPins(): void })._repositionPins();
+    expect(pin.dataset['orphaned']).toBe('true');
+    expect(pin.style.display).toBe('none');
+
+    chip()!.click();
+    expect(shadow().querySelector('.panel h3')?.textContent).toContain('1 unanchored');
+  });
+
+  it('an OPEN sheet’s title refreshes when a pin re-orphans', () => {
+    const t = document.createElement('div');
+    t.id = 'g2';
+    t.textContent = 'more temporary content for the sheet';
+    document.body.appendChild(t);
+    const c = makeComment('c1', 'note');
+    c.anchor = {
+      ...c.anchor,
+      selectors: { testid: null, id: 'g2', css: '#g2', xpath: '/html/body/div[1]' },
+      textFingerprint: 'more temporary content for the sheet',
+    };
+    seedStore([c]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    expect(shadow().querySelector('.panel h3')?.textContent).not.toContain('unanchored');
+    t.remove();
+    vi.spyOn(performance, 'now').mockReturnValue(10_000);
+    (annotator as unknown as { _repositionPins(): void })._repositionPins();
+    expect(shadow().querySelector('.panel h3')?.textContent).toContain('1 unanchored');
+  });
+});
+
+describe('hydration races (codex 0.3.0 P1 + heal overlay)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('Clear all during pending hydration: the late snapshot cannot resurrect deleted comments', async () => {
+    seedStore([makeComment('c1', 'kill me')]);
+    let resolveSource!: (v: Comment[]) => void;
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Clear all')!.click();
+    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Delete all')!.click();
+    expect(deltas).toEqual(['delete:c1']);
+
+    // The server snapshot was taken BEFORE the delete — it still has c1.
+    resolveSource([makeComment('c1', 'kill me')]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments ?? []).toHaveLength(0);
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
+    expect(deltas).toEqual(['delete:c1']); // and no phantom re-add announcement
+  });
+
+  it('hydration with a tied-timestamp server copy cannot erase a healed selector', async () => {
+    const target = document.createElement('p');
+    target.textContent = 'Long-lived hydration heal paragraph target.';
+    document.body.appendChild(target);
+    const c = makeComment('h1', 'note');
+    c.anchor = {
+      ...c.anchor,
+      selectors: { testid: null, id: null, css: '#stale-css', xpath: '/nope' },
+      textFingerprint: 'Long-lived hydration heal paragraph target.',
+    };
+    // Server copy: same updatedAt, still carrying the stale selectors.
+    const serverCopy = JSON.parse(JSON.stringify(c)) as Comment;
+    seedStore([c]);
+    let resolveSource!: (v: Comment[]) => void;
+    annotator = makeAnnotator({
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    // Mount healed the selector already:
+    let stored = loadStore(localStorage, PROJECT, REVIEWER)!;
+    const healedCss = stored.comments[0]!.anchor.selectors.css;
+    expect(healedCss).not.toBe('#stale-css');
+
+    resolveSource([serverCopy]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    stored = loadStore(localStorage, PROJECT, REVIEWER)!;
+    expect(stored.comments[0]!.anchor.selectors.css).toBe(healedCss);
+    expect(shadow().querySelector<HTMLElement>('.pin')!.style.display).not.toBe('none');
+  });
+});

@@ -164,3 +164,79 @@ describe('fuzzy re-anchor fallback (first-user feedback: edits orphan pins on ev
     expect(found?.tagName).toBe('P');
   });
 });
+
+describe('fuzzy re-anchor hardening (codex 0.3.0 review #2/#3)', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('threshold applies to RAW similarity — the same-tag bias cannot smuggle a sub-0.6 match in', () => {
+    // 'Save now settings panel' vs 'Save all sections today': raw Dice < 0.6.
+    document.body.innerHTML = '<main><p class="a">Save now settings panel</p></main>';
+    const p = document.querySelector('p')!;
+    const sels = buildSelectors(p);
+    const fp = getTextFingerprint(p);
+    document.body.innerHTML = '<section><p class="b">Save all sections today</p></section>';
+    expect(findByCandidates(document, sels, fp)).toBeNull();
+  });
+
+  it('very short fingerprints never fuzzy-match — tiny bigram sets are noise', () => {
+    document.body.innerHTML = '<main><button id="ok-btn-x">No</button></main>';
+    const b = document.querySelector('button')!;
+    const sels = { ...buildSelectors(b), id: null, css: '#gone', xpath: '/nope' };
+    const fp = getTextFingerprint(b); // 'No'
+    document.body.innerHTML = '<section><button>Not</button></section>';
+    expect(findByCandidates(document, sels, fp)).toBeNull();
+  });
+
+  it('wrapper-vs-leaf: an ancestor with an identical fingerprint loses to the descendant', () => {
+    // Stable-ID css ('#review…') carries no tag; wrapper and button share the
+    // fingerprint (textContent flows up). The pin was on the BUTTON.
+    document.body.innerHTML =
+      '<main><div id="review9x"><button>Approve the latest draft version</button></div></main>';
+    const btn = document.querySelector('button')!;
+    const sels = {
+      ...buildSelectors(btn),
+      css: '#review9x',
+      xpath: '/nope',
+      id: null,
+      testid: null,
+    };
+    const fp = getTextFingerprint(btn);
+    document.body.innerHTML =
+      '<section><div class="wrap"><button>Approve the newest draft version</button></div></section>';
+    const found = findByCandidates(document, sels, fp);
+    expect(found?.tagName).toBe('BUTTON');
+  });
+});
+
+describe('fingerprint walk container discipline (found via codex 0.3.0 #2/#6 debugging)', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('an identical-fingerprint ancestor chain resolves to the LEAF, never html/body', () => {
+    document.body.innerHTML =
+      '<div><section><p>The one and only paragraph of meaningful text.</p></section></div>';
+    const sels = { testid: null, id: null, css: '#nope', xpath: '/nope' };
+    // html, body, div, section, and p all share this fingerprint.
+    const found = findByCandidates(
+      document,
+      sels,
+      'The one and only paragraph of meaningful text.',
+    );
+    expect(found?.tagName).toBe('P');
+  });
+
+  it('exact match always beats a better-scoring fuzzy candidate', () => {
+    document.body.innerHTML = [
+      '<main>',
+      '<p>Approve the latest draft version today</p>',
+      '<p>Approve the latest draft versions today</p>',
+      '</main>',
+    ].join('');
+    const sels = { testid: null, id: null, css: '#nope', xpath: '/nope' };
+    const found = findByCandidates(document, sels, 'Approve the latest draft versions today');
+    expect(found?.textContent).toBe('Approve the latest draft versions today');
+  });
+});

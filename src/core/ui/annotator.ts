@@ -118,6 +118,12 @@ export class Annotator {
   // never write to storage or touch the DOM, no matter what resolves late.
   private _destroyed = false;
   private _activeVoice: ActiveVoice | null = null;
+  // Deletion tombstones for the window where a source() hydration is in
+  // flight: a snapshot fetched BEFORE a delete must not resurrect the
+  // deleted comment when it resolves AFTER it (codex 0.3.0 P1) — and a
+  // resurrected copy would even re-announce as an 'add' on the next
+  // reconcile, restoring it server-side.
+  private _pendingDeletes: Set<string> | null = null;
   private readonly _voiceLogger: Logger = {
     warn: (m, d) => console.warn(`[pinflow] ${m}`, d),
     error: (m, d) => console.error(`[pinflow] ${m}`, d),
@@ -198,10 +204,12 @@ export class Annotator {
       this._voiceLogger.warn('source hydration failed — using local store', err);
       return;
     }
+    const tombstones = (this._pendingDeletes = new Set<string>());
     void fetched.then(
       (raw) => {
+        if (this._pendingDeletes === tombstones) this._pendingDeletes = null;
         if (this._destroyed || this._reviewer !== forReviewer) return;
-        const server = normalizeComments(raw);
+        const server = normalizeComments(raw).filter((c) => !tombstones.has(c.id));
         // Two repair cases (codex r16): an id the server LACKS re-announces
         // as 'add'; an id the server has but with an older updatedAt (a lost
         // update — the merge keeps the local content) re-announces as
@@ -223,7 +231,10 @@ export class Annotator {
           if (merged) this._emitChange(r.type, merged);
         }
       },
-      (err) => this._voiceLogger.warn('source hydration failed — using local store', err),
+      (err) => {
+        if (this._pendingDeletes === tombstones) this._pendingDeletes = null;
+        this._voiceLogger.warn('source hydration failed — using local store', err);
+      },
     );
   }
 
@@ -329,6 +340,9 @@ export class Annotator {
   // A2: notify the host after a persisted mutation. Host exceptions must never
   // break the annotator, and a torn-down world must never call out.
   private _emitChange(type: 'add' | 'update' | 'delete', comment: Comment): void {
+    // Tombstone BEFORE the callback gate: the hydration race exists whether
+    // or not the host listens to onChange.
+    if (type === 'delete') this._pendingDeletes?.add(comment.id);
     const cb = this._deps.config.onChange;
     if (!cb || this._destroyed) return;
     try {
@@ -460,6 +474,7 @@ export class Annotator {
     const c = this._store.comments.find((x) => x.id === commentId);
     if (!c) return;
     const fresh = buildSelectors(target);
+    if (!fresh.css) return; // never cement a degenerate selector
     const s = c.anchor.selectors;
     if (
       fresh.css === s.css &&
@@ -476,7 +491,10 @@ export class Annotator {
     };
     // NOT _persist(): that invalidates the anchor cache, but a heal describes
     // the very element just cached — flushing it would force a redundant
-    // ladder walk on the next reflow frame (P2.2 would regress).
+    // ladder walk on the next reflow frame (P2.2 would regress). The VISIBLE
+    // cache, however, still holds pre-heal comment objects and must go, or
+    // later re-resolves would use the stale selectors (codex 0.3.0 #6).
+    this._visibleCache = null;
     saveStore(this._deps.storage, this._store);
   }
 
@@ -584,6 +602,9 @@ export class Annotator {
   private _confirmReviewerClear(): void {
     const n = this._store.comments.length;
     this._closePanel();
+    // Entering a destructive flow ends pinning; Cancel must not leave the
+    // page armed behind the reviewer's back (codex 0.3.0 #4).
+    if (this._annotating) this._exitAnnotateMode();
     const panel = this._makePanel(
       `Delete ${n} comment${n === 1 ? '' : 's'}?`,
       'This removes your comments on every screen of this project.',
@@ -966,7 +987,6 @@ export class Annotator {
       // come from the platform, not from re-implemented key handlers.
       const pin = el('button', 'pin', String(i + 1));
       pin.type = 'button';
-      if (!target) pin.dataset['orphaned'] = 'true';
       // L2.3: dispositioned pins render muted (styles.ts); done swaps the
       // number for a ✓, with the index preserved in the title.
       if (isResolved(c) && c.status) {
@@ -999,9 +1019,11 @@ export class Annotator {
       // nothing reads as breakage (first-user feedback). The element stays
       // mounted so the bounded retry can heal and un-hide it; the export
       // sheet surfaces the unanchored count instead.
+      pin.dataset['orphaned'] = 'true';
       pin.style.display = 'none';
       return;
     }
+    delete pin.dataset['orphaned'];
     pin.style.display = '';
     place(pin, anchorToScreen(target, comment.anchor.positionPercent));
   }
@@ -1024,12 +1046,14 @@ export class Annotator {
       if (target === null && retryOrphans) {
         target = resolveAnchor(c.anchor);
         this._anchorCache.set(c.id, target);
-        if (target) {
-          delete pin.dataset['orphaned'];
-          this._persistHeal(c.id, target);
-        }
+        if (target) this._persistHeal(c.id, target);
       }
       this._placePin(pin, c, target);
+    }
+    // Orphan state may have flipped either way — keep an open sheet honest.
+    if (this._panelKind === 'sheet' && this._panelEl) {
+      const h = this._panelEl.querySelector('h3');
+      if (h) h.textContent = this._sheetTitle();
     }
   }
 
@@ -1328,6 +1352,10 @@ export class Annotator {
   }
 
   private async _handleReviewerExport(clear = false): Promise<void> {
+    // Export is a terminal action for the armed state: the reviewer moved on
+    // from pinning (codex 0.3.0 #4). Disarm BEFORE capturing the ownership
+    // panel — disarming may rebuild an open menu.
+    if (this._annotating) this._exitAnnotateMode();
     const [md, filename] = this._buildArtifact();
     download(md, filename);
     const startedFrom = this._panelEl;
@@ -1385,6 +1413,7 @@ export class Annotator {
 
   private async _handleOnSubmit(): Promise<void> {
     if (!this._deps.config.onSubmit) return;
+    if (this._annotating) this._exitAnnotateMode();
     try {
       await this._deps.config.onSubmit(this._store);
     } catch (err) {
