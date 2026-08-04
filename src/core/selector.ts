@@ -16,6 +16,38 @@ const SKIP_CLASS_RE = /^(hover|focus|active|is-|has-|[a-z]+-[0-9]+|(?=.*\d)[a-z0
 // huge and this is the last-ditch path.
 const FINGERPRINT_WALK_LIMIT = 2000;
 
+// Fuzzy re-anchor acceptance floor. Conservatism beats recall here: a wrong
+// re-anchor silently attaches feedback to the wrong element, which is worse
+// than an honest orphan.
+const FUZZY_THRESHOLD = 0.6;
+
+// Below this fingerprint length, fuzzy matching is disabled outright: bigram
+// sets of tiny strings make 'No' vs 'Not' score 0.67 (codex 0.3.0 #3).
+const FUZZY_MIN_FP = 12;
+
+// Sørensen–Dice similarity over character bigrams — deterministic, no deps,
+// and well-behaved on ≤80-char fingerprints.
+function bigrams(s: string): Set<string> {
+  const out = new Set<string>();
+  for (let i = 0; i < s.length - 1; i++) out.add(s.slice(i, i + 2));
+  return out;
+}
+
+function dice(a: Set<string>, b: Set<string>): number {
+  if (a.size === 0 || b.size === 0) return 0;
+  let hit = 0;
+  for (const x of a) if (b.has(x)) hit++;
+  return (2 * hit) / (a.size + b.size);
+}
+
+// The stored css path's last segment carries the pinned element's tag — the
+// only tag record the anchor keeps. 'main > p.intro:nth-of-type(2)' → 'p'.
+function tagFromCss(css: string): string | null {
+  const seg = css.split('>').pop()?.trim() ?? '';
+  const m = /^[a-z][a-z0-9-]*/i.exec(seg);
+  return m ? m[0].toLowerCase() : null;
+}
+
 export function getStableId(el: Element): string | null {
   const id = el.id;
   if (!id || AUTO_ID_RE.test(id)) return null;
@@ -137,10 +169,45 @@ export function findByCandidates(
     const walker = doc.createTreeWalker(root as Node, NodeFilter.SHOW_ELEMENT);
     let count = 0;
     let node = walker.nextNode();
+    // One walk, two verdicts. textContent flows UP, so a wrapper mirrors its
+    // child's fingerprint — both the exact and fuzzy passes therefore prefer
+    // the DEEPEST element on a containment chain, and structural containers
+    // (html/body) are never candidates: pinning <html> is how a heal once
+    // persisted an empty css path (codex 0.3.0 #2).
+    const want = bigrams(fingerprint.toLowerCase());
+    const wantTag = tagFromCss(selectors.css);
+    let exact: Element | null = null;
+    let best: Element | null = null;
+    let bestScore = 0;
     while (node && count++ < FINGERPRINT_WALK_LIMIT) {
-      if (getTextFingerprint(node as Element) === fingerprint) return node as Element;
+      const el = node as Element;
+      const tag = el.tagName;
+      if (tag === 'HTML' || tag === 'BODY' || tag === 'HEAD') {
+        node = walker.nextNode();
+        continue;
+      }
+      const fp = getTextFingerprint(el);
+      if (fp === fingerprint) {
+        if (!exact || exact.contains(el)) exact = el;
+      } else if (!exact && fp && fingerprint.length >= FUZZY_MIN_FP) {
+        // The floor gates RAW similarity — the tag bias must never smuggle a
+        // sub-threshold match through (codex 0.3.0 #3). Fuzzy is a lightly-
+        // reworded-element rescue (first-user feedback: the edit loop broke
+        // an anchor on almost every pass); an exact match anywhere wins.
+        const raw = dice(want, bigrams(fp.toLowerCase()));
+        if (raw >= FUZZY_THRESHOLD) {
+          // Same-tag bias breaks text ties toward the element kind the
+          // reviewer actually pinned (a <p> over a lookalike <div>).
+          const score = raw + (wantTag && el.tagName.toLowerCase() === wantTag ? 0.05 : 0);
+          if (score > bestScore || (score === bestScore && best !== null && best.contains(el))) {
+            bestScore = score;
+            best = el;
+          }
+        }
+      }
       node = walker.nextNode();
     }
+    return exact ?? best;
   }
   return null;
 }

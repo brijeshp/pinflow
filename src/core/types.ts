@@ -100,9 +100,9 @@ export interface ReviewerStore {
 /** How the reviewer activates the annotation layer. */
 export interface ActivationConfig {
   /**
-   * `toggle` (default) = the visible v1 control button.
-   * `stealth` = no chrome; long-press (touch) or Alt+click (desktop) only.
-   * `both` = control button AND the stealth gesture.
+   * `both` (default) = the visible control button AND the gesture
+   * (Alt+click on desktop, 500ms long-press on touch).
+   * `toggle` = button only. `stealth` = gesture only, no chrome.
    */
   mode?: 'toggle' | 'stealth' | 'both';
 }
@@ -231,7 +231,7 @@ export interface PinflowConfig {
    * direction. Builder mode is unaffected (its drawer already exports).
    */
   exportUi?: 'auto' | 'always' | 'never';
-  /** Activation strategy. Defaults to `{ mode: 'toggle' }` for v1 back-compat. */
+  /** Activation strategy. Defaults to `{ mode: 'both' }` (0.3.0): button + gesture. */
   activation?: ActivationConfig;
   /** Opt-in voice annotation config. Omit for pure pin/text behavior. */
   voice?: VoiceConfig;

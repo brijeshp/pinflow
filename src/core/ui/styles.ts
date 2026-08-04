@@ -26,7 +26,6 @@ export const STYLES =
   '.panel button:hover{filter:brightness(.97)}' +
   '.pin{position:fixed;pointer-events:auto;width:24px;height:24px;border:0;padding:0;font-family:inherit;border-radius:999px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);display:grid;place-items:center;font-size:11px;font-weight:600;box-shadow:0 4px 10px rgba(37,99,235,.35),0 0 0 2px #fff;cursor:pointer;transform:translate(-50%,-50%) scale(0);animation:pop .18s ease forwards;transition:transform .12s ease}' +
   '.pin:hover{transform:translate(-50%,-50%) scale(1.08)}' +
-  '.pin[data-orphaned="true"]{background:#a3a3a3}' +
   // Resolution treatment (L2.3), cheapest legible option: dispositioned pins go
   // muted via the theme's textMuted token (distinct from orphan gray #a3a3a3);
   // done additionally swaps the number for a ✓ (set in _renderPins), declined

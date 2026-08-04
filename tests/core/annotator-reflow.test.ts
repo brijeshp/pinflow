@@ -182,3 +182,118 @@ describe('bounded orphan recovery (codex audit #22)', () => {
     annotator.destroy();
   });
 });
+
+describe('orphan presentation + heal persistence (0.3.0 first-user feedback)', () => {
+  afterEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  function mount(): Annotator {
+    return new Annotator({
+      config: { project: PROJECT },
+      reviewer: REVIEWER,
+      mode: 'reviewer' as Mode,
+      storage: localStorage,
+    });
+  }
+  function shadowRoot(): ShadowRoot {
+    return document.querySelector('[data-pinflow-root]')!.shadowRoot!;
+  }
+
+  it('orphaned pins are HIDDEN, not gray floaters mid-page', () => {
+    seed([orphaned('o1')]);
+    const a = mount();
+    const pin = shadowRoot().querySelector<HTMLElement>('.pin')!;
+    expect(pin.dataset['orphaned']).toBe('true');
+    expect(pin.style.display).toBe('none');
+    a.destroy();
+  });
+
+  it('a heal un-hides the pin again', () => {
+    seed([makeComment('late2', { testid: 'late-2', id: null, css: '#nope', xpath: '/nope' })]);
+    const a = mount();
+    const pin = shadowRoot().querySelector<HTMLElement>('.pin')!;
+    expect(pin.style.display).toBe('none');
+    const el = document.createElement('div');
+    el.setAttribute('data-testid', 'late-2');
+    document.body.appendChild(el);
+    vi.spyOn(performance, 'now').mockReturnValue(10_000);
+    (a as unknown as Repositionable)._repositionPins();
+    expect(pin.style.display).not.toBe('none');
+    a.destroy();
+  });
+
+  it('a heal through the fallback chain persists rebuilt selectors — next load matches exactly', () => {
+    // Broken css/xpath, real fingerprint: resolution succeeds via the
+    // fingerprint walk, and the stale selectors must be repaired in storage.
+    const target = document.createElement('p');
+    target.textContent = 'A stable paragraph the reviewer pinned.';
+    document.body.appendChild(target);
+    const c = makeComment('heal1', {
+      testid: null,
+      id: null,
+      css: '#long-gone',
+      xpath: '/html/body/div[42]',
+    });
+    c.anchor.textFingerprint = 'A stable paragraph the reviewer pinned.';
+    seed([c]);
+    const a = mount();
+    const stored = JSON.parse(localStorage.getItem(`pinflow:c:${PROJECT}:${REVIEWER}`)!);
+    expect(stored.comments[0].anchor.selectors.css).not.toBe('#long-gone');
+    // Identity, not just difference: the persisted selector must resolve to
+    // the exact pinned element (codex 0.3.0 #2 — an empty or ancestor
+    // selector must not pass).
+    expect(stored.comments[0].anchor.selectors.css).not.toBe('');
+    expect(document.querySelector(stored.comments[0].anchor.selectors.css)).toBe(target);
+    expect(stored.comments[0].anchor.textFingerprint).toBe(
+      'A stable paragraph the reviewer pinned.',
+    ); // provenance stays
+    expect(stored.comments[0].updatedAt).toBe(c.updatedAt); // silent repair
+    a.destroy();
+  });
+});
+
+describe('heal invalidates the visible cache (codex 0.3.0 #6)', () => {
+  afterEach(() => {
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('after a heal, reposition resolves with the HEALED selectors, not stale cached comment objects', () => {
+    const orig = document.createElement('p');
+    orig.className = 'stable-para';
+    orig.textContent = 'A perfectly stable paragraph for healing.';
+    document.body.appendChild(orig);
+    const c = makeComment('h1', {
+      testid: null,
+      id: null,
+      css: '#long-gone',
+      xpath: '/html/body/div[42]',
+    });
+    c.anchor.textFingerprint = 'A perfectly stable paragraph for healing.';
+    seed([c]);
+    const a = new Annotator({
+      config: { project: PROJECT },
+      reviewer: REVIEWER,
+      mode: 'reviewer' as Mode,
+      storage: localStorage,
+    });
+    // Heal persisted fresh selectors. Now the ELEMENT is replaced by one the
+    // healed css still matches but whose text no longer fingerprints.
+    orig.remove();
+    const next = document.createElement('p');
+    next.className = 'stable-para';
+    next.textContent = 'Completely different words now, same structural slot.';
+    document.body.appendChild(next);
+    vi.spyOn(performance, 'now').mockReturnValue(10_000);
+    (a as unknown as Repositionable)._repositionPins();
+    const pin = document
+      .querySelector('[data-pinflow-root]')!
+      .shadowRoot!.querySelector<HTMLElement>('.pin')!;
+    expect(pin.style.display).not.toBe('none');
+    a.destroy();
+  });
+});

@@ -225,6 +225,114 @@ describe('init / destroy', () => {
   });
 });
 
+describe('fail-loud boot (first-user feedback: silent failure cost a 30-minute debug)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    setUrl(ORIGINAL_URL);
+    localStorage.clear();
+    document.body.innerHTML = '';
+  });
+
+  it('announces readiness with exactly one console.info line: version, mode, activation, count', async () => {
+    const { init } = await import('../../src/core/index');
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    localStorage.setItem('pinflow:r:boot', 'Tester');
+    const handle = init({ project: 'boot' });
+    expect(info).toHaveBeenCalledTimes(1);
+    expect(info).toHaveBeenCalledWith(
+      expect.stringMatching(/^\[pinflow\] v.+ ready — mode=reviewer, activation=both, 0 comments$/),
+    );
+    handle.destroy();
+  });
+
+  it("Alt+click works with ZERO activation config — the default is 'both' (first-user feedback: the obvious power move must not feel broken)", async () => {
+    const { init } = await import('../../src/core/index');
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    localStorage.setItem('pinflow:r:defboth', 'Tester');
+    const target = document.createElement('p');
+    target.textContent = 'host content';
+    document.body.appendChild(target);
+    const handle = init({ project: 'defboth' });
+    altClick(target);
+    const root = document.querySelector('[data-pinflow-root]');
+    expect(root?.shadowRoot?.querySelector('textarea')).not.toBeNull();
+    handle.destroy();
+  });
+
+  it("explicit activation 'toggle' still opts out of the gesture", async () => {
+    const { init } = await import('../../src/core/index');
+    vi.spyOn(console, 'info').mockImplementation(() => {});
+    localStorage.setItem('pinflow:r:opttoggle', 'Tester');
+    const target = document.createElement('p');
+    document.body.appendChild(target);
+    const handle = init({ project: 'opttoggle', activation: { mode: 'toggle' } });
+    altClick(target);
+    const root = document.querySelector('[data-pinflow-root]');
+    expect(root?.shadowRoot?.querySelector('textarea')).toBeNull();
+    handle.destroy();
+  });
+
+  it('reports the persisted comment count, not zero, when a corpus exists', async () => {
+    const { init } = await import('../../src/core/index');
+    const { emptyStore, saveStore } = await import('../../src/core/storage');
+    const { acquireStorage } = await import('../../src/core/safe-storage');
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    localStorage.setItem('pinflow:r:boot2', 'Tester');
+    const store = emptyStore('boot2', 'Tester');
+    const anchor = {
+      selectors: { testid: null, id: null, css: 'p', xpath: '/html/body/p[1]' },
+      textFingerprint: 'x',
+      positionPercent: { x: 10, y: 10 },
+      viewport: { width: 800, height: 600 },
+    };
+    store.comments.push(
+      {
+        id: 'c1',
+        createdAt: 'x',
+        updatedAt: 'x',
+        route: '/',
+        fullUrl: 'u',
+        text: 'a',
+        anchor,
+        modality: 'text',
+      },
+      {
+        id: 'c2',
+        createdAt: 'x',
+        updatedAt: 'x',
+        route: '/',
+        fullUrl: 'u',
+        text: 'b',
+        anchor,
+        modality: 'text',
+      },
+    );
+    saveStore(acquireStorage(), store);
+    const handle = init({ project: 'boot2' });
+    expect(info).toHaveBeenCalledWith(expect.stringMatching(/2 comments$/));
+    handle.destroy();
+  });
+
+  it('prints nothing on the inert path — declined identity yields no ready line', async () => {
+    const { init } = await import('../../src/core/index');
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    vi.spyOn(window, 'prompt').mockReturnValue(null);
+    const handle = init({ project: 'boot3' });
+    expect(info).not.toHaveBeenCalled();
+    handle.destroy();
+  });
+
+  it('surfaces init failure via console.error before rethrowing (host may swallow the throw)', async () => {
+    const { init } = await import('../../src/core/index');
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    setUrl('https://example.com/page');
+    expect(() =>
+      init({ project: 'boot4', reviewer: 'Sam', voice: { devOnlyToken: 'tok' } }),
+    ).toThrow(/devOnlyToken/);
+    expect(error).toHaveBeenCalledWith('[pinflow] init failed:', expect.any(Error));
+  });
+});
+
 describe('public artifact toolkit (L3 API polish)', () => {
   it('re-exports the DOM-free export helpers from the package entry', async () => {
     const mod = await import('../../src/core/index');

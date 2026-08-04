@@ -14,7 +14,8 @@ if (typeof document !== 'undefined') {
   if (project) {
     const config: PinflowConfig = { project };
     const activation = script?.dataset.activation;
-    if (activation === 'stealth' || activation === 'both') {
+    // 'toggle' is a real opt-out since the default flipped to 'both' (0.3.0).
+    if (activation === 'stealth' || activation === 'both' || activation === 'toggle') {
       config.activation = { mode: activation };
     }
     const start = (): void => {

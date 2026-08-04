@@ -1,4 +1,5 @@
 import { anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
+import { buildSelectors } from '../selector';
 import { copyToClipboard, download } from '../download';
 import {
   exportBuilder,
@@ -117,6 +118,12 @@ export class Annotator {
   // never write to storage or touch the DOM, no matter what resolves late.
   private _destroyed = false;
   private _activeVoice: ActiveVoice | null = null;
+  // Deletion tombstones for the window where a source() hydration is in
+  // flight: a snapshot fetched BEFORE a delete must not resurrect the
+  // deleted comment when it resolves AFTER it (codex 0.3.0 P1) — and a
+  // resurrected copy would even re-announce as an 'add' on the next
+  // reconcile, restoring it server-side.
+  private _pendingDeletes: Set<string> | null = null;
   private readonly _voiceLogger: Logger = {
     warn: (m, d) => console.warn(`[pinflow] ${m}`, d),
     error: (m, d) => console.error(`[pinflow] ${m}`, d),
@@ -148,6 +155,11 @@ export class Annotator {
     // collide with typing in host inputs; gated at registration (config is
     // immutable per instance).
     if (this._exportUiEnabled()) document.addEventListener('keydown', this._onExportHotkey, true);
+  }
+
+  /** Boot-line datum: comment count of the (synchronously loaded) local store. */
+  get _count(): number {
+    return this._store.comments.length;
   }
 
   private _onExportHotkey = (e: Event): void => {
@@ -192,10 +204,12 @@ export class Annotator {
       this._voiceLogger.warn('source hydration failed — using local store', err);
       return;
     }
+    const tombstones = (this._pendingDeletes = new Set<string>());
     void fetched.then(
       (raw) => {
+        if (this._pendingDeletes === tombstones) this._pendingDeletes = null;
         if (this._destroyed || this._reviewer !== forReviewer) return;
-        const server = normalizeComments(raw);
+        const server = normalizeComments(raw).filter((c) => !tombstones.has(c.id));
         // Two repair cases (codex r16): an id the server LACKS re-announces
         // as 'add'; an id the server has but with an older updatedAt (a lost
         // update — the merge keeps the local content) re-announces as
@@ -217,7 +231,10 @@ export class Annotator {
           if (merged) this._emitChange(r.type, merged);
         }
       },
-      (err) => this._voiceLogger.warn('source hydration failed — using local store', err),
+      (err) => {
+        if (this._pendingDeletes === tombstones) this._pendingDeletes = null;
+        this._voiceLogger.warn('source hydration failed — using local store', err);
+      },
     );
   }
 
@@ -250,7 +267,10 @@ export class Annotator {
   }
 
   private _activationMode(): NonNullable<ActivationConfig['mode']> {
-    return this._deps.config.activation?.mode ?? 'toggle';
+    // 'both' by default: the button stays discoverable AND Alt+click /
+    // long-press work out of the box (first-user feedback: the obvious power
+    // move silently failing reads as broken). 'toggle' remains the opt-out.
+    return this._deps.config.activation?.mode ?? 'both';
   }
 
   // Stealth/both modes add a capture-phase long-press (touch) + Alt+click
@@ -320,6 +340,9 @@ export class Annotator {
   // A2: notify the host after a persisted mutation. Host exceptions must never
   // break the annotator, and a torn-down world must never call out.
   private _emitChange(type: 'add' | 'update' | 'delete', comment: Comment): void {
+    // Tombstone BEFORE the callback gate: the hydration race exists whether
+    // or not the host listens to onChange.
+    if (type === 'delete') this._pendingDeletes?.add(comment.id);
     const cb = this._deps.config.onChange;
     if (!cb || this._destroyed) return;
     try {
@@ -360,6 +383,8 @@ export class Annotator {
   private _togglePanel(): void {
     if (this._panelEl) {
       this._closePanel();
+      // Control toggle is a full stop: closing the menu also disarms.
+      if (this._annotating) this._exitAnnotateMode();
       return;
     }
     this._panelAnchor = this._controlEl;
@@ -368,6 +393,9 @@ export class Annotator {
       this._deps.mode === 'builder' ? this._renderBuilderPanel() : this._renderReviewerPanel();
     this._ui.root.appendChild(this._panelEl);
     this._positionPanel();
+    // Two-step pinning: opening the reviewer menu arms annotate mode in the
+    // same gesture — button, then page. (Was: button → "Add comment" → page.)
+    if (this._deps.mode === 'reviewer' && !this._annotating) this._enterAnnotateMode(true);
   }
 
   private _closePanel(): void {
@@ -424,7 +452,50 @@ export class Annotator {
     const comments = this._store.comments;
     const screens = new Set(comments.map((c) => c.route)).size;
     const n = (v: number, w: string): string => `${v} ${w}${v === 1 ? '' : 's'}`;
-    return `${n(comments.length, 'comment')} · ${n(screens, 'screen')}`;
+    // Orphans are hidden on the page; the sheet is where they're accounted
+    // for (current route only — other routes' elements aren't here to check).
+    let lost = 0;
+    for (const pin of this._pins.values()) if (pin.dataset['orphaned']) lost++;
+    const tail = lost > 0 ? ` · ${lost} unanchored` : '';
+    return `${n(comments.length, 'comment')} · ${n(screens, 'screen')}${tail}`;
+  }
+
+  // A resolve that came through the fallback chain (fingerprint / fuzzy)
+  // means the stored css/xpath went stale — the next load would fall all the
+  // way through again, and one more edit could orphan the pin for good.
+  // Persist the rebuilt selectors. Deliberately SILENT: no onChange, no
+  // updatedAt bump — this is mechanical repair of local anchoring, not
+  // reviewer content, and a synced server copy must win the next merge
+  // untouched. Fingerprint stays as pinned (it is provenance: the artifact
+  // reports what the reviewer actually commented on). Reviewer mode only —
+  // builder aggregates other reviewers' stores read-only.
+  private _persistHeal(commentId: string, target: Element): void {
+    if (this._deps.mode !== 'reviewer') return;
+    const c = this._store.comments.find((x) => x.id === commentId);
+    if (!c) return;
+    const fresh = buildSelectors(target);
+    if (!fresh.css) return; // never cement a degenerate selector
+    const s = c.anchor.selectors;
+    if (
+      fresh.css === s.css &&
+      fresh.xpath === s.xpath &&
+      fresh.testid === s.testid &&
+      fresh.id === s.id
+    )
+      return;
+    this._store = {
+      ...this._store,
+      comments: this._store.comments.map((x) =>
+        x.id === commentId ? { ...x, anchor: { ...x.anchor, selectors: fresh } } : x,
+      ),
+    };
+    // NOT _persist(): that invalidates the anchor cache, but a heal describes
+    // the very element just cached — flushing it would force a redundant
+    // ladder walk on the next reflow frame (P2.2 would regress). The VISIBLE
+    // cache, however, still holds pre-heal comment objects and must go, or
+    // later re-resolves would use the stale selectors (codex 0.3.0 #6).
+    this._visibleCache = null;
+    saveStore(this._deps.storage, this._store);
   }
 
   private _syncChip(): void {
@@ -461,6 +532,10 @@ export class Annotator {
   }
 
   private _toggleSheet(): void {
+    // Summoning the export surface ends pinning — without this, a chip/hotkey
+    // summon over an ARMED menu left the crosshair live and the next host
+    // click planted a spurious comment (verification round, reproduced).
+    if (this._annotating) this._exitAnnotateMode();
     if (this._panelKind === 'sheet') {
       this._closePanel();
       return;
@@ -475,7 +550,12 @@ export class Annotator {
     const sheet = this._makePanel(
       this._sheetTitle(),
       'Downloads the markdown and copies it to your clipboard.',
-      [this._makeButton('Export & share', () => void this._handleReviewerExport(), 'primary')],
+      [
+        this._makeButton('Export & share', () => void this._handleReviewerExport(), 'primary'),
+        // "& clear": one gesture to close a review pass — export, then wipe,
+        // so the applied batch never re-exports next time.
+        this._makeButton('Export & clear', () => void this._handleReviewerExport(true)),
+      ],
     );
     this._panelAnchor = this._chipEl;
     this._panelKind = 'sheet';
@@ -495,7 +575,7 @@ export class Annotator {
     const count = this._store.comments.length;
     const panel = this._makePanel(
       `You have ${count} comment${count === 1 ? '' : 's'}`,
-      'Click below, then tap any element to pin a comment.',
+      'Tap any element to pin a comment.',
       [
         this._makeButton(
           this._annotating ? 'Stop' : 'Add comment',
@@ -511,7 +591,52 @@ export class Annotator {
       row2.appendChild(this._makeButton('Send to builder', () => void this._handleOnSubmit()));
       panel.appendChild(row2);
     }
+    if (count > 0) {
+      const row3 = el('div', 'row');
+      row3.style.marginTop = '8px';
+      row3.appendChild(this._makeButton('Clear all', () => this._confirmReviewerClear(), 'danger'));
+      panel.appendChild(row3);
+    }
     return panel;
+  }
+
+  // Reviewer-side batch wipe (first-user feedback: after an applied batch you
+  // want a fresh slate). Confirm surface, not window.confirm — same panel
+  // vocabulary as the export confirmation.
+  private _confirmReviewerClear(): void {
+    const n = this._store.comments.length;
+    this._closePanel();
+    // Entering a destructive flow ends pinning; Cancel must not leave the
+    // page armed behind the reviewer's back (codex 0.3.0 #4).
+    if (this._annotating) this._exitAnnotateMode();
+    const panel = this._makePanel(
+      `Delete ${n} comment${n === 1 ? '' : 's'}?`,
+      'This removes your comments on every screen of this project.',
+      [
+        this._makeButton('Delete all', () => this._handleReviewerClear(), 'danger'),
+        this._makeButton('Cancel', () => this._closePanel()),
+      ],
+    );
+    this._panelAnchor = this._controlEl ?? this._chipEl;
+    this._panelKind = 'confirm';
+    this._panelEl = panel;
+    this._ui.root.appendChild(panel);
+    this._positionPanel();
+  }
+
+  // Synced hosts stay consistent: every removal goes out as its own delete
+  // (PROTOCOL deletes are per-comment; there is no bulk op on the wire).
+  private _clearReviewerComments(): void {
+    const removed = this._store.comments;
+    this._store = { ...this._store, comments: [] };
+    this._persist();
+    for (const c of removed) this._emitChange('delete', c);
+    this._renderPins();
+  }
+
+  private _handleReviewerClear(): void {
+    this._clearReviewerComments();
+    this._closePanel();
   }
 
   // Built imperatively to keep reviewer names out of innerHTML.
@@ -584,14 +709,15 @@ export class Annotator {
     else this._enterAnnotateMode();
   }
 
-  private _enterAnnotateMode(): void {
+  private _enterAnnotateMode(keepPanel = false): void {
     this._annotating = true;
     if (this._controlEl) this._controlEl.dataset['active'] = 'true';
     document.addEventListener('click', this._onDocumentClick, true);
     document.addEventListener('keydown', this._onKeyDown);
     this._prevBodyCursor = document.body.style.cursor;
     document.body.style.cursor = 'crosshair';
-    this._closePanel();
+    if (!keepPanel) this._closePanel();
+    this._refreshMenuPanel();
   }
 
   private _exitAnnotateMode(): void {
@@ -601,6 +727,18 @@ export class Annotator {
     document.removeEventListener('keydown', this._onKeyDown);
     document.body.style.cursor = this._prevBodyCursor;
     this._prevBodyCursor = '';
+    // An open menu shows the armed/disarmed primary — keep its label honest.
+    this._refreshMenuPanel();
+  }
+
+  // Rebuild the menu panel in place so Stop ⇄ Add comment tracks _annotating.
+  private _refreshMenuPanel(): void {
+    if (this._panelKind !== 'menu' || !this._panelEl) return;
+    this._panelEl.remove();
+    this._panelEl =
+      this._deps.mode === 'builder' ? this._renderBuilderPanel() : this._renderReviewerPanel();
+    this._ui.root.appendChild(this._panelEl);
+    this._positionPanel();
   }
 
   private _onKeyDown = (e: KeyboardEvent): void => {
@@ -609,10 +747,17 @@ export class Annotator {
 
   private _onDocumentClick = (e: MouseEvent): void => {
     const target = e.target as Element | null;
+    // contains() covers the retargeted (host-level) case; composedPath covers
+    // environments/edges where the capture target is the shadow-internal node
+    // itself — without it, an armed click on pinflow's own UI would both
+    // place a bogus pin AND stopPropagation away the control's handler.
     if (!target || this._ui.host.contains(target)) return;
+    if (e.composedPath?.().includes(this._ui.host)) return;
     e.preventDefault();
     e.stopPropagation();
     this._exitAnnotateMode();
+    // The menu's job is done once a pin lands — focus moves to the draft.
+    this._closePanel();
     this._placeCommentAt(e.clientX, e.clientY, target);
   };
 
@@ -841,11 +986,11 @@ export class Annotator {
     comments.forEach((c, i) => {
       const target = resolveAnchor(c.anchor);
       this._anchorCache.set(c.id, target);
+      if (target) this._persistHeal(c.id, target);
       // A real <button>: keyboard operability (Enter/Space) and focusability
       // come from the platform, not from re-implemented key handlers.
       const pin = el('button', 'pin', String(i + 1));
       pin.type = 'button';
-      if (!target) pin.dataset['orphaned'] = 'true';
       // L2.3: dispositioned pins render muted (styles.ts); done swaps the
       // number for a ✓, with the index preserved in the title.
       if (isResolved(c) && c.status) {
@@ -874,11 +1019,16 @@ export class Annotator {
 
   private _placePin(pin: HTMLButtonElement, comment: Comment, target: Element | null): void {
     if (!target) {
-      // Orphaned pin: park at last-known percentage within the viewport.
-      const { positionPercent: p } = comment.anchor;
-      place(pin, { left: (window.innerWidth * p.x) / 100, top: (window.innerHeight * p.y) / 100 });
+      // Orphaned pin: HIDDEN, not a gray floater — a parked dot pointing at
+      // nothing reads as breakage (first-user feedback). The element stays
+      // mounted so the bounded retry can heal and un-hide it; the export
+      // sheet surfaces the unanchored count instead.
+      pin.dataset['orphaned'] = 'true';
+      pin.style.display = 'none';
       return;
     }
+    delete pin.dataset['orphaned'];
+    pin.style.display = '';
     place(pin, anchorToScreen(target, comment.anchor.positionPercent));
   }
 
@@ -900,9 +1050,14 @@ export class Annotator {
       if (target === null && retryOrphans) {
         target = resolveAnchor(c.anchor);
         this._anchorCache.set(c.id, target);
-        if (target) delete pin.dataset['orphaned'];
+        if (target) this._persistHeal(c.id, target);
       }
       this._placePin(pin, c, target);
+    }
+    // Orphan state may have flipped either way — keep an open sheet honest.
+    if (this._panelKind === 'sheet' && this._panelEl) {
+      const h = this._panelEl.querySelector('h3');
+      if (h) h.textContent = this._sheetTitle();
     }
   }
 
@@ -1200,7 +1355,11 @@ export class Annotator {
     ];
   }
 
-  private async _handleReviewerExport(): Promise<void> {
+  private async _handleReviewerExport(clear = false): Promise<void> {
+    // Export is a terminal action for the armed state: the reviewer moved on
+    // from pinning (codex 0.3.0 #4). Disarm BEFORE capturing the ownership
+    // panel — disarming may rebuild an open menu.
+    if (this._annotating) this._exitAnnotateMode();
     const [md, filename] = this._buildArtifact();
     download(md, filename);
     const startedFrom = this._panelEl;
@@ -1209,7 +1368,11 @@ export class Annotator {
     // confirmation appears only if the EXACT surface that launched the export
     // is still open — a closed or replaced panel invalidates it entirely.
     if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
-    this._showConfirmation(copied);
+    // Clear only after the ownership check: an abandoned surface must not
+    // wipe data behind the reviewer's back. _syncChip may close the sheet at
+    // zero; the confirmation is 'confirm'-kind and anchors via the fallback.
+    if (clear) this._clearReviewerComments();
+    this._showConfirmation(copied, clear);
   }
 
   // Spec §5.6: after reviewer export, show a small confirmation panel
@@ -1217,10 +1380,10 @@ export class Annotator {
   // config.submitTo the hand-off turns active: a primary mailto button
   // completes the zero-backend submission channel (download + clipboard +
   // prefilled email).
-  private _showConfirmation(copied: boolean): void {
+  private _showConfirmation(copied: boolean, cleared = false): void {
     this._closePanel();
     const submitTo = this._deps.config.submitTo;
-    const share = 'Share however you like.';
+    const share = cleared ? 'Comments cleared. Share however you like.' : 'Share however you like.';
     let body = copied ? `Copied to clipboard too. ${share}` : share;
     const buttons = [this._makeButton('Done', () => this._closePanel())];
     if (submitTo) {
@@ -1254,6 +1417,7 @@ export class Annotator {
 
   private async _handleOnSubmit(): Promise<void> {
     if (!this._deps.config.onSubmit) return;
+    if (this._annotating) this._exitAnnotateMode();
     try {
       await this._deps.config.onSubmit(this._store);
     } catch (err) {
