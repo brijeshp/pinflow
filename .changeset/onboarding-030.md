@@ -27,5 +27,6 @@ feedback session:
   guarded via composedPath, and `download()` clicks a detached anchor (an
   attached one re-entered the armed handler and could place a bogus pin).
 
-Core ceilings notched for the feature set: IIFE 14.15 / ESM 13.8 KB gz
-(measured cost +0.60 KB each; margin covers linux-CI gzip drift).
+Core ceilings notched for the feature set: IIFE 14.3 / ESM 13.95 KB gz
+(features +0.60 KB, review-round hardening ~+0.15 KB; margin covers linux-CI
+gzip drift).
