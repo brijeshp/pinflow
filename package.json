@@ -1,6 +1,6 @@
 {
   "name": "@brijeshp/pinflow",
-  "version": "0.2.1",
+  "version": "0.2.2",
   "description": "Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero backend, one-line install, AI-agent-ready markdown export.",
   "keywords": [
     "annotation",
