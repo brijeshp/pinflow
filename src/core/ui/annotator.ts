@@ -488,7 +488,12 @@ export class Annotator {
     const sheet = this._makePanel(
       this._sheetTitle(),
       'Downloads the markdown and copies it to your clipboard.',
-      [this._makeButton('Export & share', () => void this._handleReviewerExport(), 'primary')],
+      [
+        this._makeButton('Export & share', () => void this._handleReviewerExport(), 'primary'),
+        // "& clear": one gesture to close a review pass — export, then wipe,
+        // so the applied batch never re-exports next time.
+        this._makeButton('Export & clear', () => void this._handleReviewerExport(true)),
+      ],
     );
     this._panelAnchor = this._chipEl;
     this._panelKind = 'sheet';
@@ -524,7 +529,49 @@ export class Annotator {
       row2.appendChild(this._makeButton('Send to builder', () => void this._handleOnSubmit()));
       panel.appendChild(row2);
     }
+    if (count > 0) {
+      const row3 = el('div', 'row');
+      row3.style.marginTop = '8px';
+      row3.appendChild(this._makeButton('Clear all', () => this._confirmReviewerClear(), 'danger'));
+      panel.appendChild(row3);
+    }
     return panel;
+  }
+
+  // Reviewer-side batch wipe (first-user feedback: after an applied batch you
+  // want a fresh slate). Confirm surface, not window.confirm — same panel
+  // vocabulary as the export confirmation.
+  private _confirmReviewerClear(): void {
+    const n = this._store.comments.length;
+    this._closePanel();
+    const panel = this._makePanel(
+      `Delete ${n} comment${n === 1 ? '' : 's'}?`,
+      'This removes your comments on every screen of this project.',
+      [
+        this._makeButton('Delete all', () => this._handleReviewerClear(), 'danger'),
+        this._makeButton('Cancel', () => this._closePanel()),
+      ],
+    );
+    this._panelAnchor = this._controlEl ?? this._chipEl;
+    this._panelKind = 'confirm';
+    this._panelEl = panel;
+    this._ui.root.appendChild(panel);
+    this._positionPanel();
+  }
+
+  // Synced hosts stay consistent: every removal goes out as its own delete
+  // (PROTOCOL deletes are per-comment; there is no bulk op on the wire).
+  private _clearReviewerComments(): void {
+    const removed = this._store.comments;
+    this._store = { ...this._store, comments: [] };
+    this._persist();
+    for (const c of removed) this._emitChange('delete', c);
+    this._renderPins();
+  }
+
+  private _handleReviewerClear(): void {
+    this._clearReviewerComments();
+    this._closePanel();
   }
 
   // Built imperatively to keep reviewer names out of innerHTML.
@@ -1233,7 +1280,7 @@ export class Annotator {
     ];
   }
 
-  private async _handleReviewerExport(): Promise<void> {
+  private async _handleReviewerExport(clear = false): Promise<void> {
     const [md, filename] = this._buildArtifact();
     download(md, filename);
     const startedFrom = this._panelEl;
@@ -1242,7 +1289,11 @@ export class Annotator {
     // confirmation appears only if the EXACT surface that launched the export
     // is still open — a closed or replaced panel invalidates it entirely.
     if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
-    this._showConfirmation(copied);
+    // Clear only after the ownership check: an abandoned surface must not
+    // wipe data behind the reviewer's back. _syncChip may close the sheet at
+    // zero; the confirmation is 'confirm'-kind and anchors via the fallback.
+    if (clear) this._clearReviewerComments();
+    this._showConfirmation(copied, clear);
   }
 
   // Spec §5.6: after reviewer export, show a small confirmation panel
@@ -1250,10 +1301,10 @@ export class Annotator {
   // config.submitTo the hand-off turns active: a primary mailto button
   // completes the zero-backend submission channel (download + clipboard +
   // prefilled email).
-  private _showConfirmation(copied: boolean): void {
+  private _showConfirmation(copied: boolean, cleared = false): void {
     this._closePanel();
     const submitTo = this._deps.config.submitTo;
-    const share = 'Share however you like.';
+    const share = cleared ? 'Comments cleared. Share however you like.' : 'Share however you like.';
     let body = copied ? `Copied to clipboard too. ${share}` : share;
     const buttons = [this._makeButton('Done', () => this._closePanel())];
     if (submitTo) {

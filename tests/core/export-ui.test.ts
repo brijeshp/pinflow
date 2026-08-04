@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { emptyStore, saveStore } from '../../src/core/storage';
+import { emptyStore, loadStore, saveStore } from '../../src/core/storage';
 import { routeKey } from '../../src/core/route-key';
 import type { Comment } from '../../src/core/types';
 import { Annotator } from '../../src/core/ui/annotator';
@@ -40,6 +40,7 @@ function makeAnnotator(extra?: {
   source?: () => Promise<Comment[]>;
   mode?: 'reviewer' | 'builder';
   activation?: { mode: 'toggle' | 'stealth' | 'both' };
+  onChange?: (store: unknown, delta: { type: string; comment: Comment }) => void;
 }): Annotator {
   return new Annotator({
     config: {
@@ -47,6 +48,7 @@ function makeAnnotator(extra?: {
       ...(extra?.exportUi ? { exportUi: extra.exportUi } : {}),
       ...(extra?.source ? { source: extra.source } : {}),
       ...(extra?.activation ? { activation: extra.activation } : {}),
+      ...(extra?.onChange ? { onChange: extra.onChange as never } : {}),
     },
     reviewer: REVIEWER,
     mode: extra?.mode ?? 'reviewer',
@@ -534,5 +536,79 @@ describe('late clipboard vs closed surfaces (codex audit #23, r2)', () => {
     await new Promise((r) => setTimeout(r, 0));
     // No stale confirmation resurrects over the closed surface:
     expect(shadow().querySelector('.panel')).toBeNull();
+  });
+});
+
+describe('reviewer batch controls — Clear all / Export & clear (first-user feedback)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  function buttons(): HTMLButtonElement[] {
+    return [...shadow().querySelectorAll('button')];
+  }
+  function byLabel(label: string): HTMLButtonElement | undefined {
+    return buttons().find((b) => b.textContent === label);
+  }
+
+  it('menu offers Clear all (danger) once comments exist', () => {
+    seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
+    annotator = makeAnnotator();
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    const clear = byLabel('Clear all');
+    expect(clear).toBeTruthy();
+    expect(clear!.className).toContain('danger');
+  });
+
+  it('menu hides Clear all at zero comments — no destructive affordance on empty state', () => {
+    annotator = makeAnnotator();
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    expect(byLabel('Clear all')).toBeUndefined();
+  });
+
+  it('Clear all asks first; Cancel keeps everything', () => {
+    seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
+    annotator = makeAnnotator();
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    byLabel('Clear all')!.click();
+    expect(shadow().querySelector('.panel h3')?.textContent).toBe('Delete 2 comments?');
+    byLabel('Cancel')!.click();
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments).toHaveLength(2);
+  });
+
+  it('confirming Clear all empties the store, removes pins, and emits a delete per comment', () => {
+    seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    byLabel('Clear all')!.click();
+    byLabel('Delete all')!.click();
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments ?? []).toHaveLength(0);
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
+    expect(deltas.sort()).toEqual(['delete:c1', 'delete:c2']);
+  });
+
+  it('sheet offers Export & clear: exports, then empties the store with a cleared confirmation', async () => {
+    seedStore([makeComment('c1', 'a')]);
+    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & clear')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(createUrl).toHaveBeenCalled();
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments ?? []).toHaveLength(0);
+    expect(shadow().querySelector('.panel p')?.textContent).toContain('cleared');
   });
 });
