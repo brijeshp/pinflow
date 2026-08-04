@@ -366,6 +366,38 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     shadow().querySelector<HTMLButtonElement>('.control')?.click();
     expect(document.body.style.cursor).toBe('');
   });
+
+  // Armed + click an EXISTING pin: the edit popup takes over, so the mode must
+  // disarm — otherwise the still-attached capture listener lets one outside
+  // click dismiss the popup AND place a spurious pin from the same event.
+  it('clicking an existing pin while armed disarms; an outside click places no spurious pin', () => {
+    seedStore(makeComment('existing'));
+    annotator = makeAnnotator();
+    enterAnnotateMode();
+    expect(document.body.style.cursor).toBe('crosshair');
+
+    const pin = shadow().querySelector<HTMLElement>('.pin');
+    if (!pin) throw new Error('no pin rendered');
+    pin.click();
+    expect(shadow().querySelector('textarea')).not.toBeNull(); // edit popup opened
+    expect(document.body.style.cursor).toBe(''); // ...and annotate mode disarmed
+
+    const target = document.createElement('p');
+    document.body.appendChild(target);
+    target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(1);
+  });
+
+  it('clicking an existing pin while armed closes the menu — focus moves to the edit popup', () => {
+    seedStore(makeComment('existing'));
+    annotator = makeAnnotator();
+    enterAnnotateMode();
+    expect(shadow().querySelector('.panel h3')).not.toBeNull(); // menu open while armed
+
+    shadow().querySelector<HTMLElement>('.pin')?.click();
+    expect(shadow().querySelector('textarea')).not.toBeNull();
+    expect(shadow().querySelector('.panel h3')).toBeNull();
+  });
 });
 
 describe('Annotator deferred identity (P4.3)', () => {

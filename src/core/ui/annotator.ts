@@ -1004,6 +1004,13 @@ export class Annotator {
       pin.setAttribute('aria-label', pin.title || `Comment ${i + 1}`);
       pin.addEventListener('click', (e) => {
         e.stopPropagation();
+        // Opening an existing comment takes over from armed placement — leave
+        // annotate mode so the next outside click can't place a spurious pin,
+        // and close the menu just as landing a NEW pin does.
+        if (this._annotating) {
+          this._exitAnnotateMode();
+          this._closePanel();
+        }
         if (this._deps.mode === 'builder') {
           this._openBuilderView(c);
           return;
