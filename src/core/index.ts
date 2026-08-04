@@ -75,6 +75,17 @@ export function init(config: PinflowConfig): Handle {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return noopHandle();
   }
+  // Fail loud: hosts often call init() inside framework effects that swallow
+  // throws — surface the failure on the console before rethrowing.
+  try {
+    return initLive(config);
+  } catch (e) {
+    console.error('[pinflow] init failed:', e);
+    throw e;
+  }
+}
+
+function initLive(config: PinflowConfig): Handle {
   // The devOnlyToken guardrail is a LOUD, EARLY failure by design (types.ts
   // promises "throws at init"). token.ts re-checks lazily as defense in depth.
   if (config.voice?.devOnlyToken && !isLocalOrigin(window.location.hostname)) {
@@ -139,6 +150,12 @@ export function init(config: PinflowConfig): Handle {
     downloadExport: () => annotator.downloadExport(),
   };
   current = handle;
+  const n = annotator._count;
+  console.info(
+    `[pinflow] v${version} ready — mode=${mode}, activation=${
+      config.activation?.mode ?? 'toggle'
+    }, ${n} comment${n === 1 ? '' : 's'}`,
+  );
   return handle;
 }
 

@@ -150,6 +150,11 @@ export class Annotator {
     if (this._exportUiEnabled()) document.addEventListener('keydown', this._onExportHotkey, true);
   }
 
+  /** Boot-line datum: comment count of the (synchronously loaded) local store. */
+  get _count(): number {
+    return this._store.comments.length;
+  }
+
   private _onExportHotkey = (e: Event): void => {
     const k = e as KeyboardEvent;
     if (k.repeat) return; // held chord must not strobe the sheet
