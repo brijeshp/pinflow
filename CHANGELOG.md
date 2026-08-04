@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.2
+
+### Patch Changes
+
+- Registry-side republish of 0.2.1: the first npm publish landed in npm's
+  staged-packages flow and permanently consumed the 0.2.1 version number
+  before public release. No code changes versus 0.2.1.
+
 ## 0.2.1
 
 ### Patch Changes
