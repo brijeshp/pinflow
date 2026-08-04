@@ -1005,8 +1005,12 @@ export class Annotator {
       pin.addEventListener('click', (e) => {
         e.stopPropagation();
         // Opening an existing comment takes over from armed placement — leave
-        // annotate mode so the next outside click can't place a spurious pin.
-        if (this._annotating) this._exitAnnotateMode();
+        // annotate mode so the next outside click can't place a spurious pin,
+        // and close the menu just as landing a NEW pin does.
+        if (this._annotating) {
+          this._exitAnnotateMode();
+          this._closePanel();
+        }
         if (this._deps.mode === 'builder') {
           this._openBuilderView(c);
           return;

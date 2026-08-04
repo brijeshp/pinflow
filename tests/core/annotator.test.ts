@@ -387,6 +387,17 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(1);
   });
+
+  it('clicking an existing pin while armed closes the menu — focus moves to the edit popup', () => {
+    seedStore(makeComment('existing'));
+    annotator = makeAnnotator();
+    enterAnnotateMode();
+    expect(shadow().querySelector('.panel h3')).not.toBeNull(); // menu open while armed
+
+    shadow().querySelector<HTMLElement>('.pin')?.click();
+    expect(shadow().querySelector('textarea')).not.toBeNull();
+    expect(shadow().querySelector('.panel h3')).toBeNull();
+  });
 });
 
 describe('Annotator deferred identity (P4.3)', () => {
