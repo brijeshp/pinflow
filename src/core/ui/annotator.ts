@@ -532,6 +532,10 @@ export class Annotator {
   }
 
   private _toggleSheet(): void {
+    // Summoning the export surface ends pinning — without this, a chip/hotkey
+    // summon over an ARMED menu left the crosshair live and the next host
+    // click planted a spurious comment (verification round, reproduced).
+    if (this._annotating) this._exitAnnotateMode();
     if (this._panelKind === 'sheet') {
       this._closePanel();
       return;

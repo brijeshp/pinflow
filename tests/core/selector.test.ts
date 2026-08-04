@@ -240,3 +240,21 @@ describe('fingerprint walk container discipline (found via codex 0.3.0 #2/#6 deb
     expect(found?.textContent).toBe('Approve the latest draft versions today');
   });
 });
+
+describe('fuzzy minimum-fingerprint boundary (verification round)', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  function probe(fp: string, candidate: string): Element | null {
+    document.body.innerHTML = `<main><p>${candidate}</p></main>`;
+    return findByCandidates(document, { testid: null, id: null, css: '#nope', xpath: '/nope' }, fp);
+  }
+
+  it('length 11 never fuzzy-matches; length 12 may', () => {
+    // 11 chars, one char edited in the candidate → exactness fails, fuzzy off.
+    expect(probe('elevenchars', 'elevenchara')).toBeNull();
+    // 12 chars, one char edited → fuzzy eligible and similar enough.
+    expect(probe('twelve chars', 'twelve charz')).not.toBeNull();
+  });
+});

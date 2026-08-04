@@ -778,6 +778,27 @@ describe('hydration races (codex 0.3.0 P1 + heal overlay)', () => {
     expect(deltas).toEqual(['delete:c1']); // and no phantom re-add announcement
   });
 
+  // Mechanism (verified in review round 2): mergeComments ties are SERVER-
+  // wins, so the merge does briefly revert to the server's stale selectors —
+  // but the same synchronous render pass re-runs _persistHeal and repairs
+  // them again. That guarantee also covers server-NEWER copies with stale
+  // selectors, which a tie-break rule never would.
+  it('a rejecting hydration clears the tombstone window without side effects', async () => {
+    seedStore([makeComment('c1', 'stays')]);
+    let rejectSource!: (e: Error) => void;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    annotator = makeAnnotator({
+      source: () => new Promise<Comment[]>((_r, rej) => (rejectSource = rej)),
+    });
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Clear all')!.click();
+    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Delete all')!.click();
+    rejectSource(new Error('offline'));
+    await new Promise((r) => setTimeout(r, 0));
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments ?? []).toHaveLength(0); // delete stands; no revival, no crash
+  });
+
   it('hydration with a tied-timestamp server copy cannot erase a healed selector', async () => {
     const target = document.createElement('p');
     target.textContent = 'Long-lived hydration heal paragraph target.';
@@ -806,5 +827,70 @@ describe('hydration races (codex 0.3.0 P1 + heal overlay)', () => {
     stored = loadStore(localStorage, PROJECT, REVIEWER)!;
     expect(stored.comments[0]!.anchor.selectors.css).toBe(healedCss);
     expect(shadow().querySelector<HTMLElement>('.pin')!.style.display).not.toBe('none');
+  });
+});
+
+describe('sheet summon disarms annotate mode (verification round finding)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    document.body.style.cursor = '';
+    vi.restoreAllMocks();
+  });
+
+  it('chip-summon while armed disarms — the next outside click cannot plant a comment', () => {
+    seedStore([makeComment('c1', 'existing')]);
+    annotator = makeAnnotator({ exportUi: 'always' });
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click(); // arms
+    expect(document.body.style.cursor).toBe('crosshair');
+    chip()!.click(); // summons the sheet over the armed menu
+    expect(document.body.style.cursor).toBe('');
+    const t = document.createElement('p');
+    t.textContent = 'host content the reviewer merely clicks';
+    document.body.appendChild(t);
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments).toHaveLength(1); // no spurious pin
+  });
+
+  it('Send to builder disarms annotate mode (coverage for the mirrored fix)', async () => {
+    seedStore([makeComment('c1', 'x')]);
+    const onSubmit = vi.fn();
+    annotator = new Annotator({
+      config: { project: PROJECT, onSubmit },
+      reviewer: REVIEWER,
+      mode: 'reviewer',
+      storage: localStorage,
+    });
+    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    [...shadow().querySelectorAll('button')]
+      .find((b) => b.textContent === 'Send to builder')!
+      .click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(document.body.style.cursor).toBe('');
+    expect(onSubmit).toHaveBeenCalled();
+  });
+
+  it("an OPEN sheet's title also refreshes in the HEAL direction", () => {
+    const c = makeComment('c1', 'note');
+    c.anchor = {
+      ...c.anchor,
+      selectors: { testid: 'late-heal', id: null, css: '#nope', xpath: '/nope' },
+      textFingerprint: 'text that exists nowhere on this page at all',
+    };
+    seedStore([c]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    expect(shadow().querySelector('.panel h3')?.textContent).toContain('1 unanchored');
+    const el2 = document.createElement('div');
+    el2.setAttribute('data-testid', 'late-heal');
+    document.body.appendChild(el2);
+    vi.spyOn(performance, 'now').mockReturnValue(10_000);
+    (annotator as unknown as { _repositionPins(): void })._repositionPins();
+    expect(shadow().querySelector('.panel h3')?.textContent).not.toContain('unanchored');
   });
 });

@@ -27,6 +27,11 @@ feedback session:
   guarded via composedPath, and `download()` clicks a detached anchor (an
   attached one re-entered the armed handler and could place a bogus pin).
 
+The fingerprint fallback walk no longer early-returns on the first exact
+match — it completes its (still 2000-element-capped) scan so containment
+chains resolve to the deepest element. Slightly more work on a last-ditch
+path, traded for never pinning a wrapper.
+
 Core ceilings notched for the feature set: IIFE 14.3 / ESM 13.95 KB gz
 (features +0.60 KB, review-round hardening ~+0.15 KB; margin covers linux-CI
 gzip drift).
