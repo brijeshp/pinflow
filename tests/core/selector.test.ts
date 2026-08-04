@@ -91,3 +91,70 @@ describe('selector', () => {
     expect(found?.textContent).toBe('unique-marker');
   });
 });
+
+describe('fuzzy re-anchor fallback (first-user feedback: edits orphan pins on every pass)', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  function selectorsForBody(html: string, pick: string): ReturnType<typeof buildSelectors> & {
+    fp: string;
+  } {
+    document.body.innerHTML = html;
+    const elx = document.querySelector(pick)!;
+    return { ...buildSelectors(elx), fp: getTextFingerprint(elx) };
+  }
+
+  it('a lightly reworded element keeps its anchor when every exact candidate misses', () => {
+    const sels = selectorsForBody(
+      '<main><p class="intro">This survey is anonymous and only asks for broad groups.</p></main>',
+      'p',
+    );
+    const fp = getTextFingerprint(document.querySelector('p')!);
+    // The edit pass: structure and classes change (css/xpath break), one word
+    // is reworded (exact fingerprint breaks) — the pin must survive.
+    document.body.innerHTML =
+      '<section><p class="lead">This survey is anonymous and only asks about broad groups.</p></section>';
+    const found = findByCandidates(document, sels, fp);
+    expect(found).toBe(document.querySelector('p'));
+  });
+
+  it('entirely different content stays an honest orphan — no wrong-element attach', () => {
+    const sels = selectorsForBody('<main><p>Pricing table for the enterprise tier.</p></main>', 'p');
+    const fp = getTextFingerprint(document.querySelector('p')!);
+    document.body.innerHTML = '<section><p>Contact our sales department today.</p></section>';
+    expect(findByCandidates(document, sels, fp)).toBeNull();
+  });
+
+  it('two-similar-paragraphs trap: picks the closer text, not the first candidate', () => {
+    const sels = selectorsForBody(
+      '<main><p id="x1">Reviewers can pin comments on any element of the page.</p></main>',
+      'p',
+    );
+    const fp = getTextFingerprint(document.querySelector('p')!);
+    document.body.innerHTML = [
+      '<section>',
+      '<p>Reviewers can pin notes on some elements of the app.</p>',
+      '<p>Reviewers can pin comments on any element of that page.</p>',
+      '</section>',
+    ].join('');
+    const found = findByCandidates(document, sels, fp);
+    expect(found?.textContent).toContain('any element of that page');
+  });
+
+  it('same score, different tag: the stored tag (from the css path) wins', () => {
+    const sels = selectorsForBody(
+      '<main><p class="note">Voice notes land as text transcripts.</p></main>',
+      'p',
+    );
+    const fp = getTextFingerprint(document.querySelector('p')!);
+    document.body.innerHTML = [
+      '<section>',
+      '<div>Voice notes land as text transcript.</div>',
+      '<p>Voice notes land as text transcript.</p>',
+      '</section>',
+    ].join('');
+    const found = findByCandidates(document, sels, fp);
+    expect(found?.tagName).toBe('P');
+  });
+});

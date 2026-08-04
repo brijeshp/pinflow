@@ -612,3 +612,31 @@ describe('reviewer batch controls — Clear all / Export & clear (first-user fee
     expect(shadow().querySelector('.panel p')?.textContent).toContain('cleared');
   });
 });
+
+describe('sheet surfaces unanchored comments (0.3.0 orphan tray-row)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('title appends the unanchored count when a pin has no element', () => {
+    const good = makeComment('c1', 'anchored fine');
+    const bad = makeComment('c2', 'orphaned one');
+    bad.anchor = {
+      ...bad.anchor,
+      selectors: { testid: null, id: null, css: '#gone', xpath: '/html/body/div[99]' },
+      textFingerprint: 'text that exists nowhere on this page at all',
+    };
+    seedStore([good, bad]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    expect(shadow().querySelector('.panel h3')?.textContent).toBe(
+      '2 comments · 1 screen · 1 unanchored',
+    );
+  });
+});

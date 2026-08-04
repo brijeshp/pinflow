@@ -1,4 +1,5 @@
 import { anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
+import { buildSelectors } from '../selector';
 import { copyToClipboard, download } from '../download';
 import {
   exportBuilder,
@@ -437,7 +438,46 @@ export class Annotator {
     const comments = this._store.comments;
     const screens = new Set(comments.map((c) => c.route)).size;
     const n = (v: number, w: string): string => `${v} ${w}${v === 1 ? '' : 's'}`;
-    return `${n(comments.length, 'comment')} · ${n(screens, 'screen')}`;
+    // Orphans are hidden on the page; the sheet is where they're accounted
+    // for (current route only — other routes' elements aren't here to check).
+    let lost = 0;
+    for (const pin of this._pins.values()) if (pin.dataset['orphaned']) lost++;
+    const tail = lost > 0 ? ` · ${lost} unanchored` : '';
+    return `${n(comments.length, 'comment')} · ${n(screens, 'screen')}${tail}`;
+  }
+
+  // A resolve that came through the fallback chain (fingerprint / fuzzy)
+  // means the stored css/xpath went stale — the next load would fall all the
+  // way through again, and one more edit could orphan the pin for good.
+  // Persist the rebuilt selectors. Deliberately SILENT: no onChange, no
+  // updatedAt bump — this is mechanical repair of local anchoring, not
+  // reviewer content, and a synced server copy must win the next merge
+  // untouched. Fingerprint stays as pinned (it is provenance: the artifact
+  // reports what the reviewer actually commented on). Reviewer mode only —
+  // builder aggregates other reviewers' stores read-only.
+  private _persistHeal(commentId: string, target: Element): void {
+    if (this._deps.mode !== 'reviewer') return;
+    const c = this._store.comments.find((x) => x.id === commentId);
+    if (!c) return;
+    const fresh = buildSelectors(target);
+    const s = c.anchor.selectors;
+    if (
+      fresh.css === s.css &&
+      fresh.xpath === s.xpath &&
+      fresh.testid === s.testid &&
+      fresh.id === s.id
+    )
+      return;
+    this._store = {
+      ...this._store,
+      comments: this._store.comments.map((x) =>
+        x.id === commentId ? { ...x, anchor: { ...x.anchor, selectors: fresh } } : x,
+      ),
+    };
+    // NOT _persist(): that invalidates the anchor cache, but a heal describes
+    // the very element just cached — flushing it would force a redundant
+    // ladder walk on the next reflow frame (P2.2 would regress).
+    saveStore(this._deps.storage, this._store);
   }
 
   private _syncChip(): void {
@@ -921,6 +961,7 @@ export class Annotator {
     comments.forEach((c, i) => {
       const target = resolveAnchor(c.anchor);
       this._anchorCache.set(c.id, target);
+      if (target) this._persistHeal(c.id, target);
       // A real <button>: keyboard operability (Enter/Space) and focusability
       // come from the platform, not from re-implemented key handlers.
       const pin = el('button', 'pin', String(i + 1));
@@ -954,11 +995,14 @@ export class Annotator {
 
   private _placePin(pin: HTMLButtonElement, comment: Comment, target: Element | null): void {
     if (!target) {
-      // Orphaned pin: park at last-known percentage within the viewport.
-      const { positionPercent: p } = comment.anchor;
-      place(pin, { left: (window.innerWidth * p.x) / 100, top: (window.innerHeight * p.y) / 100 });
+      // Orphaned pin: HIDDEN, not a gray floater — a parked dot pointing at
+      // nothing reads as breakage (first-user feedback). The element stays
+      // mounted so the bounded retry can heal and un-hide it; the export
+      // sheet surfaces the unanchored count instead.
+      pin.style.display = 'none';
       return;
     }
+    pin.style.display = '';
     place(pin, anchorToScreen(target, comment.anchor.positionPercent));
   }
 
@@ -980,7 +1024,10 @@ export class Annotator {
       if (target === null && retryOrphans) {
         target = resolveAnchor(c.anchor);
         this._anchorCache.set(c.id, target);
-        if (target) delete pin.dataset['orphaned'];
+        if (target) {
+          delete pin.dataset['orphaned'];
+          this._persistHeal(c.id, target);
+        }
       }
       this._placePin(pin, c, target);
     }
