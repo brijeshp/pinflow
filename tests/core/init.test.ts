@@ -286,8 +286,26 @@ describe('fail-loud boot (first-user feedback: silent failure cost a 30-minute d
       viewport: { width: 800, height: 600 },
     };
     store.comments.push(
-      { id: 'c1', createdAt: 'x', updatedAt: 'x', route: '/', fullUrl: 'u', text: 'a', anchor, modality: 'text' },
-      { id: 'c2', createdAt: 'x', updatedAt: 'x', route: '/', fullUrl: 'u', text: 'b', anchor, modality: 'text' },
+      {
+        id: 'c1',
+        createdAt: 'x',
+        updatedAt: 'x',
+        route: '/',
+        fullUrl: 'u',
+        text: 'a',
+        anchor,
+        modality: 'text',
+      },
+      {
+        id: 'c2',
+        createdAt: 'x',
+        updatedAt: 'x',
+        route: '/',
+        fullUrl: 'u',
+        text: 'b',
+        anchor,
+        modality: 'text',
+      },
     );
     saveStore(acquireStorage(), store);
     const handle = init({ project: 'boot2' });

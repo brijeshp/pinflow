@@ -212,9 +212,7 @@ describe('orphan presentation + heal persistence (0.3.0 first-user feedback)', (
   });
 
   it('a heal un-hides the pin again', () => {
-    seed([
-      makeComment('late2', { testid: 'late-2', id: null, css: '#nope', xpath: '/nope' }),
-    ]);
+    seed([makeComment('late2', { testid: 'late-2', id: null, css: '#nope', xpath: '/nope' })]);
     const a = mount();
     const pin = shadowRoot().querySelector<HTMLElement>('.pin')!;
     expect(pin.style.display).toBe('none');

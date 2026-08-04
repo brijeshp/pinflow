@@ -97,7 +97,10 @@ describe('fuzzy re-anchor fallback (first-user feedback: edits orphan pins on ev
     document.body.innerHTML = '';
   });
 
-  function selectorsForBody(html: string, pick: string): ReturnType<typeof buildSelectors> & {
+  function selectorsForBody(
+    html: string,
+    pick: string,
+  ): ReturnType<typeof buildSelectors> & {
     fp: string;
   } {
     document.body.innerHTML = html;
@@ -120,7 +123,10 @@ describe('fuzzy re-anchor fallback (first-user feedback: edits orphan pins on ev
   });
 
   it('entirely different content stays an honest orphan — no wrong-element attach', () => {
-    const sels = selectorsForBody('<main><p>Pricing table for the enterprise tier.</p></main>', 'p');
+    const sels = selectorsForBody(
+      '<main><p>Pricing table for the enterprise tier.</p></main>',
+      'p',
+    );
     const fp = getTextFingerprint(document.querySelector('p')!);
     document.body.innerHTML = '<section><p>Contact our sales department today.</p></section>';
     expect(findByCandidates(document, sels, fp)).toBeNull();

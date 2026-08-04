@@ -6,8 +6,11 @@ Figma-style pin-and-comment annotation for any prototype — and the feedback li
 <script
   src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow@latest"
   data-project="my-prototype"
+  onerror="console.error('pinflow failed to load')"
 ></script>
 ```
+
+On success pinflow prints one boot line to the console (`[pinflow] vX ready — …`); if you see neither that nor the onerror message, the script never ran.
 
 [Live demo](https://pinflow.dev) · [Spec](./specs/pinflow_v1_spec.md) · [Sync protocol](./PROTOCOL.md) · [Examples](./examples) · MIT
 
@@ -17,7 +20,7 @@ Figma-style pin-and-comment annotation for any prototype — and the feedback li
 
 Pinflow covers the whole loop, not just the pin:
 
-- **Capture** — reviewers pin any element and comment by text or voice (`voice: { tokenEndpoint }`); `activation: { mode: 'stealth' }` keeps the layer invisible until a long-press (touch) or Alt+click (desktop) summons it.
+- **Capture** — reviewers pin any element and comment by text or voice (`voice: { tokenEndpoint }`); the visible button, Alt+click (⌥-click on Mac), and a 500 ms long-press on touch all work out of the box; `activation: { mode: 'stealth' }` hides the button for gesture-only, `'toggle'` is button-only.
 - **Export** — one action collates everything into markdown or JSON (`handle.exportMarkdown()` / `exportJSON()`), each comment carrying its stable id, a friendly frame heading (`describeRoute`), and element context — "the 'Continue' button under 'Next section'", not just a CSS path.
 - **Submit** — with `submitTo: { email }`, the post-export confirmation opens a prefilled `mailto:` while the artifact is already downloaded and on the clipboard: a complete zero-backend hand-off.
 - **Sync** — pair `source` (read) with `onChange` (write) and any backend that implements three verbs becomes durable storage; the whole contract is [`PROTOCOL.md`](./PROTOCOL.md).
@@ -31,8 +34,11 @@ Pinflow covers the whole loop, not just the pin:
 <script
   src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow@latest"
   data-project="my-prototype"
+  onerror="console.error('pinflow failed to load')"
 ></script>
 ```
+
+On success pinflow prints one boot line to the console (`[pinflow] vX ready — …`); if you see neither that nor the onerror message, the script never ran.
 
 **React:**
 
