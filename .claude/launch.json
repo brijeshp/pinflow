@@ -27,6 +27,12 @@
       "port": 3111
     },
     {
+      "name": "pinflow-site",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "/Users/brijeshpatel/Apps/pinflow-site", "dev", "--port", "4321"],
+      "port": 4321
+    },
+    {
       "name": "pinflow-demo-preview",
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "demo", "preview"],
