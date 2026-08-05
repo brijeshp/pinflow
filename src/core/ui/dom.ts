@@ -10,7 +10,8 @@ export interface UIRoot {
 export function createUIRoot(): UIRoot {
   const host = document.createElement('div');
   host.setAttribute('data-pinflow-root', '');
-  host.style.cssText = 'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483646';
+  host.style.cssText =
+    'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483646;color-scheme:inherit';
   const shadow = host.attachShadow({ mode: 'open' });
   const style = document.createElement('style');
   style.textContent = STYLES;
@@ -80,4 +81,19 @@ export function flipPosition(
   if (left < 8) left = 8;
   if (top < 8) top = 8;
   return { left, top };
+}
+
+// WCAG-ish relative luminance for #rgb/#rrggbb; null for non-hex input.
+// Picks white or near-black text for a given accent so hosts can theme with
+// a single variable.
+export function contrastFor(accent: string): string | null {
+  const m = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(accent.trim());
+  if (!m) return null;
+  const h = m[1]!.length === 3 ? [...m[1]!].map((c) => c + c).join('') : m[1]!;
+  const [r, g, b] = [0, 2, 4].map((i) => {
+    const v = parseInt(h.slice(i, i + 2), 16) / 255;
+    return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4);
+  }) as [number, number, number];
+  const lum = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  return lum > 0.35 ? '#16181d' : '#fff';
 }

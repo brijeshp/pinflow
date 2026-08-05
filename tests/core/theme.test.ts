@@ -50,7 +50,7 @@ describe('theme tokens (A1)', () => {
 
   it('stylesheet consumes the tokens via var() with stock fallbacks', () => {
     expect(STYLES).toContain('var(--pf-accent,#2563eb)');
-    expect(STYLES).toContain('var(--pf-surface,#fff)');
+    expect(STYLES).toContain('var(--pf-surface,light-dark(#fff,#1e222b))');
     expect(STYLES).toContain('var(--pf-radius,12px)');
     expect(STYLES).toContain('var(--pf-danger,#dc2626)');
     expect(STYLES).toContain('var(--pf-shadow,');
@@ -69,9 +69,13 @@ describe('theme tokens (A1)', () => {
   });
 
   it('resolution treatments ride the textMuted token (L2.3)', () => {
-    expect(STYLES).toMatch(/\.pin\[data-status\]\{background:var\(--pf-text-muted,#64748b\)\}/);
+    expect(STYLES).toMatch(
+      /\.pin\[data-status\]\{background:var\(--pf-text-muted,light-dark\(#64748b,#99a1b3\)\)\}/,
+    );
     expect(STYLES).toMatch(/\.pin\[data-status="declined"\]\{text-decoration:line-through\}/);
-    expect(STYLES).toMatch(/\.input \.res\{[^}]*color:var\(--pf-text-muted,#64748b\)/);
+    expect(STYLES).toMatch(
+      /\.input \.res\{[^}]*color:var\(--pf-text-muted,light-dark\(#64748b,#99a1b3\)\)/,
+    );
   });
 });
 

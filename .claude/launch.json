@@ -37,6 +37,18 @@
       "runtimeExecutable": "pnpm",
       "runtimeArgs": ["--dir", "demo", "preview"],
       "port": 4175
+    },
+    {
+      "name": "site-preview",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": [
+        "http-server",
+        "/Users/brijeshpatel/Apps/pinflow-site/dist",
+        "-p",
+        "4321",
+        "-c-1"
+      ],
+      "port": 4321
     }
   ]
 }
