@@ -33,7 +33,7 @@ import type {
 import { GestureController } from '../gesture/controller';
 import type { Logger, VoiceHost, VoiceModule, VoiceSession } from '../voice-contract';
 import { loadVoice as defaultLoadVoice } from '../voice-loader';
-import { createUIRoot, el, flipPosition, place, type UIRoot } from './dom';
+import { contrastFor, createUIRoot, el, flipPosition, place, type UIRoot } from './dom';
 
 // Not publicly configurable (P4.4): the 500ms default matched every real use.
 // GestureController keeps its internal option for tests.
@@ -329,6 +329,12 @@ export class Annotator {
           v,
         );
       }
+    }
+    // One-variable theming: an accent alone derives its readable contrast
+    // color (hex accents only — anything fancier, the host sets both).
+    if (theme.accent && !theme.accentContrast) {
+      const c = contrastFor(theme.accent);
+      if (c) this._ui.host.style.setProperty('--pf-accent-contrast', c);
     }
   }
 

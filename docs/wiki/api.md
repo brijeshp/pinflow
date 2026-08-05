@@ -47,6 +47,14 @@ Required: `project`.
 | `activation`    | `{ mode?: 'toggle' \| 'stealth' \| 'both' }`                    | default `both`: button + Alt+click (⌥ on Mac) / 500 ms long-press; `toggle` = button only; `stealth` = gesture only (no button)                                                                                                                                                                                                                                    |
 | `voice`         | `VoiceConfig?`                                                  | omit for pure text                                                                                                                                                                                                                                                                                                                                                 |
 
+**Theming, simplest first**: (1) plain page CSS, no JS — custom properties
+inherit through the shadow boundary, so `:root { --pf-accent: #b3005e }`
+themes the widget; (2) `theme.accent` alone — `accentContrast` derives from
+the accent's luminance (hex only; explicit wins); (3) the full token set
+below. Defaults follow the PAGE's declared `color-scheme` via `light-dark()`
+(inline `color-scheme: inherit` on the host — a stylesheet `:host`
+declaration would lose to the host's inline `all:initial`).
+
 **`PinflowTheme`** (all optional; stock look if omitted): `fontFamily`→`--pf-font-family`, `accent`→`--pf-accent`, `accentContrast`→`--pf-accent-contrast`, `surface`→`--pf-surface`, `text`→`--pf-text`, `textMuted`→`--pf-text-muted`, `danger`→`--pf-danger`, `radius`→`--pf-radius`, `shadow`→`--pf-shadow`.
 
 **`VoiceConfig`** — credential resolution order: `getToken` → `tokenEndpoint` → `devOnlyToken`.
