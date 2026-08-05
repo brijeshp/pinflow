@@ -107,11 +107,11 @@ export class Annotator {
   private _sheetDismiss: (() => void) | null = null;
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
   private _prevBodyCursor = '';
-  // Armed-mode hover outline (the 80% answer to area feedback; full marquee is
-  // 0.5.0): a non-interactive accent box over the element under the cursor,
-  // rendered inside the shadow root — host styles/classes are never touched.
-  // The move listener exists ONLY while armed (P2 posture: no capture-phase
-  // move handler at rest, mirroring the gesture controller's press scoping).
+  // Armed-mode hover outline: a non-interactive accent box over the element
+  // under the cursor, rendered inside the shadow root — host styles/classes
+  // are never touched. The move listener exists ONLY while armed (P2 posture:
+  // no capture-phase move handler at rest, mirroring the gesture controller's
+  // press scoping). The same element doubles as the marquee box while dragging.
   private _hoverEl: HTMLDivElement | null = null;
   private _hoverTarget: Element | null = null;
   private _hoverFrame = 0;
