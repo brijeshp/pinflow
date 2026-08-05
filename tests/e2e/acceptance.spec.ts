@@ -2,7 +2,9 @@ import { test, expect } from '@playwright/test';
 
 // Helper: Playwright auto-pierces shadow DOM, so we can use regular selectors.
 const CONTROL = 'button.control';
-// Two-step pinning (0.3.0): the control click itself arms annotate mode.
+// The control click arms annotate mode (0.5.0: pure toggle — no menu panel);
+// export lives on the count chip's sheet.
+const CHIP = 'button.chip';
 const EXPORT_BTN = 'button:has-text("Export & share")';
 const PIN = 'button.pin';
 const TEXTAREA = '[data-pinflow-root] textarea';
@@ -72,7 +74,7 @@ test('AC5: reviewer export', async ({ page }) => {
   await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
-  await page.locator(CONTROL).click();
+  await page.locator(CHIP).click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.locator(EXPORT_BTN).click(),
@@ -113,7 +115,7 @@ test('AC8: export markdown has selector candidates and element context', async (
   await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
-  await page.locator(CONTROL).click();
+  await page.locator(CHIP).click();
   const [download] = await Promise.all([
     page.waitForEvent('download'),
     page.locator(EXPORT_BTN).click(),
@@ -156,4 +158,32 @@ test('AC11: IIFE bundle loads without error', async ({ page }) => {
     () => !!(window as unknown as Record<string, unknown>).Pinflow,
   );
   expect(hasPinflow).toBe(true);
+});
+
+// 0.5.0 — Drag-to-marquee places an area comment; export carries the region
+test('AC12: marquee drag creates an area comment with an Area export line', async ({ page }) => {
+  await page.goto('/?reviewer=Marq');
+  await page.locator(CONTROL).click();
+
+  const cta = page.locator('[data-testid="primary-cta"]');
+  const box = (await cta.boundingBox())!;
+  await page.mouse.move(box.x - 20, box.y - 20);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 20, box.y + box.height + 20, { steps: 4 });
+  await page.mouse.up();
+
+  await page.locator(TEXTAREA).fill('This whole area');
+  await page.locator(SAVE_BUTTON).click();
+  await page.waitForTimeout(300);
+
+  await page.locator(CHIP).click();
+  const [download] = await Promise.all([
+    page.waitForEvent('download'),
+    page.locator(EXPORT_BTN).click(),
+  ]);
+  const path = await download.path();
+  const fs = await import('node:fs/promises');
+  const md = await fs.readFile(path!, 'utf-8');
+  expect(md).toContain('**Area:**');
+  expect(md).toContain('> This whole area');
 });

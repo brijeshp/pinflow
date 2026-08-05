@@ -24,6 +24,7 @@ import {
 import type {
   ActivationConfig,
   Anchor,
+  AreaPercent,
   Comment,
   Mode,
   PinflowConfig,
@@ -114,6 +115,13 @@ export class Annotator {
   private _hoverEl: HTMLDivElement | null = null;
   private _hoverTarget: Element | null = null;
   private _hoverFrame = 0;
+  // Drag-to-marquee (armed mode, mouse/pen only): press origin + latest
+  // corner; `live` flips once the press travels past MOVE_THRESHOLD_PX —
+  // below it the press stays a plain click and the click handler places a
+  // point pin. The marquee is a PICKER: release resolves the tightest
+  // containing element and drops a normal element-anchored comment carrying
+  // `areaPercent`. Listeners share the armed window (P2: zero work at rest).
+  private _marquee: { x0: number; y0: number; x1: number; y1: number; live: boolean } | null = null;
   private _reflowFrame = 0;
   private _orphanRetryAt = 0;
   // Builder-mode reviewer filter: unchecked reviewers' pins hide (codex #14).
@@ -383,7 +391,11 @@ export class Annotator {
     btn.dataset['active'] = 'false';
     btn.style.bottom = '16px';
     btn.style.right = '16px';
-    btn.addEventListener('click', () => this._togglePanel());
+    // Reviewer control is a pure arm/disarm toggle (0.5.0: the menu panel is
+    // gone — click/drag on the page IS the interface). Builder keeps its drawer.
+    btn.addEventListener('click', () =>
+      this._deps.mode === 'builder' ? this._togglePanel() : this._toggleAnnotateMode(),
+    );
     this._ui.root.appendChild(btn);
     this._controlEl = btn;
   }
@@ -394,22 +406,17 @@ export class Annotator {
     return count > 0 ? `Pinflow • ${count}` : 'Pinflow';
   }
 
+  // Builder-only: toggle the aggregate drawer.
   private _togglePanel(): void {
     if (this._panelEl) {
       this._closePanel();
-      // Control toggle is a full stop: closing the menu also disarms.
-      if (this._annotating) this._exitAnnotateMode();
       return;
     }
     this._panelAnchor = this._controlEl;
     this._panelKind = 'menu';
-    this._panelEl =
-      this._deps.mode === 'builder' ? this._renderBuilderPanel() : this._renderReviewerPanel();
+    this._panelEl = this._renderBuilderPanel();
     this._ui.root.appendChild(this._panelEl);
     this._positionPanel();
-    // Two-step pinning: opening the reviewer menu arms annotate mode in the
-    // same gesture — button, then page. (Was: button → "Add comment" → page.)
-    if (this._deps.mode === 'reviewer' && !this._annotating) this._enterAnnotateMode(true);
   }
 
   private _closePanel(): void {
@@ -571,6 +578,14 @@ export class Annotator {
         this._makeButton('Export & clear', () => void this._handleReviewerExport(true)),
       ],
     );
+    // Host-owned submission channel (0.5.0: lives here since the menu panel
+    // is gone; hosts pairing onSubmit with `source` should set exportUi).
+    if (this._deps.config.onSubmit) {
+      const row = el('div', 'row');
+      row.style.marginTop = '8px';
+      row.appendChild(this._makeButton('Send to builder', () => void this._handleOnSubmit()));
+      sheet.appendChild(row);
+    }
     this._panelAnchor = this._chipEl;
     this._panelKind = 'sheet';
     this._panelEl = sheet;
@@ -585,59 +600,6 @@ export class Annotator {
     );
   }
 
-  private _renderReviewerPanel(): HTMLDivElement {
-    const count = this._store.comments.length;
-    const panel = this._makePanel(
-      `You have ${count} comment${count === 1 ? '' : 's'}`,
-      'Tap any element to pin a comment.',
-      [
-        this._makeButton(
-          this._annotating ? 'Stop' : 'Add comment',
-          () => this._toggleAnnotateMode(),
-          'primary',
-        ),
-        this._makeButton('Export & share', () => void this._handleReviewerExport()),
-      ],
-    );
-    if (this._deps.config.onSubmit) {
-      const row2 = el('div', 'row');
-      row2.style.marginTop = '8px';
-      row2.appendChild(this._makeButton('Send to builder', () => void this._handleOnSubmit()));
-      panel.appendChild(row2);
-    }
-    if (count > 0) {
-      const row3 = el('div', 'row');
-      row3.style.marginTop = '8px';
-      row3.appendChild(this._makeButton('Clear all', () => this._confirmReviewerClear(), 'danger'));
-      panel.appendChild(row3);
-    }
-    return panel;
-  }
-
-  // Reviewer-side batch wipe (first-user feedback: after an applied batch you
-  // want a fresh slate). Confirm surface, not window.confirm — same panel
-  // vocabulary as the export confirmation.
-  private _confirmReviewerClear(): void {
-    const n = this._store.comments.length;
-    this._closePanel();
-    // Entering a destructive flow ends pinning; Cancel must not leave the
-    // page armed behind the reviewer's back (codex 0.3.0 #4).
-    if (this._annotating) this._exitAnnotateMode();
-    const panel = this._makePanel(
-      `Delete ${n} comment${n === 1 ? '' : 's'}?`,
-      'This removes your comments on every screen of this project.',
-      [
-        this._makeButton('Delete all', () => this._handleReviewerClear(), 'danger'),
-        this._makeButton('Cancel', () => this._closePanel()),
-      ],
-    );
-    this._panelAnchor = this._controlEl ?? this._chipEl;
-    this._panelKind = 'confirm';
-    this._panelEl = panel;
-    this._ui.root.appendChild(panel);
-    this._positionPanel();
-  }
-
   // Synced hosts stay consistent: every removal goes out as its own delete
   // (PROTOCOL deletes are per-comment; there is no bulk op on the wire).
   private _clearReviewerComments(): void {
@@ -646,11 +608,6 @@ export class Annotator {
     this._persist();
     for (const c of removed) this._emitChange('delete', c);
     this._renderPins();
-  }
-
-  private _handleReviewerClear(): void {
-    this._clearReviewerComments();
-    this._closePanel();
   }
 
   // Built imperatively to keep reviewer names out of innerHTML.
@@ -723,16 +680,19 @@ export class Annotator {
     else this._enterAnnotateMode();
   }
 
-  private _enterAnnotateMode(keepPanel = false): void {
+  private _enterAnnotateMode(): void {
     this._annotating = true;
     if (this._controlEl) this._controlEl.dataset['active'] = 'true';
     document.addEventListener('click', this._onDocumentClick, true);
     document.addEventListener('keydown', this._onKeyDown);
     document.addEventListener('pointermove', this._onHoverMove, { passive: true, capture: true });
+    document.addEventListener('pointerdown', this._onArmedPointerDown, true);
+    document.addEventListener('pointerup', this._onArmedPointerUp, true);
+    document.addEventListener('pointercancel', this._onArmedPointerCancel, true);
     this._prevBodyCursor = document.body.style.cursor;
     document.body.style.cursor = 'crosshair';
-    if (!keepPanel) this._closePanel();
-    this._refreshMenuPanel();
+    // Arming is pinning intent — it replaces whatever surface was up.
+    this._closePanel();
   }
 
   private _exitAnnotateMode(): void {
@@ -741,61 +701,168 @@ export class Annotator {
     document.removeEventListener('click', this._onDocumentClick, true);
     document.removeEventListener('keydown', this._onKeyDown);
     document.removeEventListener('pointermove', this._onHoverMove, { capture: true });
+    document.removeEventListener('pointerdown', this._onArmedPointerDown, true);
+    document.removeEventListener('pointerup', this._onArmedPointerUp, true);
+    document.removeEventListener('pointercancel', this._onArmedPointerCancel, true);
+    this._marquee = null;
     this._clearHover();
     document.body.style.cursor = this._prevBodyCursor;
     this._prevBodyCursor = '';
-    // An open menu shows the armed/disarmed primary — keep its label honest.
-    this._refreshMenuPanel();
-  }
-
-  // Rebuild the menu panel in place so Stop ⇄ Add comment tracks _annotating.
-  private _refreshMenuPanel(): void {
-    if (this._panelKind !== 'menu' || !this._panelEl) return;
-    this._panelEl.remove();
-    this._panelEl =
-      this._deps.mode === 'builder' ? this._renderBuilderPanel() : this._renderReviewerPanel();
-    this._ui.root.appendChild(this._panelEl);
-    this._positionPanel();
   }
 
   private _onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') this._exitAnnotateMode();
   };
 
-  // rAF-throttled like _onReflow, with _onDocumentClick's own-UI guard:
-  // pinflow chrome never highlights (crossing onto it hides the box instead).
+  // True for events on pinflow's own chrome, shared by the armed click, hover
+  // targeting, and marquee starts. contains() covers the retargeted
+  // (host-level) case; composedPath covers edges where the capture target is
+  // the shadow-internal node itself — without it, an armed click on pinflow's
+  // own UI would both place a bogus pin AND stopPropagation away the
+  // control's handler.
+  private _isOwnUi(target: unknown, e?: Event): boolean {
+    return (
+      !(target instanceof Element) ||
+      this._ui.host.contains(target) ||
+      e?.composedPath?.().includes(this._ui.host) === true
+    );
+  }
+
+  // rAF-throttled like _onReflow. While a marquee press is live this tracks
+  // the drag corner instead of hover-targeting.
   private _onHoverMove = (e: Event): void => {
+    const m = this._marquee;
+    if (m) {
+      const p = e as PointerEvent;
+      m.x1 = p.clientX;
+      m.y1 = p.clientY;
+      if (!m.live && Math.hypot(m.x1 - m.x0, m.y1 - m.y0) > MOVE_THRESHOLD_PX) m.live = true;
+      if (m.live) this._scheduleHoverFrame();
+      return;
+    }
     const target = e.target;
-    this._hoverTarget =
-      target instanceof Element &&
-      !this._ui.host.contains(target) &&
-      !e.composedPath?.().includes(this._ui.host)
-        ? target
-        : null;
+    this._hoverTarget = this._isOwnUi(target, e) ? null : (target as Element);
+    this._scheduleHoverFrame();
+  };
+
+  private _scheduleHoverFrame(): void {
     if (this._hoverFrame) return;
     this._hoverFrame = requestAnimationFrame(() => {
       this._hoverFrame = 0;
       this._paintHover();
     });
-  };
+  }
 
   private _paintHover(): void {
+    const m = this._marquee;
+    if (m?.live) {
+      const box = this._ensureHoverEl();
+      box.dataset['marquee'] = 'true';
+      this._sizeHoverEl(
+        Math.min(m.x0, m.x1),
+        Math.min(m.y0, m.y1),
+        Math.abs(m.x1 - m.x0),
+        Math.abs(m.y1 - m.y0),
+      );
+      return;
+    }
     const t = this._hoverTarget;
     if (!t?.isConnected) {
       if (this._hoverEl) this._hoverEl.style.display = 'none';
       return;
     }
+    const box = this._ensureHoverEl();
+    delete box.dataset['marquee'];
+    const r = t.getBoundingClientRect();
+    this._sizeHoverEl(r.left, r.top, r.width, r.height);
+  }
+
+  private _ensureHoverEl(): HTMLDivElement {
     if (!this._hoverEl) {
       this._hoverEl = el('div', 'hl');
       this._ui.root.appendChild(this._hoverEl);
     }
-    const r = t.getBoundingClientRect();
-    const s = this._hoverEl.style;
+    return this._hoverEl;
+  }
+
+  private _sizeHoverEl(left: number, top: number, width: number, height: number): void {
+    const s = this._hoverEl!.style;
     s.display = '';
-    s.left = `${r.left}px`;
-    s.top = `${r.top}px`;
-    s.width = `${r.width}px`;
-    s.height = `${r.height}px`;
+    s.left = `${left}px`;
+    s.top = `${top}px`;
+    s.width = `${width}px`;
+    s.height = `${height}px`;
+  }
+
+  // Mouse/pen only: a passive listener cannot preventDefault, so a touch
+  // marquee would fight native scrolling — touch keeps click-to-pin.
+  private _onArmedPointerDown = (e: Event): void => {
+    const p = e as PointerEvent;
+    if (p.isPrimary === false || p.pointerType === 'touch') return;
+    if (this._isOwnUi(e.target, e)) return;
+    this._marquee = { x0: p.clientX, y0: p.clientY, x1: p.clientX, y1: p.clientY, live: false };
+  };
+
+  private _onArmedPointerUp = (e: Event): void => {
+    const m = this._marquee;
+    if (!m) return;
+    this._marquee = null;
+    // Below the threshold the press was a click; _onDocumentClick owns it.
+    if (!m.live) return;
+    const p = e as PointerEvent;
+    const x1 = p.clientX ?? m.x1;
+    const y1 = p.clientY ?? m.y1;
+    // The drag's trailing click must reach neither pinflow (double pin) nor
+    // the host (a drag is not a click). Swallows exactly ONE click (`once`,
+    // like the gesture controller); the 0-timeout clears the no-click case —
+    // mouse click fires synchronously after pointerup, so a later genuine
+    // click can never be eaten.
+    const swallow = (ce: Event): void => {
+      ce.preventDefault();
+      ce.stopPropagation();
+    };
+    document.addEventListener('click', swallow, { capture: true, once: true });
+    window.setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 0);
+    this._exitAnnotateMode();
+    this._placeAreaComment(
+      Math.min(m.x0, x1),
+      Math.min(m.y0, y1),
+      Math.abs(x1 - m.x0),
+      Math.abs(y1 - m.y0),
+    );
+  };
+
+  private _onArmedPointerCancel = (): void => {
+    this._marquee = null;
+    this._scheduleHoverFrame(); // repaint drops the marquee box
+  };
+
+  // Resolve the tightest element whose box contains the drawn rect, then drop
+  // a NORMAL element-anchored comment (pin at the rect's center) carrying the
+  // rect as percentages of that element.
+  private _placeAreaComment(left: number, top: number, width: number, height: number): void {
+    const cx = left + width / 2;
+    const cy = top + height / 2;
+    let target: Element | null = document.elementFromPoint?.(cx, cy) ?? null;
+    if (target && this._ui.host.contains(target)) target = null; // a pin under the center
+    const contains = (elm: Element): boolean => {
+      const r = elm.getBoundingClientRect();
+      return r.left <= left && r.top <= top && r.right >= left + width && r.bottom >= top + height;
+    };
+    while (target && !contains(target)) target = target.parentElement;
+    const anchorEl = target ?? document.body;
+    const tr = anchorEl.getBoundingClientRect();
+    const clamp = (v: number): number => Math.min(100, Math.max(0, v));
+    const area: AreaPercent | undefined =
+      tr.width > 0 && tr.height > 0
+        ? {
+            x: clamp(((left - tr.left) / tr.width) * 100),
+            y: clamp(((top - tr.top) / tr.height) * 100),
+            w: clamp((width / tr.width) * 100),
+            h: clamp((height / tr.height) * 100),
+          }
+        : undefined;
+    this._placeCommentAt(cx, cy, anchorEl, area);
   }
 
   private _clearHover(): void {
@@ -809,19 +876,11 @@ export class Annotator {
   }
 
   private _onDocumentClick = (e: MouseEvent): void => {
-    const target = e.target as Element | null;
-    // contains() covers the retargeted (host-level) case; composedPath covers
-    // environments/edges where the capture target is the shadow-internal node
-    // itself — without it, an armed click on pinflow's own UI would both
-    // place a bogus pin AND stopPropagation away the control's handler.
-    if (!target || this._ui.host.contains(target)) return;
-    if (e.composedPath?.().includes(this._ui.host)) return;
+    if (this._isOwnUi(e.target, e)) return;
     e.preventDefault();
     e.stopPropagation();
     this._exitAnnotateMode();
-    // The menu's job is done once a pin lands — focus moves to the draft.
-    this._closePanel();
-    this._placeCommentAt(e.clientX, e.clientY, target);
+    this._placeCommentAt(e.clientX, e.clientY, e.target as Element);
   };
 
   // Stealth defers the (blocking) identity prompt from init to the first
@@ -844,10 +903,18 @@ export class Annotator {
   // Shared by the toggle click path and the stealth gesture: drop an anchored
   // note at a screen point. Voice-configured → a streaming voice dot; otherwise
   // the classic text input.
-  private _placeCommentAt(clientX: number, clientY: number, target: Element): void {
+  private _placeCommentAt(
+    clientX: number,
+    clientY: number,
+    target: Element,
+    area?: AreaPercent,
+  ): void {
     if (this._ui.host.contains(target)) return; // never annotate our own UI
     if (!this._ensureIdentity()) return; // identity is required before any comment exists
-    const anchor = buildAnchor(target, clientX, clientY);
+    const anchor: Anchor = {
+      ...buildAnchor(target, clientX, clientY),
+      ...(area ? { areaPercent: area } : {}),
+    };
     if (this._deps.config.voice) {
       if (this._activeVoice) return; // one recording at a time
       this._startVoiceDot(anchor, clientX, clientY);
@@ -1068,12 +1135,8 @@ export class Annotator {
       pin.addEventListener('click', (e) => {
         e.stopPropagation();
         // Opening an existing comment takes over from armed placement — leave
-        // annotate mode so the next outside click can't place a spurious pin,
-        // and close the menu just as landing a NEW pin does.
-        if (this._annotating) {
-          this._exitAnnotateMode();
-          this._closePanel();
-        }
+        // annotate mode so the next outside click can't place a spurious pin.
+        if (this._annotating) this._exitAnnotateMode();
         if (this._deps.mode === 'builder') {
           this._openBuilderView(c);
           return;

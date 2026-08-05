@@ -36,6 +36,10 @@ export const STYLES =
   // Armed-mode hover outline: accent border + faint accent wash over the
   // element under the crosshair. pointer-events:none — purely indicative.
   '.hl{position:fixed;pointer-events:none;border:2px solid var(--pf-accent,#2563eb);background:color-mix(in oklab,var(--pf-accent,#2563eb) 8%,transparent);border-radius:4px;transition:.08s}' +
+  // Drag-to-marquee: the same box, plus a page-dimming "hole" — one huge
+  // box-shadow spread instead of an overlay element. Must track the pointer
+  // with zero lag, so the hover transition is dropped while dragging.
+  '.hl[data-marquee]{box-shadow:0 0 0 200vmax rgba(15,23,42,.32);transition:none}' +
   // Anytime-export count chip: the pin vocabulary (same accent circle, same
   // pop-in) promoted to a fixed corner summon for the export sheet.
   '.chip{position:fixed;left:16px;bottom:16px;pointer-events:auto;min-width:26px;height:26px;padding:0 8px;border:0;border-radius:999px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);font:inherit;font-size:12px;font-weight:600;box-shadow:0 4px 10px rgba(0,0,0,.28),0 0 0 2px var(--pf-surface,light-dark(#fff,#1e222b));cursor:pointer;display:grid;place-items:center;transform:scale(0);animation:chippop .18s ease forwards}' +

@@ -1,6 +1,6 @@
 import { SCHEMA_VERSION } from './storage';
 import { now } from './time';
-import type { Comment, ReviewerStore } from './types';
+import type { AreaPercent, Comment, ReviewerStore } from './types';
 
 export interface ExportMeta {
   generatedAt: string;
@@ -107,6 +107,13 @@ function visualLines(comment: Comment): string[] {
   return lines;
 }
 
+// Area comments (marquee picker): the drawn region, numbers only — no
+// untrusted text enters this line.
+function areaLine(a: AreaPercent): string {
+  const r = Math.round;
+  return `**Area:** ${r(a.w)}% × ${r(a.h)}% of the element, from ${r(a.x)}%, ${r(a.y)}%`;
+}
+
 function commentBlock(comment: Comment, index: number, reviewer?: string): string {
   const heading = commentHeading(comment, index, reviewer);
   const pos = comment.anchor.positionPercent;
@@ -119,6 +126,7 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
     '**Selector candidates:**',
     selectorLines(comment),
     `**Position:** ${Math.round(pos.x)}% from left, ${Math.round(pos.y)}% from top of element`,
+    ...(comment.anchor.areaPercent ? [areaLine(comment.anchor.areaPercent)] : []),
     `**Viewport at time of comment:** ${viewportLabel(comment)}`,
     // The team's "why" — the disposition heading suffix says WHAT happened,
     // this line says the reason. Together they close the loop in the artifact.

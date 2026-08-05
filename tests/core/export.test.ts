@@ -462,3 +462,37 @@ it('injection cannot ride ANY interpolated field — reviewer, route, resolution
     expect(md).toContain('> bare\n> carriage\n> returns');
   }
 });
+
+describe('area comments (marquee picker)', () => {
+  it('renders an **Area:** line from areaPercent, numbers only', () => {
+    const store: ReviewerStore = {
+      ...sarah,
+      comments: [
+        makeComment({
+          id: 'cmt_a',
+          route: '/',
+          text: 'This whole region feels cramped.',
+          anchor: {
+            ...makeComment({ id: 'x', route: '/', text: '' }).anchor,
+            areaPercent: { x: 16.7, y: 16.7, w: 66.6, h: 66.6 },
+          },
+        }),
+      ],
+    };
+    const md = exportReviewer(
+      store,
+      { generatedAt: '2026-04-15T14:45:00Z', project: 'my-prototype' },
+      () => false,
+    );
+    expect(md).toContain('**Area:** 67% × 67% of the element, from 17%, 17%');
+  });
+
+  it('point comments render no Area line', () => {
+    const md = exportReviewer(
+      sarah,
+      { generatedAt: '2026-04-15T14:45:00Z', project: 'my-prototype' },
+      () => false,
+    );
+    expect(md).not.toContain('**Area:**');
+  });
+});

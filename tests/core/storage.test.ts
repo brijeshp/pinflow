@@ -502,3 +502,43 @@ it('#20 (r3): context/fingerprint/voice shapes are validated at their REAL locat
   ]).map((c) => c.id);
   expect(kept.sort()).toEqual(['ok', 'okctx', 'okvoice'].sort());
 });
+
+describe('areaPercent validation (marquee picker)', () => {
+  it('keeps a valid areaPercent, drops records with a malformed one, passes point comments untouched', async () => {
+    const { normalizeComments } = await import('../../src/core/storage');
+    const base = {
+      createdAt: '2026-01-01T00:00:00Z',
+      updatedAt: '2026-01-01T00:00:00Z',
+      route: '/',
+      fullUrl: 'http://x/',
+      text: 't',
+      modality: 'text',
+      anchor: {
+        selectors: { testid: null, id: null, css: 'body', xpath: '/html/body' },
+        textFingerprint: '',
+        positionPercent: { x: 50, y: 50 },
+        viewport: { width: 800, height: 600 },
+      },
+    };
+    const withArea = {
+      ...base,
+      id: 'ok',
+      anchor: { ...base.anchor, areaPercent: { x: 10, y: 10, w: 50, h: 50 } },
+    };
+    const nanArea = {
+      ...base,
+      id: 'nan',
+      anchor: { ...base.anchor, areaPercent: { x: NaN, y: 10, w: 50, h: 50 } },
+    };
+    const outOfRange = {
+      ...base,
+      id: 'oob',
+      anchor: { ...base.anchor, areaPercent: { x: 10, y: 10, w: 150, h: 50 } },
+    };
+    const point = { ...base, id: 'pt' };
+    const kept = normalizeComments([withArea, nanArea, outOfRange, point]);
+    expect(kept.map((c) => c.id)).toEqual(['ok', 'pt']);
+    expect(kept[0]!.anchor.areaPercent).toEqual({ x: 10, y: 10, w: 50, h: 50 });
+    expect(kept[1]!.anchor.areaPercent).toBeUndefined();
+  });
+});
