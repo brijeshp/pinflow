@@ -106,6 +106,14 @@ export class Annotator {
   private _sheetDismiss: (() => void) | null = null;
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
   private _prevBodyCursor = '';
+  // Armed-mode hover outline (the 80% answer to area feedback; full marquee is
+  // 0.5.0): a non-interactive accent box over the element under the cursor,
+  // rendered inside the shadow root — host styles/classes are never touched.
+  // The move listener exists ONLY while armed (P2 posture: no capture-phase
+  // move handler at rest, mirroring the gesture controller's press scoping).
+  private _hoverEl: HTMLDivElement | null = null;
+  private _hoverTarget: Element | null = null;
+  private _hoverFrame = 0;
   private _reflowFrame = 0;
   private _orphanRetryAt = 0;
   // Builder-mode reviewer filter: unchecked reviewers' pins hide (codex #14).
@@ -720,6 +728,7 @@ export class Annotator {
     if (this._controlEl) this._controlEl.dataset['active'] = 'true';
     document.addEventListener('click', this._onDocumentClick, true);
     document.addEventListener('keydown', this._onKeyDown);
+    document.addEventListener('pointermove', this._onHoverMove, { passive: true, capture: true });
     this._prevBodyCursor = document.body.style.cursor;
     document.body.style.cursor = 'crosshair';
     if (!keepPanel) this._closePanel();
@@ -731,6 +740,8 @@ export class Annotator {
     if (this._controlEl) this._controlEl.dataset['active'] = 'false';
     document.removeEventListener('click', this._onDocumentClick, true);
     document.removeEventListener('keydown', this._onKeyDown);
+    document.removeEventListener('pointermove', this._onHoverMove, { capture: true });
+    this._clearHover();
     document.body.style.cursor = this._prevBodyCursor;
     this._prevBodyCursor = '';
     // An open menu shows the armed/disarmed primary — keep its label honest.
@@ -750,6 +761,52 @@ export class Annotator {
   private _onKeyDown = (e: KeyboardEvent): void => {
     if (e.key === 'Escape') this._exitAnnotateMode();
   };
+
+  // rAF-throttled like _onReflow, with _onDocumentClick's own-UI guard:
+  // pinflow chrome never highlights (crossing onto it hides the box instead).
+  private _onHoverMove = (e: Event): void => {
+    const target = e.target;
+    this._hoverTarget =
+      target instanceof Element &&
+      !this._ui.host.contains(target) &&
+      !e.composedPath?.().includes(this._ui.host)
+        ? target
+        : null;
+    if (this._hoverFrame) return;
+    this._hoverFrame = requestAnimationFrame(() => {
+      this._hoverFrame = 0;
+      this._paintHover();
+    });
+  };
+
+  private _paintHover(): void {
+    const t = this._hoverTarget;
+    if (!t?.isConnected) {
+      if (this._hoverEl) this._hoverEl.style.display = 'none';
+      return;
+    }
+    if (!this._hoverEl) {
+      this._hoverEl = el('div', 'hl');
+      this._ui.root.appendChild(this._hoverEl);
+    }
+    const r = t.getBoundingClientRect();
+    const s = this._hoverEl.style;
+    s.display = '';
+    s.left = `${r.left}px`;
+    s.top = `${r.top}px`;
+    s.width = `${r.width}px`;
+    s.height = `${r.height}px`;
+  }
+
+  private _clearHover(): void {
+    if (this._hoverFrame) {
+      cancelAnimationFrame(this._hoverFrame);
+      this._hoverFrame = 0;
+    }
+    this._hoverTarget = null;
+    this._hoverEl?.remove();
+    this._hoverEl = null;
+  }
 
   private _onDocumentClick = (e: MouseEvent): void => {
     const target = e.target as Element | null;

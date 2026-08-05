@@ -33,11 +33,14 @@ export const STYLES =
   '.pin[data-status]{background:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
   '.pin[data-status="declined"]{text-decoration:line-through}' +
   '@keyframes pop{to{transform:translate(-50%,-50%) scale(1)}}' +
+  // Armed-mode hover outline: accent border + faint accent wash over the
+  // element under the crosshair. pointer-events:none — purely indicative.
+  '.hl{position:fixed;pointer-events:none;border:2px solid var(--pf-accent,#2563eb);background:color-mix(in oklab,var(--pf-accent,#2563eb) 8%,transparent);border-radius:4px;transition:.08s}' +
   // Anytime-export count chip: the pin vocabulary (same accent circle, same
   // pop-in) promoted to a fixed corner summon for the export sheet.
   '.chip{position:fixed;left:16px;bottom:16px;pointer-events:auto;min-width:26px;height:26px;padding:0 8px;border:0;border-radius:999px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);font:inherit;font-size:12px;font-weight:600;box-shadow:0 4px 10px rgba(0,0,0,.28),0 0 0 2px var(--pf-surface,light-dark(#fff,#1e222b));cursor:pointer;display:grid;place-items:center;transform:scale(0);animation:chippop .18s ease forwards}' +
   '@keyframes chippop{to{transform:scale(1)}}' +
-  '@media (prefers-reduced-motion:reduce){.pin{animation:none;transform:translate(-50%,-50%)}.chip{animation:none;transform:none}}' +
+  '@media (prefers-reduced-motion:reduce){.pin{animation:none;transform:translate(-50%,-50%)}.chip{animation:none;transform:none}.hl{transition:none}}' +
   '@media (max-width:640px){.pin{width:32px;height:32px;font-size:13px}.chip{min-width:32px;height:32px;font-size:13px}}' +
   '.input{position:fixed;pointer-events:auto;min-width:240px;max-width:320px;background:var(--pf-surface,light-dark(#fff,#1e222b));color:var(--pf-text,light-dark(#0f172a,#e7eaf1));border-radius:var(--pf-radius,10px);padding:10px;box-shadow:var(--pf-shadow,0 12px 32px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.08))}' +
   '.input textarea{width:100%;min-height:64px;max-height:160px;resize:none;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5}' +
