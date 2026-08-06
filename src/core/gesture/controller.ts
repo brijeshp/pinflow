@@ -5,6 +5,16 @@ export interface GestureControllerOptions {
   longPressMs: number;
   moveThresholdPx: number;
   onActivate: (x: number, y: number, target: Element) => void;
+  /**
+   * Alt+drag area callbacks (0.5.0). Once an Alt press travels past the
+   * threshold it becomes an area drag: corners stream through `onAreaChange`,
+   * the release commits via `onAreaCommit`, and `onAreaCancel` fires on
+   * pointercancel / a second pointer / stop(). Without `onAreaCommit`,
+   * movement cancels the press (the pre-area behavior).
+   */
+  onAreaChange?: (x0: number, y0: number, x1: number, y1: number) => void;
+  onAreaCommit?: (x0: number, y0: number, x1: number, y1: number) => void;
+  onAreaCancel?: () => void;
 }
 
 interface Press {
@@ -12,6 +22,8 @@ interface Press {
   x: number;
   y: number;
   target: Element;
+  touch: boolean;
+  marquee: boolean;
 }
 
 // How long the post-activation click-swallow stays armed. A long-press that
@@ -23,10 +35,12 @@ const SWALLOW_WINDOW_MS = 700;
  * Unified capture-phase pointer state machine for "stealth" activation.
  *
  * Touch: a 500ms long-press (cancelled by movement, lift, or a second finger)
- * drops a feedback point. Desktop: Alt+click. The trailing synthetic `click` is
- * swallowed exactly once so the host page's own click handlers don't also fire.
+ * drops a feedback point. Desktop: Alt+click drops a point on RELEASE; an
+ * Alt+drag past the movement threshold draws an area instead — one grammar,
+ * disambiguated by distance. The trailing synthetic `click` is swallowed
+ * exactly once so the host page's own click handlers don't also fire.
  *
- * In `toggle` mode the controller is inert — the visible v1 control button owns
+ * In `toggle` mode the controller is inert — the visible arm segment owns
  * activation instead.
  */
 export class GestureController {
@@ -64,9 +78,12 @@ export class GestureController {
     document.removeEventListener('contextmenu', this._onContextMenu, true);
   }
 
+  // A cancelled press that was already an area drag must clean up the caller's
+  // marquee visuals — cancel is the ONLY exit that fires onAreaCancel.
   private _cancelPress(): void {
     clearTimeout(this._timer);
     this._timer = undefined;
+    if (this._press?.marquee) this._opts.onAreaCancel?.();
     this._press = null;
     document.removeEventListener('pointermove', this._onPointerMove, true);
   }
@@ -96,16 +113,36 @@ export class GestureController {
       return;
     }
 
-    // Desktop: Alt+click activates immediately.
+    // Desktop: a primary-button Alt press opens a pending gesture — the
+    // RELEASE decides point (still) vs area (dragged). Non-primary buttons
+    // stay the host's (Alt+right-click must not hijack the context menu).
     if (pe.pointerType !== 'touch') {
-      if (pe.altKey) this._activate(pe.clientX, pe.clientY, target);
+      // `?? 0`: synthetic events without a button count as primary (the same
+      // leniency as isPrimary elsewhere); a real right/middle press never does.
+      if (!pe.altKey || (pe.button ?? 0) !== 0) return;
+      this._press = {
+        pointerId: pe.pointerId ?? 0,
+        x: pe.clientX,
+        y: pe.clientY,
+        target,
+        touch: false,
+        marquee: false,
+      };
+      document.addEventListener('pointermove', this._onPointerMove, true);
       return;
     }
 
     // Touch: begin a long-press. pointermove is only attached while a press is
     // in flight — stealth mode must not run a capture-phase move handler on
     // every host scroll/drag frame (P2.4).
-    this._press = { pointerId: pe.pointerId, x: pe.clientX, y: pe.clientY, target };
+    this._press = {
+      pointerId: pe.pointerId,
+      x: pe.clientX,
+      y: pe.clientY,
+      target,
+      touch: true,
+      marquee: false,
+    };
     document.addEventListener('pointermove', this._onPointerMove, true);
     clearTimeout(this._timer);
     this._timer = setTimeout(() => {
@@ -117,14 +154,43 @@ export class GestureController {
 
   private _onPointerMove = (e: Event): void => {
     const pe = e as PointerEvent;
-    if (!this._press || pe.pointerId !== this._press.pointerId) return;
-    const dist = Math.hypot(pe.clientX - this._press.x, pe.clientY - this._press.y);
-    if (dist > this._opts.moveThresholdPx) this._cancelPress();
+    const p = this._press;
+    if (!p || (pe.pointerId ?? 0) !== p.pointerId) return;
+    if (p.touch) {
+      // Movement is scroll intent — never an area on touch (a passive layer
+      // cannot preventDefault native panning).
+      if (Math.hypot(pe.clientX - p.x, pe.clientY - p.y) > this._opts.moveThresholdPx)
+        this._cancelPress();
+      return;
+    }
+    if (!p.marquee && Math.hypot(pe.clientX - p.x, pe.clientY - p.y) <= this._opts.moveThresholdPx)
+      return;
+    if (!this._opts.onAreaCommit) {
+      this._cancelPress(); // no area consumer: movement cancels, as before
+      return;
+    }
+    p.marquee = true;
+    this._opts.onAreaChange?.(p.x, p.y, pe.clientX, pe.clientY);
   };
 
   private _onPointerUp = (e: Event): void => {
     const pe = e as PointerEvent;
-    if (this._press && pe.pointerId === this._press.pointerId) this._cancelPress();
+    const p = this._press;
+    if (!p || (pe.pointerId ?? 0) !== p.pointerId) return;
+    if (p.touch) {
+      this._cancelPress(); // a tap; the long-press timer owns touch activation
+      return;
+    }
+    if (p.marquee) {
+      // Take ownership BEFORE cleanup so _cancelPress can't fire onAreaCancel
+      // over a committed area.
+      this._press = null;
+      this._cancelPress();
+      this._armSwallow();
+      this._opts.onAreaCommit?.(p.x, p.y, pe.clientX, pe.clientY);
+      return;
+    }
+    this._activate(p.x, p.y, p.target); // Alt+click: point pin on release
   };
 
   private _onPointerCancel = (): void => {

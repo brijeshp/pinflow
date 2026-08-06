@@ -23,7 +23,7 @@ function makeAnnotator(activation?: { mode: 'toggle' | 'stealth' | 'both' }): An
 }
 
 function arm(): void {
-  shadow().querySelector<HTMLButtonElement>('.control')?.click();
+  shadow().querySelector<HTMLButtonElement>('.arm')?.click();
 }
 
 function nextFrame(): Promise<void> {

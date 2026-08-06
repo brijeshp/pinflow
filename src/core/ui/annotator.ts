@@ -95,7 +95,11 @@ export class Annotator {
   private _visibleCache: Array<Comment & { reviewer?: string }> | null = null;
   private readonly _anchorCache = new Map<string, Element | null>();
   private _activeInput: ActiveInput | null = null;
-  private _controlEl: HTMLButtonElement | null = null;
+  // Bottom-left dock (0.5.0): THE one standing affordance. Reviewer gets an
+  // arm segment (+/× toggle) unless stealth; the count chip joins it when
+  // there is something to export (builder: the chip toggles the drawer).
+  private _dockEl: HTMLDivElement | null = null;
+  private _armEl: HTMLButtonElement | null = null;
   private _panelEl: HTMLDivElement | null = null;
   // Anytime-export affordance: the count chip, whichever element anchors the
   // open panel (control in toggle mode, chip for the export sheet), which KIND
@@ -158,7 +162,7 @@ export class Annotator {
         ? (loadStore(deps.storage, deps.config.project, deps.reviewer) ??
           emptyStore(deps.config.project, deps.reviewer))
         : emptyStore(deps.config.project, '');
-    this._renderControl();
+    this._renderDock();
     this._renderPins();
     this._startGesture();
     this._hydrateFromSource();
@@ -298,6 +302,32 @@ export class Annotator {
       longPressMs: LONG_PRESS_MS,
       moveThresholdPx: MOVE_THRESHOLD_PX,
       onActivate: (x, y, target) => this._placeCommentAt(x, y, target),
+      // Alt+drag marquee. Armed mode owns its own press handlers, so every
+      // gesture-path callback defers while armed (no double-fire).
+      onAreaChange: (x0, y0, x1, y1) => {
+        if (this._annotating) return;
+        const m = this._marquee ?? (this._marquee = { x0, y0, x1, y1, live: true });
+        m.x1 = x1;
+        m.y1 = y1;
+        m.live = true;
+        this._scheduleHoverFrame();
+      },
+      onAreaCommit: (x0, y0, x1, y1) => {
+        if (this._annotating) return;
+        this._marquee = null;
+        this._clearHover();
+        this._placeAreaComment(
+          Math.min(x0, x1),
+          Math.min(y0, y1),
+          Math.abs(x1 - x0),
+          Math.abs(y1 - y0),
+        );
+      },
+      onAreaCancel: () => {
+        if (this._annotating) return;
+        this._marquee = null;
+        this._clearHover();
+      },
     });
     this._gesture.start();
   }
@@ -383,27 +413,30 @@ export class Annotator {
     this._anchorCache.clear();
   }
 
-  private _renderControl(): void {
-    // Stealth activation is invisible — no control button.
-    if (this._activationMode() === 'stealth') return;
-    const btn = el('button', 'control', this._controlLabel());
-    btn.type = 'button';
-    btn.dataset['active'] = 'false';
-    btn.style.bottom = '16px';
-    btn.style.right = '16px';
-    // Reviewer control is a pure arm/disarm toggle (0.5.0: the menu panel is
-    // gone — click/drag on the page IS the interface). Builder keeps its drawer.
-    btn.addEventListener('click', () =>
-      this._deps.mode === 'builder' ? this._togglePanel() : this._toggleAnnotateMode(),
-    );
-    this._ui.root.appendChild(btn);
-    this._controlEl = btn;
+  private _renderDock(): void {
+    const dock = el('div', 'dock');
+    this._dockEl = dock;
+    // Reviewer arm segment: a pure arm/disarm toggle — click/drag on the page
+    // IS the interface. Stealth stays chromeless; builder never arms.
+    if (this._deps.mode === 'reviewer' && this._activationMode() !== 'stealth') {
+      const arm = el('button', 'arm', '+');
+      arm.type = 'button';
+      arm.dataset['active'] = 'false';
+      arm.setAttribute('aria-label', 'Annotate this page');
+      arm.addEventListener('click', () => this._toggleAnnotateMode());
+      dock.appendChild(arm);
+      this._armEl = arm;
+    }
+    this._ui.root.appendChild(dock);
   }
 
-  private _controlLabel(): string {
-    const count = this._visibleComments().length;
-    if (this._deps.mode === 'builder') return `Pinflow • ${count}`;
-    return count > 0 ? `Pinflow • ${count}` : 'Pinflow';
+  // The arm segment mirrors the armed state: + arms, × stops.
+  private _syncArm(): void {
+    const a = this._armEl;
+    if (!a) return;
+    a.dataset['active'] = String(this._annotating);
+    a.textContent = this._annotating ? '×' : '+';
+    a.setAttribute('aria-label', this._annotating ? 'Stop annotating' : 'Annotate this page');
   }
 
   // Builder-only: toggle the aggregate drawer.
@@ -412,7 +445,7 @@ export class Annotator {
       this._closePanel();
       return;
     }
-    this._panelAnchor = this._controlEl;
+    this._panelAnchor = this._chipEl;
     this._panelKind = 'menu';
     this._panelEl = this._renderBuilderPanel();
     this._ui.root.appendChild(this._panelEl);
@@ -436,9 +469,8 @@ export class Annotator {
     if (!this._panelEl) return;
     const anchor = this._panelAnchor?.isConnected
       ? this._panelAnchor
-      : this._controlEl?.isConnected
-        ? this._controlEl
-        : null;
+      : ((this._chipEl?.isConnected ? this._chipEl : null) ??
+        (this._armEl?.isConnected ? this._armEl : null));
     const size = {
       width: this._panelEl.offsetWidth || 280,
       height: this._panelEl.offsetHeight || 180,
@@ -520,6 +552,21 @@ export class Annotator {
   }
 
   private _syncChip(): void {
+    // Builder: the chip is the drawer summon and always exists — count shows
+    // what is visible on this screen (reviewer filters applied).
+    if (this._deps.mode === 'builder') {
+      if (!this._chipEl) {
+        const chip = el('button', 'chip');
+        chip.type = 'button';
+        chip.addEventListener('click', () => this._togglePanel());
+        this._dockEl?.appendChild(chip);
+        this._chipEl = chip;
+      }
+      this._chipEl.textContent = String(this._visibleComments().length);
+      this._chipEl.setAttribute('aria-label', 'Pinflow builder — open drawer');
+      this._chipEl.title = 'Pinflow builder';
+      return;
+    }
     const count = this._exportUiEnabled() ? this._store.comments.length : 0;
     if (count === 0) {
       if (this._chipEl) {
@@ -537,7 +584,7 @@ export class Annotator {
       const chip = el('button', 'chip', String(count));
       chip.type = 'button';
       chip.addEventListener('click', () => this._toggleSheet());
-      this._ui.root.appendChild(chip);
+      this._dockEl?.appendChild(chip);
       this._chipEl = chip;
     } else {
       this._chipEl.textContent = String(count);
@@ -682,7 +729,7 @@ export class Annotator {
 
   private _enterAnnotateMode(): void {
     this._annotating = true;
-    if (this._controlEl) this._controlEl.dataset['active'] = 'true';
+    this._syncArm();
     document.addEventListener('click', this._onDocumentClick, true);
     document.addEventListener('keydown', this._onKeyDown);
     document.addEventListener('pointermove', this._onHoverMove, { passive: true, capture: true });
@@ -697,7 +744,7 @@ export class Annotator {
 
   private _exitAnnotateMode(): void {
     this._annotating = false;
-    if (this._controlEl) this._controlEl.dataset['active'] = 'false';
+    this._syncArm();
     document.removeEventListener('click', this._onDocumentClick, true);
     document.removeEventListener('keydown', this._onKeyDown);
     document.removeEventListener('pointermove', this._onHoverMove, { capture: true });
@@ -1147,7 +1194,6 @@ export class Annotator {
       this._ui.root.appendChild(pin);
       this._pins.set(c.id, pin);
     });
-    if (this._controlEl) this._controlEl.textContent = this._controlLabel();
   }
 
   private _placePin(pin: HTMLButtonElement, comment: Comment, target: Element | null): void {

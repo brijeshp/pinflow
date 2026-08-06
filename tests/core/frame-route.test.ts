@@ -5,9 +5,19 @@ import { afterEach, describe, expect, it } from 'vitest';
 // the whole point of embedding for wizard/phased experiences.
 
 function altClick(target: EventTarget): void {
-  const e = new Event('pointerdown', { bubbles: true, cancelable: true });
-  Object.assign(e, { pointerId: 1, pointerType: 'mouse', altKey: true, clientX: 12, clientY: 12 });
-  target.dispatchEvent(e);
+  // Release-time activation (0.5.0): the point pin lands on pointerup so an
+  // Alt+drag can become an area instead.
+  for (const type of ['pointerdown', 'pointerup'] as const) {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.assign(e, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      altKey: true,
+      clientX: 12,
+      clientY: 12,
+    });
+    target.dispatchEvent(e);
+  }
   // Consume the gesture controller's one-shot trailing click swallow.
   document.body.dispatchEvent(new Event('click', { bubbles: true }));
 }

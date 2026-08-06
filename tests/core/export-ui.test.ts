@@ -112,10 +112,12 @@ describe('export UI — count chip gating (exportUi config)', () => {
     expect(chip()).not.toBeNull();
   });
 
-  it('builder mode never shows the chip (the drawer already exports anytime)', () => {
+  it("builder mode's chip summons the drawer, never the export sheet", () => {
     seedStore([makeComment('c1', 'hello')]);
     annotator = makeAnnotator({ mode: 'builder', exportUi: 'always' });
-    expect(chip()).toBeNull();
+    chip()!.click();
+    expect(shadow().querySelector('.drawer')).not.toBeNull();
+    expect(shadow().querySelector('.panel')).toBeNull(); // no sheet in builder
   });
 });
 
@@ -143,6 +145,9 @@ describe('export UI — chip lifecycle', () => {
     };
     Object.assign(down, { pointerType: 'mouse', altKey: true, clientX: 20, clientY: 20 });
     document.body.dispatchEvent(down);
+    const up = new Event('pointerup', { bubbles: true, composed: true });
+    Object.assign(up, { pointerType: 'mouse', clientX: 20, clientY: 20 });
+    document.body.dispatchEvent(up);
     // A real Alt+click's own trailing click consumes the gesture's one-click
     // swallow; synthetic pointerdown leaves it armed, so feed it one.
     document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
@@ -482,6 +487,9 @@ describe('export UI — codex review hardening (surface states, real pointer ord
     };
     Object.assign(down, { pointerType: 'mouse', altKey: true, clientX: 20, clientY: 20 });
     document.body.dispatchEvent(down);
+    const up = new Event('pointerup', { bubbles: true, composed: true });
+    Object.assign(up, { pointerType: 'mouse', clientX: 20, clientY: 20 });
+    document.body.dispatchEvent(up);
     document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
     const link = shadow().querySelector<HTMLButtonElement>('.input .exportall');
     expect(link?.textContent).toBe('Export all · 1'); // the empty draft itself
@@ -785,7 +793,7 @@ describe('sheet summon disarms annotate mode (verification round finding)', () =
   it('chip-summon while armed disarms — the next outside click cannot plant a comment', () => {
     seedStore([makeComment('c1', 'existing')]);
     annotator = makeAnnotator({ exportUi: 'always' });
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click(); // arms
+    shadow().querySelector<HTMLButtonElement>('button.arm')!.click(); // arms
     expect(document.body.style.cursor).toBe('crosshair');
     chip()!.click(); // summons the sheet over the armed menu
     expect(document.body.style.cursor).toBe('');

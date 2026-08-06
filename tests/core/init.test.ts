@@ -11,9 +11,19 @@ function setUrl(url: string): void {
 // Synthesize the desktop Alt+click stealth gesture (happy-dom has no
 // PointerEvent constructor — same pattern as gesture.test.ts).
 function altClick(target: EventTarget): void {
-  const e = new Event('pointerdown', { bubbles: true, cancelable: true });
-  Object.assign(e, { pointerId: 1, pointerType: 'mouse', altKey: true, clientX: 12, clientY: 12 });
-  target.dispatchEvent(e);
+  // Release-time activation (0.5.0): the point pin lands on pointerup so an
+  // Alt+drag can become an area instead.
+  for (const type of ['pointerdown', 'pointerup'] as const) {
+    const e = new Event(type, { bubbles: true, cancelable: true });
+    Object.assign(e, {
+      pointerId: 1,
+      pointerType: 'mouse',
+      altKey: true,
+      clientX: 12,
+      clientY: 12,
+    });
+    target.dispatchEvent(e);
+  }
   // The gesture controller swallows exactly one trailing click after an
   // activation; consume it so later .click() calls reach their targets.
   document.body.dispatchEvent(new Event('click', { bubbles: true }));
@@ -201,7 +211,7 @@ describe('init / destroy', () => {
         const handle = init({ project: 'blocked', reviewer: 'Sam' });
         const root = document.querySelector('[data-pinflow-root]');
         expect(root).not.toBeNull();
-        expect(root?.shadowRoot?.querySelector('.control')).not.toBeNull();
+        expect(root?.shadowRoot?.querySelector('.arm')).not.toBeNull();
         expect(() => handle.destroy()).not.toThrow();
       } finally {
         restore();

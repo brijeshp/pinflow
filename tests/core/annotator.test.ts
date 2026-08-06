@@ -309,7 +309,7 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
   // Two-step contract (first-user feedback): the control button ARMS
   // annotate mode by itself — no separate "Add comment" press.
   function enterAnnotateMode(): void {
-    shadow().querySelector<HTMLButtonElement>('.control')?.click();
+    shadow().querySelector<HTMLButtonElement>('.arm')?.click();
   }
 
   it('restores the host page cursor it found, not a hardcoded empty string', () => {
@@ -321,7 +321,7 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     expect(document.body.style.cursor).toBe('pointer');
   });
 
-  it('control click arms annotate immediately: button then page = pin (3 steps → 2)', () => {
+  it('arm click arms annotate immediately: button then page = pin (3 steps → 2)', () => {
     annotator = makeAnnotator();
     enterAnnotateMode();
     expect(document.body.style.cursor).toBe('crosshair');
@@ -332,17 +332,17 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     expect(shadow().querySelector('textarea')).not.toBeNull();
   });
 
-  it('arming opens NO panel — the control is a pure toggle', () => {
+  it('arming opens NO panel — the arm segment is a pure toggle', () => {
     annotator = makeAnnotator();
     enterAnnotateMode();
     expect(document.body.style.cursor).toBe('crosshair');
     expect(shadow().querySelector('.panel')).toBeNull();
   });
 
-  it('second control click disarms', () => {
+  it('second arm click disarms', () => {
     annotator = makeAnnotator();
     enterAnnotateMode();
-    shadow().querySelector<HTMLButtonElement>('.control')?.click();
+    shadow().querySelector<HTMLButtonElement>('.arm')?.click();
     expect(document.body.style.cursor).toBe('');
     const target = document.createElement('p');
     document.body.appendChild(target);
@@ -360,9 +360,9 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     expect(document.body.style.cursor).toBe('crosshair');
   });
 
-  it('builder mode control click keeps its drawer-only behavior (no crosshair)', () => {
+  it('builder mode chip click keeps its drawer-only behavior (no crosshair)', () => {
     annotator = makeAnnotator({ mode: 'builder' });
-    shadow().querySelector<HTMLButtonElement>('.control')?.click();
+    shadow().querySelector<HTMLButtonElement>('.chip')?.click();
     expect(document.body.style.cursor).toBe('');
   });
 
@@ -503,7 +503,7 @@ describe('Annotator export API (L1.5)', () => {
       return 'blob:mock';
     });
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    shadow().querySelector<HTMLButtonElement>('button.chip')!.click();
     const jsonBtn = [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'JSON');
     expect(jsonBtn).toBeTruthy();
     jsonBtn!.click();
@@ -1095,7 +1095,7 @@ describe('builder mode is functional (codex audit #14)', () => {
     annotator = makeBuilder();
     expect(shadow().querySelectorAll('.pin')).toHaveLength(2);
 
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click(); // open drawer
+    shadow().querySelector<HTMLButtonElement>('button.chip')!.click(); // open drawer
     const alice = shadow().querySelector<HTMLInputElement>('input[data-reviewer="Alice"]')!;
     alice.checked = false;
     alice.dispatchEvent(new Event('change'));

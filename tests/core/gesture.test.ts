@@ -14,6 +14,7 @@ function dispatch(target: EventTarget, type: string, props: Record<string, unkno
     clientX: 10,
     clientY: 20,
     altKey: false,
+    button: 0,
     ...props,
   });
   target.dispatchEvent(e);
@@ -94,9 +95,13 @@ describe('GestureController', () => {
     expect(activations).toHaveLength(0);
   });
 
-  it('activates immediately on desktop Alt+click', () => {
+  // Release-time activation (0.5.0): the press must stay open so movement can
+  // become an Alt+drag marquee instead.
+  it('activates a desktop Alt+click on RELEASE at the press coordinates', () => {
     const { activations, el } = setup();
     dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 5, clientY: 6 });
+    expect(activations).toHaveLength(0); // not yet — a drag may follow
+    dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 5, clientY: 6 });
     expect(activations).toHaveLength(1);
     expect(activations[0]).toMatchObject({ x: 5, y: 6 });
   });
@@ -104,17 +109,108 @@ describe('GestureController', () => {
   it('ignores a plain desktop click with no modifier', () => {
     const { activations, el } = setup();
     dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: false });
+    dispatch(el, 'pointerup', { pointerType: 'mouse' });
     vi.advanceTimersByTime(600);
+    expect(activations).toHaveLength(0);
+  });
+
+  it('ignores Alt with a non-primary mouse button (right-click stays the host’s)', () => {
+    const { activations, el } = setup();
+    dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, button: 2 });
+    dispatch(el, 'pointerup', { pointerType: 'mouse', button: 2 });
     expect(activations).toHaveLength(0);
   });
 
   it('swallows exactly the next click after activation, then lets clicks through', () => {
     const { el } = setup();
     dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true });
+    dispatch(el, 'pointerup', { pointerType: 'mouse' });
     const swallowed = dispatch(el, 'click', { pointerType: 'mouse' });
     expect(swallowed.defaultPrevented).toBe(true);
     const next = dispatch(el, 'click', { pointerType: 'mouse' });
     expect(next.defaultPrevented).toBe(false);
+  });
+
+  describe('Alt+drag area (0.5.0)', () => {
+    function areaSetup(): ReturnType<typeof setup> & {
+      changes: number[][];
+      commits: number[][];
+      cancels: number[];
+    } {
+      const changes: number[][] = [];
+      const commits: number[][] = [];
+      const cancels: number[] = [];
+      const base = setup({
+        onAreaChange: (x0, y0, x1, y1) => changes.push([x0, y0, x1, y1]),
+        onAreaCommit: (x0, y0, x1, y1) => commits.push([x0, y0, x1, y1]),
+        onAreaCancel: () => cancels.push(1),
+      });
+      return { ...base, changes, commits, cancels };
+    }
+
+    it('an Alt+press that travels past the threshold streams area changes and commits on release', () => {
+      const { activations, changes, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      expect(changes).toEqual([[10, 10, 60, 80]]);
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      expect(commits).toEqual([[10, 10, 60, 80]]);
+      expect(activations).toHaveLength(0); // an area is not a point pin
+    });
+
+    it('the trailing click after an area commit is swallowed', () => {
+      const { el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      const swallowed = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(swallowed.defaultPrevented).toBe(true);
+    });
+
+    it('sub-threshold Alt movement stays a point activation, never an area', () => {
+      const { activations, changes, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 13, clientY: 12 });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 13, clientY: 12 });
+      expect(changes).toHaveLength(0);
+      expect(commits).toHaveLength(0);
+      expect(activations).toHaveLength(1);
+    });
+
+    it('pointercancel mid-drag cancels the area without committing', () => {
+      const { cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(el, 'pointercancel', { pointerType: 'mouse' });
+      expect(cancels).toHaveLength(1);
+      expect(commits).toHaveLength(0);
+    });
+
+    it('a second pointer joining mid-drag cancels the area', () => {
+      const { cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(el, 'pointerdown', { pointerId: 2 });
+      expect(cancels).toHaveLength(1);
+      expect(commits).toHaveLength(0);
+    });
+
+    it('touch movement past the threshold still cancels the long-press (scroll intent, no area)', () => {
+      const { activations, changes, el } = areaSetup();
+      dispatch(el, 'pointerdown', { clientX: 10, clientY: 20 });
+      dispatch(el, 'pointermove', { clientX: 10, clientY: 45 });
+      vi.advanceTimersByTime(600);
+      expect(activations).toHaveLength(0);
+      expect(changes).toHaveLength(0);
+    });
+
+    it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
+      const { controller, cancels, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      controller.stop();
+      expect(cancels).toHaveLength(1);
+    });
   });
 
   it('attaches the document pointermove listener only while a press is in flight (P2.4)', () => {

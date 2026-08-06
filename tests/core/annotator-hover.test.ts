@@ -21,7 +21,7 @@ function makeAnnotator(): Annotator {
 }
 
 function arm(): void {
-  shadow().querySelector<HTMLButtonElement>('.control')?.click();
+  shadow().querySelector<HTMLButtonElement>('.arm')?.click();
 }
 
 function nextFrame(): Promise<void> {
@@ -162,7 +162,7 @@ describe('armed-mode hover outline', () => {
     await nextFrame();
     expect(shadow().querySelector('.hl')).not.toBeNull();
 
-    shadow().querySelector<HTMLButtonElement>('.control')?.click(); // second click disarms
+    shadow().querySelector<HTMLButtonElement>('.arm')?.click(); // second click disarms
     expect(shadow().querySelector('.hl')).toBeNull();
   });
 
