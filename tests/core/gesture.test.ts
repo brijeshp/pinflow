@@ -269,6 +269,37 @@ describe('GestureController', () => {
       }
     });
 
+    it('a coalesced release at the origin (no final move) reverts to a point — never a 0×0 area', () => {
+      const { activations, cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // latched
+      // Event coalescing: the return-to-origin move never arrives; only the release does.
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 11, clientY: 11 });
+      expect(commits).toHaveLength(0);
+      expect(cancels).toHaveLength(1); // marquee visuals told to clear
+      expect(activations).toHaveLength(1); // point pin at the press coords
+    });
+
+    it('suspended() flipping mid-press kills the in-flight gesture (move and release do nothing)', () => {
+      let suspended = false;
+      const commits: number[][] = [];
+      const cancels: number[] = [];
+      const { activations, el } = setup({
+        suspended: () => suspended,
+        onAreaChange: () => {},
+        onAreaCommit: (x0, y0, x1, y1) => commits.push([x0, y0, x1, y1]),
+        onAreaCancel: () => cancels.push(1),
+      });
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      suspended = true; // armed mode took over mid-press
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 90, clientY: 90 });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 90, clientY: 90 });
+      expect(commits).toHaveLength(0);
+      expect(activations).toHaveLength(0);
+      expect(cancels).toHaveLength(1); // in-flight marquee visuals cleaned up
+    });
+
     it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
       const { controller, cancels, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });

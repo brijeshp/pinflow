@@ -132,6 +132,9 @@ export class Annotator {
     x1: number;
     y1: number;
     live: boolean;
+    /** A second pointer joined: the whole gesture is dead, including the
+     *  initiating pointer's eventual compatibility click. */
+    aborted: boolean;
   } | null = null;
   private _reflowFrame = 0;
   private _orphanRetryAt = 0;
@@ -314,7 +317,8 @@ export class Annotator {
       // path can double-fire (codex r1 [P2]).
       suspended: () => this._annotating,
       onAreaChange: (x0, y0, x1, y1) => {
-        const m = this._marquee ?? (this._marquee = { id: 0, x0, y0, x1, y1, live: true });
+        const m =
+          this._marquee ?? (this._marquee = { id: 0, x0, y0, x1, y1, live: true, aborted: false });
         m.x1 = x1;
         m.y1 = y1;
         m.live = true;
@@ -445,18 +449,18 @@ export class Annotator {
     a.setAttribute('aria-label', this._annotating ? 'Stop annotating' : 'Annotate this page');
   }
 
-  // Builder-only: toggle the aggregate drawer.
+  // Builder-only: toggle the aggregate drawer (_closePanel resets aria-expanded).
   private _togglePanel(): void {
     if (this._panelEl) {
       this._closePanel();
-    } else {
-      this._panelAnchor = this._chipEl;
-      this._panelKind = 'menu';
-      this._panelEl = this._renderBuilderPanel();
-      this._ui.root.appendChild(this._panelEl);
-      this._positionPanel();
+      return;
     }
-    this._chipEl?.setAttribute('aria-expanded', String(this._panelEl !== null));
+    this._panelAnchor = this._chipEl;
+    this._panelKind = 'menu';
+    this._panelEl = this._renderBuilderPanel();
+    this._ui.root.appendChild(this._panelEl);
+    this._positionPanel();
+    this._chipEl?.setAttribute('aria-expanded', 'true');
   }
 
   private _closePanel(): void {
@@ -465,6 +469,10 @@ export class Annotator {
     this._panelEl?.remove();
     this._panelEl = null;
     this._panelKind = null;
+    // Every close path keeps the builder chip's disclosure state honest —
+    // Clear all closes the drawer without going through the toggle (codex r2).
+    if (this._chipEl?.hasAttribute('aria-expanded'))
+      this._chipEl.setAttribute('aria-expanded', 'false');
   }
 
   // Anchor the panel above whatever summoned it (control bottom-right, chip
@@ -791,6 +799,7 @@ export class Annotator {
   private _onHoverMove = (e: Event): void => {
     const m = this._marquee;
     if (m) {
+      if (m.aborted) return; // dead gesture: nothing paints, nothing updates
       const p = e as PointerEvent;
       if ((p.pointerId ?? 0) !== m.id) return; // stray pointers never drive the box
       m.x1 = p.clientX;
@@ -862,8 +871,12 @@ export class Annotator {
   private _onArmedPointerDown = (e: Event): void => {
     const p = e as PointerEvent;
     if (this._marquee) {
-      // A second pointer joining is a multi-touch gesture — abort the marquee.
-      this._marquee = null;
+      // A second pointer joining aborts the WHOLE gesture — the state stays
+      // (flagged) so the initiating pointer's release can swallow its
+      // compatibility click instead of falling through to a point pin
+      // (codex r2 [P2]).
+      this._marquee.live = false;
+      this._marquee.aborted = true;
       this._pressGuards(false);
       this._scheduleHoverFrame();
       return;
@@ -877,6 +890,7 @@ export class Annotator {
       x1: p.clientX,
       y1: p.clientY,
       live: false,
+      aborted: false,
     };
     this._pressGuards(true);
   };
@@ -900,24 +914,22 @@ export class Annotator {
     if (!m || (p.pointerId ?? 0) !== m.id) return;
     this._marquee = null;
     this._pressGuards(false);
-    // Below the threshold the press was a click; _onDocumentClick owns it.
-    if (!m.live) return;
+    if (m.aborted) {
+      // Multi-pointer abort: the initiating pointer's compatibility click
+      // must not fall through to a point pin (codex r2 [P2]).
+      this._swallowNextClick();
+      return;
+    }
     const x1 = p.clientX ?? m.x1;
     const y1 = p.clientY ?? m.y1;
-    // The drag's trailing click must reach neither pinflow (double pin) nor
-    // the host (a drag is not a click). WINDOW capture — the first stop on
-    // the propagation path — so it runs before any host document-capture
-    // listener regardless of registration order; stopImmediatePropagation
-    // silences same-node listeners too (codex r1 [P1]). Swallows exactly ONE
-    // click; the 0-timeout clears the no-click case — mouse click fires
-    // synchronously after pointerup, so a later genuine click is never eaten.
-    const swallow = (ce: Event): void => {
-      window.removeEventListener('click', swallow, true); // one-shot, self-removing
-      ce.preventDefault();
-      ce.stopImmediatePropagation();
-    };
-    window.addEventListener('click', swallow, true);
-    window.setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+    // The RELEASE coordinates decide, not the latched flag — the
+    // return-to-origin move can be coalesced away (codex r2 [P2]). Below the
+    // threshold the press was a click; _onDocumentClick owns it.
+    if (Math.hypot(x1 - m.x0, y1 - m.y0) <= MOVE_THRESHOLD_PX) {
+      this._scheduleHoverFrame(); // drop any stale marquee box
+      return;
+    }
+    this._swallowNextClick();
     this._exitAnnotateMode();
     this._placeAreaComment(
       Math.min(m.x0, x1),
@@ -926,6 +938,23 @@ export class Annotator {
       Math.abs(y1 - m.y0),
     );
   };
+
+  // The drag's trailing click must reach neither pinflow (double pin) nor the
+  // host (a drag is not a click). WINDOW capture — the first stop on the
+  // propagation path — so it runs before any host document-capture listener
+  // regardless of registration order; stopImmediatePropagation silences
+  // same-node listeners too (codex r1 [P1]). Swallows exactly ONE click; the
+  // 0-timeout clears the no-click case — a mouse click fires synchronously
+  // after pointerup, so a later genuine click is never eaten.
+  private _swallowNextClick(): void {
+    const swallow = (ce: Event): void => {
+      window.removeEventListener('click', swallow, true); // one-shot, self-removing
+      ce.preventDefault();
+      ce.stopImmediatePropagation();
+    };
+    window.addEventListener('click', swallow, true);
+    window.setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+  }
 
   private _onArmedPointerCancel = (e: Event): void => {
     if (

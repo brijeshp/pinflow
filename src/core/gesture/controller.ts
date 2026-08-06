@@ -186,6 +186,12 @@ export class GestureController {
     const pe = e as PointerEvent;
     const p = this._press;
     if (!p || (pe.pointerId ?? 0) !== p.pointerId) return;
+    // Armed mode can take over MID-press (keyboard-activated arm segment):
+    // the in-flight gesture dies with it (codex r2 [P2]).
+    if (this._opts.suspended?.()) {
+      this._cancelPress();
+      return;
+    }
     if (p.touch) {
       // Movement is scroll intent — never an area on touch (a passive layer
       // cannot preventDefault native panning).
@@ -218,14 +224,24 @@ export class GestureController {
       this._cancelPress(); // a tap; the long-press timer owns touch activation
       return;
     }
+    if (this._opts.suspended?.()) {
+      this._cancelPress();
+      return;
+    }
     if (p.marquee) {
       // Take ownership BEFORE cleanup so _cancelPress can't fire onAreaCancel
       // over a committed area.
       this._press = null;
       this._cancelPress();
-      this._armSwallow();
-      this._opts.onAreaCommit?.(p.x, p.y, pe.clientX, pe.clientY);
-      return;
+      // The RELEASE coordinates are authoritative — the return-to-origin move
+      // can be coalesced away, so the latched flag alone must not commit a
+      // degenerate area (codex r2 [P2]).
+      if (Math.hypot(pe.clientX - p.x, pe.clientY - p.y) > this._opts.moveThresholdPx) {
+        this._armSwallow();
+        this._opts.onAreaCommit?.(p.x, p.y, pe.clientX, pe.clientY);
+        return;
+      }
+      this._opts.onAreaCancel?.(); // live visuals degrade with it
     }
     this._activate(p.x, p.y, p.target); // Alt+click: point pin on release
   };

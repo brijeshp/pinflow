@@ -324,6 +324,43 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(stored[0]!.anchor.areaPercent).toBeUndefined();
   });
 
+  it('armed coalesced release at the origin (no final move) stays a click — never a 0×0 area', () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    t.dispatchEvent(ptr('pointerdown', { clientX: 100, clientY: 100, pointerType: 'mouse' }));
+    t.dispatchEvent(ptr('pointermove', { clientX: 300, clientY: 300, pointerType: 'mouse' })); // latched
+    // The return move is coalesced away; only the release arrives near the origin.
+    t.dispatchEvent(ptr('pointerup', { clientX: 102, clientY: 101, pointerType: 'mouse' }));
+    expect(comments()).toHaveLength(0); // no area commit
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const stored = comments();
+    expect(stored).toHaveLength(1); // the click path took over
+    expect(stored[0]!.anchor.areaPercent).toBeUndefined();
+  });
+
+  it('a multi-pointer abort kills the WHOLE gesture — the trailing click places nothing', () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointermove', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 2, clientX: 400, clientY: 400, pointerType: 'touch' }),
+    ); // abort
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+    );
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    t.dispatchEvent(click);
+    expect(comments()).toHaveLength(0); // neither an area nor a point pin
+    expect(click.defaultPrevented).toBe(true); // and the host is shielded too
+  });
+
   it('text selection and native drag are suppressed during an armed marquee press', () => {
     annotator = makeAnnotator();
     arm();

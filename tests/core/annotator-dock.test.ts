@@ -142,6 +142,21 @@ describe('bottom-left dock (0.5.0 — the bottom-right control is gone)', () => 
     expect(chip.getAttribute('aria-expanded')).toBe('false');
   });
 
+  it('closing the drawer through ANY path resets aria-expanded (builder Clear all)', () => {
+    seed([makeComment('c1', 'one')]);
+    annotator = makeAnnotator({ mode: 'builder' });
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const chip = countChip()!;
+    chip.click();
+    expect(chip.getAttribute('aria-expanded')).toBe('true');
+    const clear = [...shadow().querySelectorAll('button')].find(
+      (b) => b.textContent === 'Clear all',
+    )!;
+    clear.click(); // closes the drawer via _closePanel, not the chip toggle
+    expect(shadow().querySelector('.drawer')).toBeNull();
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('both segments carry aria-labels (icon-only buttons must be named)', () => {
     seed([makeComment('c1', 'one')]);
     annotator = makeAnnotator();
