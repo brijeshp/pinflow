@@ -255,9 +255,117 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(removes('pointerup')).toBeGreaterThanOrEqual(1);
   });
 
+  it('areaPercent is relative to the CANONICAL anchor element (data-testid ancestor), not the raw tightest box', () => {
+    annotator = makeAnnotator();
+    arm();
+    const card = document.createElement('div');
+    card.dataset['testid'] = 'card';
+    const child = document.createElement('div');
+    card.appendChild(child);
+    document.body.appendChild(card);
+    mockRect(card, { left: 0, top: 0, width: 400, height: 400 });
+    mockRect(child, { left: 100, top: 100, width: 200, height: 200 });
+    mockElementFromPoint(child);
+
+    drag(child, [150, 150], [250, 250]); // contained by child; buildAnchor canonicalizes to card
+
+    const a = comments()[0]!.anchor;
+    expect(a.selectors.testid).toBe('card'); // anchored to the card...
+    expect(a.areaPercent!.x).toBeCloseTo((150 / 400) * 100, 1); // ...so the rect is card-relative
+    expect(a.areaPercent!.w).toBeCloseTo((100 / 400) * 100, 1);
+  });
+
+  it('a non-primary (right) button press never starts an armed marquee', () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    t.dispatchEvent(
+      ptr('pointerdown', { clientX: 100, clientY: 100, pointerType: 'mouse', button: 2 }),
+    );
+    t.dispatchEvent(ptr('pointermove', { clientX: 300, clientY: 300, pointerType: 'mouse' }));
+    t.dispatchEvent(
+      ptr('pointerup', { clientX: 300, clientY: 300, pointerType: 'mouse', button: 2 }),
+    );
+    expect(comments()).toHaveLength(0);
+  });
+
+  it("another pointer's move/release cannot drive or commit the marquee", () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointermove', { pointerId: 2, clientX: 300, clientY: 300, pointerType: 'touch' }),
+    );
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 2, clientX: 300, clientY: 300, pointerType: 'touch' }),
+    );
+    expect(comments()).toHaveLength(0); // stray pointer committed nothing
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+    );
+    expect(comments()).toHaveLength(0); // primary released at origin: still just a pending click
+  });
+
+  it('dragging out past the threshold and back de-latches — release is a plain click, never a 0×0 area', () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    t.dispatchEvent(ptr('pointerdown', { clientX: 100, clientY: 100, pointerType: 'mouse' }));
+    t.dispatchEvent(ptr('pointermove', { clientX: 300, clientY: 300, pointerType: 'mouse' }));
+    t.dispatchEvent(ptr('pointermove', { clientX: 103, clientY: 102, pointerType: 'mouse' }));
+    t.dispatchEvent(ptr('pointerup', { clientX: 103, clientY: 102, pointerType: 'mouse' }));
+    expect(comments()).toHaveLength(0); // no area commit
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    const stored = comments();
+    expect(stored).toHaveLength(1); // the click path took over
+    expect(stored[0]!.anchor.areaPercent).toBeUndefined();
+  });
+
+  it('text selection and native drag are suppressed during an armed marquee press', () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    t.dispatchEvent(ptr('pointerdown', { clientX: 100, clientY: 100, pointerType: 'mouse' }));
+    const sel = ptr('selectstart', {});
+    t.dispatchEvent(sel);
+    expect(sel.defaultPrevented).toBe(true);
+    t.dispatchEvent(ptr('pointerup', { clientX: 100, clientY: 100, pointerType: 'mouse' }));
+    const after = ptr('selectstart', {});
+    t.dispatchEvent(after);
+    expect(after.defaultPrevented).toBe(false); // press-scoped
+  });
+
+  it('the armed-marquee swallow intercepts before host document-capture listeners', () => {
+    annotator = makeAnnotator();
+    arm();
+    const hostSeen = vi.fn();
+    // Registered BEFORE the swallow exists (it attaches at pointerup) — the
+    // ordering property under test. (After arm(): the arming click itself
+    // legitimately reaches host listeners.)
+    document.addEventListener('click', hostSeen, true);
+    try {
+      const t = hostParagraph();
+      mockElementFromPoint(t);
+      drag(t, [100, 100], [300, 300]);
+      t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      expect(hostSeen).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener('click', hostSeen, true);
+    }
+  });
+
   it('marquee styling: backdrop dim via giant box-shadow, no transition lag', () => {
     const rule = /\.hl\[data-marquee\]\{[^}]*\}/.exec(STYLES)?.[0] ?? '';
     expect(rule).toContain('box-shadow:0 0 0 200vmax');
     expect(rule).toContain('transition:none');
+  });
+
+  it('dock glyph buttons carry the -webkit-user-select prefix (iOS Safari long-press)', () => {
+    const rule = /\.arm,\.chip\{[^}]*\}/.exec(STYLES)?.[0] ?? '';
+    expect(rule).toContain('-webkit-user-select:none');
+    expect(rule).toContain('user-select:none');
   });
 });

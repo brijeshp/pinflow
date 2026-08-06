@@ -146,6 +146,7 @@ function orphanBlock(comment: Comment & { reviewer?: string }, index: number): s
     `**Last known element:** ${elementLabel(comment)}`,
     ...(ctx ? [ctx] : []),
     ...visualLines(comment),
+    ...(comment.anchor.areaPercent ? [areaLine(comment.anchor.areaPercent)] : []),
     `**Last known selector:** \`${code(comment.anchor.selectors.css)}\``,
     `**Route:** ${inline(comment.route)}`,
     '',

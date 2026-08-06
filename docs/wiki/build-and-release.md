@@ -16,13 +16,13 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 | Entry         | Budget (gz) |
 | ------------- | ----------- |
-| core IIFE     | 15.25 KB    |
-| core ESM      | 14.9 KB     |
+| core IIFE     | 15.75 KB    |
+| core ESM      | 15.4 KB     |
 | voice ESM     | 4.45 KB     |
 | react wrapper | 0.47 KB     |
 | vue wrapper   | 0.61 KB     |
 
-`pnpm size` gates CI (`verify` job) and publishing (`prepublishOnly` runs build + test + size). Policy: budgets only ratchet **down** between features — kept razor-thin over actuals so regressions surface immediately. (The core budgets were raised one notch as a deliberate, changeset-documented trade for the v3 lifecycle features, then re-ratcheted to actuals; the 0.5.0 armed-mode direct-manipulation work — hover outline + drag-to-marquee, net of the deleted reviewer panel — notched core again, see its changeset.) Check budget impact after any core change.
+`pnpm size` gates CI (`verify` job) and publishing (`prepublishOnly` runs build + test + size). Policy: budgets only ratchet **down** between features — kept razor-thin over actuals so regressions surface immediately. (The core budgets were raised one notch as a deliberate, changeset-documented trade for the v3 lifecycle features, then re-ratcheted to actuals; the 0.5.0 direct-manipulation work — hover outline, drag-to-marquee, one-dock chrome, and the Alt gesture grammar, net of the deleted reviewer panel and control pill — notched core again, see its changeset.) Check budget impact after any core change.
 
 ## Release flow
 

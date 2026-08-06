@@ -2,17 +2,21 @@
 '@brijeshp/pinflow': minor
 ---
 
-Armed-mode direct manipulation: hover outline + drag-to-marquee, and the reviewer menu panel is gone.
+Direct-manipulation annotation: hover outline, drag-to-marquee areas, one-dock chrome, and a unified Alt gesture grammar. The bottom-right control and the reviewer menu panel are gone.
 
-**Hover outline.** While annotate mode is armed, the element under the cursor is highlighted with a non-interactive accent outline (2px `--pf-accent` border + faint accent wash) rendered inside pinflow's shadow root — host element styles/classes are never touched. Skips pinflow's own UI, disappears on disarm/pin placement/Escape, drops its transition under `prefers-reduced-motion`.
+**One bottom-left dock.** The bottom-right control pill is removed. A single dock (bottom-left) holds the whole standing interface: an **arm segment** (`+` arms annotate mode, `×` stops; accent while armed) and the **count chip** (opens the export sheet; appears once comments exist). Builder mode's chip always exists and toggles the drawer. Stealth mode stays chromeless (chip only, when comments exist).
 
-**Drag-to-marquee (area feedback).** While armed: click = point pin (unchanged), drag past 10px = marquee. The page dims around the drawn box (single `box-shadow` spread — no overlay element). Release resolves the tightest element containing the rect and places a normal element-anchored comment (pin at the rect's center) carrying the new optional `anchor.areaPercent` `{x,y,w,h}` (percentages of that element). Persistence, healing, orphan handling, and rendering are identical to point comments; exports gain a numbers-only `**Area:**` line. Mouse/pen only — touch drags stay native scrolls. The drag's trailing click is swallowed once so host handlers never see it.
+**Hover outline.** While armed, the element under the cursor is highlighted with a non-interactive accent outline (2px `--pf-accent` border + faint accent wash) rendered inside pinflow's shadow root — host element styles/classes are never touched. Skips pinflow's own UI, disappears on disarm/pin placement/Escape, drops its transition under `prefers-reduced-motion`.
 
-**Reviewer menu panel removed.** The control pill is now a pure arm/disarm toggle (label still carries the count). Consequences:
+**Drag-to-marquee (area feedback).** While armed: click = point pin, drag past 10px = marquee. The page dims around the drawn box (single `box-shadow` spread — no overlay element). Release resolves the tightest element containing the rect and places a normal element-anchored comment (pin at the rect's center) carrying the new optional `anchor.areaPercent` `{x,y,w,h}` (percentages of that element). Persistence, healing, orphan handling, and rendering are identical to point comments; exports gain a numbers-only `**Area:**` line. Mouse/pen only — touch drags stay native scrolls. The drag's trailing click is swallowed once so host handlers never see it.
 
-- "Stop" / "Add comment" buttons: gone — click the pill or press Escape to disarm.
+**Alt gesture grammar (no arming needed).** Alt+click = point pin, Alt+drag = marquee area, long-press = touch point — one grammar, disambiguated by the 10px threshold. Behavior change: Alt+click now activates on **release** (was: on press) so a drag can be told apart; Alt with a non-primary mouse button is ignored (right-click stays the host's).
+
+**Reviewer menu panel removed.** Consequences:
+
+- "Stop" / "Add comment" buttons: gone — click the arm segment or press Escape to disarm.
 - "Clear all" (wipe without export): gone — use the sheet's "Export & clear".
 - "Send to builder" (`onSubmit`): moved to the export sheet. Hosts pairing `onSubmit` with `source` should set `exportUi: 'always'` so the chip/sheet exists.
 - Export & share: unchanged, via the count chip's sheet (or ⌘/Ctrl+Shift+E).
 
-All armed-mode listeners (pointermove/down/up/cancel) attach on arm and detach on exit — zero work at rest. Size: measured cost of the whole interaction model is ~660 B gz net of the deleted panel; core budgets notched IIFE 14.55 → 15.25 KB, ESM 14.2 → 14.9 KB (actuals 15.21 / 14.86).
+All armed-mode listeners attach on arm and detach on exit; gesture listeners stay press-scoped — zero move-handler work at rest. Size: the entire interaction model (outline + marquee + dock + Alt grammar, net of the deleted pill and panel) measures ~1.15 KB gz (including the review-hardening pass: selection/drag suppression, Escape cancel, de-latch, stray-pointer guards, canonical-anchor area math); core budgets ratcheted to IIFE 15.75 KB / ESM 15.4 KB over actuals 15.70 / 15.35.

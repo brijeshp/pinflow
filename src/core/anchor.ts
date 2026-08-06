@@ -66,7 +66,7 @@ function visualSnapshot(el: Element): NonNullable<Anchor['context']>['styles'] |
 // whole anchor (selectors, fingerprint, context, positionPercent) is built
 // from the nearest anchored ancestor. getTestId, not `closest('[data-testid]')`,
 // so empty/whitespace testids are skipped consistently with capture.
-function anchorTarget(el: Element): Element {
+export function anchorTarget(el: Element): Element {
   for (let cur: Element | null = el; cur; cur = cur.parentElement) {
     if (getTestId(cur)) return cur;
   }

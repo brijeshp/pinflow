@@ -204,6 +204,71 @@ describe('GestureController', () => {
       expect(changes).toHaveLength(0);
     });
 
+    it('Escape mid-drag cancels the area; the release neither commits nor clicks the host', () => {
+      const { activations, cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(document, 'keydown', { key: 'Escape' });
+      expect(cancels).toHaveLength(1);
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      expect(commits).toHaveLength(0);
+      expect(activations).toHaveLength(0);
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // aborted gesture still shields the host
+    });
+
+    it('returning inside the threshold de-latches: cancel fires, release is a point again', () => {
+      const { activations, cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 12, clientY: 11 }); // back home
+      expect(cancels).toHaveLength(1); // marquee visuals told to clear
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 12, clientY: 11 });
+      expect(commits).toHaveLength(0); // never a 0x0 area
+      expect(activations).toHaveLength(1); // reverts to a point pin
+    });
+
+    it('suspended() gates the whole controller: no press, no activation, no swallow', () => {
+      const { activations, el } = setup({ suspended: () => true });
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true });
+      dispatch(el, 'pointerup', { pointerType: 'mouse' });
+      expect(activations).toHaveLength(0);
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(false); // no stray swallow armed
+    });
+
+    it('text selection and native drag are suppressed while a mouse press is in flight', () => {
+      const { el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      const sel = dispatch(el, 'selectstart');
+      const drag = dispatch(el, 'dragstart');
+      expect(sel.defaultPrevented).toBe(true);
+      expect(drag.defaultPrevented).toBe(true);
+      dispatch(el, 'pointerup', { pointerType: 'mouse' });
+      const selAfter = dispatch(el, 'selectstart');
+      expect(selAfter.defaultPrevented).toBe(false); // press-scoped, not standing
+    });
+
+    it('the swallow intercepts BEFORE host document-capture listeners (window capture)', () => {
+      const hostSeen = vi.fn();
+      document.addEventListener('click', hostSeen, true); // host registered first
+      try {
+        const { el } = areaSetup();
+        dispatch(el, 'pointerdown', {
+          pointerType: 'mouse',
+          altKey: true,
+          clientX: 10,
+          clientY: 10,
+        });
+        dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+        dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+        dispatch(el, 'click', { pointerType: 'mouse' });
+        expect(hostSeen).not.toHaveBeenCalled();
+      } finally {
+        document.removeEventListener('click', hostSeen, true);
+      }
+    });
+
     it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
       const { controller, cancels, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });

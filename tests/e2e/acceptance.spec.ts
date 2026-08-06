@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 
 // Helper: Playwright auto-pierces shadow DOM, so we can use regular selectors.
-const CONTROL = 'button.control';
-// The control click arms annotate mode (0.5.0: pure toggle — no menu panel);
-// export lives on the count chip's sheet.
+// 0.5.0: the bottom-right control is gone — the dock's arm segment (+/×)
+// arms annotate mode; the count chip summons the export sheet.
+const CONTROL = 'button.arm';
 const CHIP = 'button.chip';
 const EXPORT_BTN = 'button:has-text("Export & share")';
 const PIN = 'button.pin';
@@ -186,4 +186,18 @@ test('AC12: marquee drag creates an area comment with an Area export line', asyn
   const md = await fs.readFile(path!, 'utf-8');
   expect(md).toContain('**Area:**');
   expect(md).toContain('> This whole area');
+});
+
+// 0.5.0 — the stealth grammar: Alt+drag draws an area with no arming at all
+test('AC13: Alt+drag without arming places an area comment', async ({ page }) => {
+  await page.goto('/?reviewer=AltDrag');
+  const cta = page.locator('[data-testid="primary-cta"]');
+  const box = (await cta.boundingBox())!;
+  await page.keyboard.down('Alt');
+  await page.mouse.move(box.x - 15, box.y - 15);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width + 15, box.y + box.height + 15, { steps: 4 });
+  await page.mouse.up();
+  await page.keyboard.up('Alt');
+  await expect(page.locator(TEXTAREA)).toBeVisible(); // draft opened for the area
 });

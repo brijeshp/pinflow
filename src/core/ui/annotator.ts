@@ -1,4 +1,4 @@
-import { anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
+import { anchorTarget, anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
 import { buildSelectors } from '../selector';
 import { copyToClipboard, download } from '../download';
 import {
@@ -125,7 +125,14 @@ export class Annotator {
   // point pin. The marquee is a PICKER: release resolves the tightest
   // containing element and drops a normal element-anchored comment carrying
   // `areaPercent`. Listeners share the armed window (P2: zero work at rest).
-  private _marquee: { x0: number; y0: number; x1: number; y1: number; live: boolean } | null = null;
+  private _marquee: {
+    id: number;
+    x0: number;
+    y0: number;
+    x1: number;
+    y1: number;
+    live: boolean;
+  } | null = null;
   private _reflowFrame = 0;
   private _orphanRetryAt = 0;
   // Builder-mode reviewer filter: unchecked reviewers' pins hide (codex #14).
@@ -302,18 +309,18 @@ export class Annotator {
       longPressMs: LONG_PRESS_MS,
       moveThresholdPx: MOVE_THRESHOLD_PX,
       onActivate: (x, y, target) => this._placeCommentAt(x, y, target),
-      // Alt+drag marquee. Armed mode owns its own press handlers, so every
-      // gesture-path callback defers while armed (no double-fire).
+      // Alt+drag marquee. `suspended` makes the controller inert while armed
+      // — the armed press handlers own ALL input then, so neither activation
+      // path can double-fire (codex r1 [P2]).
+      suspended: () => this._annotating,
       onAreaChange: (x0, y0, x1, y1) => {
-        if (this._annotating) return;
-        const m = this._marquee ?? (this._marquee = { x0, y0, x1, y1, live: true });
+        const m = this._marquee ?? (this._marquee = { id: 0, x0, y0, x1, y1, live: true });
         m.x1 = x1;
         m.y1 = y1;
         m.live = true;
         this._scheduleHoverFrame();
       },
       onAreaCommit: (x0, y0, x1, y1) => {
-        if (this._annotating) return;
         this._marquee = null;
         this._clearHover();
         this._placeAreaComment(
@@ -324,9 +331,8 @@ export class Annotator {
         );
       },
       onAreaCancel: () => {
-        if (this._annotating) return;
         this._marquee = null;
-        this._clearHover();
+        this._scheduleHoverFrame(); // repaint drops the marquee box
       },
     });
     this._gesture.start();
@@ -443,13 +449,14 @@ export class Annotator {
   private _togglePanel(): void {
     if (this._panelEl) {
       this._closePanel();
-      return;
+    } else {
+      this._panelAnchor = this._chipEl;
+      this._panelKind = 'menu';
+      this._panelEl = this._renderBuilderPanel();
+      this._ui.root.appendChild(this._panelEl);
+      this._positionPanel();
     }
-    this._panelAnchor = this._chipEl;
-    this._panelKind = 'menu';
-    this._panelEl = this._renderBuilderPanel();
-    this._ui.root.appendChild(this._panelEl);
-    this._positionPanel();
+    this._chipEl?.setAttribute('aria-expanded', String(this._panelEl !== null));
   }
 
   private _closePanel(): void {
@@ -558,12 +565,14 @@ export class Annotator {
       if (!this._chipEl) {
         const chip = el('button', 'chip');
         chip.type = 'button';
+        chip.setAttribute('aria-expanded', 'false');
+        chip.setAttribute('aria-controls', 'pf-drawer');
         chip.addEventListener('click', () => this._togglePanel());
         this._dockEl?.appendChild(chip);
         this._chipEl = chip;
       }
       this._chipEl.textContent = String(this._visibleComments().length);
-      this._chipEl.setAttribute('aria-label', 'Pinflow builder — open drawer');
+      this._chipEl.setAttribute('aria-label', 'Pinflow builder drawer');
       this._chipEl.title = 'Pinflow builder';
       return;
     }
@@ -660,6 +669,7 @@ export class Annotator {
   // Built imperatively to keep reviewer names out of innerHTML.
   private _renderBuilderPanel(): HTMLDivElement {
     const drawer = el('div', 'drawer');
+    drawer.id = 'pf-drawer'; // aria-controls target (ids are shadow-scoped)
     const stores = this._allStores();
     drawer.appendChild(el('h3', undefined, 'Builder mode'));
 
@@ -752,6 +762,7 @@ export class Annotator {
     document.removeEventListener('pointerup', this._onArmedPointerUp, true);
     document.removeEventListener('pointercancel', this._onArmedPointerCancel, true);
     this._marquee = null;
+    this._pressGuards(false);
     this._clearHover();
     document.body.style.cursor = this._prevBodyCursor;
     this._prevBodyCursor = '';
@@ -781,10 +792,13 @@ export class Annotator {
     const m = this._marquee;
     if (m) {
       const p = e as PointerEvent;
+      if ((p.pointerId ?? 0) !== m.id) return; // stray pointers never drive the box
       m.x1 = p.clientX;
       m.y1 = p.clientY;
-      if (!m.live && Math.hypot(m.x1 - m.x0, m.y1 - m.y0) > MOVE_THRESHOLD_PX) m.live = true;
-      if (m.live) this._scheduleHoverFrame();
+      // Live threshold, both directions: returning inside it de-latches so a
+      // release at the origin is a plain click again — never a 0×0 area.
+      m.live = Math.hypot(m.x1 - m.x0, m.y1 - m.y0) > MOVE_THRESHOLD_PX;
+      this._scheduleHoverFrame();
       return;
     }
     const target = e.target;
@@ -842,34 +856,68 @@ export class Annotator {
   }
 
   // Mouse/pen only: a passive listener cannot preventDefault, so a touch
-  // marquee would fight native scrolling — touch keeps click-to-pin.
+  // marquee would fight native scrolling — touch keeps click-to-pin. Primary
+  // button only (right-drag stays the host's), and the initiating pointerId
+  // is recorded so stray pointers can neither resize nor commit the box.
   private _onArmedPointerDown = (e: Event): void => {
     const p = e as PointerEvent;
-    if (p.isPrimary === false || p.pointerType === 'touch') return;
+    if (this._marquee) {
+      // A second pointer joining is a multi-touch gesture — abort the marquee.
+      this._marquee = null;
+      this._pressGuards(false);
+      this._scheduleHoverFrame();
+      return;
+    }
+    if (p.isPrimary === false || p.pointerType === 'touch' || (p.button ?? 0) !== 0) return;
     if (this._isOwnUi(e.target, e)) return;
-    this._marquee = { x0: p.clientX, y0: p.clientY, x1: p.clientX, y1: p.clientY, live: false };
+    this._marquee = {
+      id: p.pointerId ?? 0,
+      x0: p.clientX,
+      y0: p.clientY,
+      x1: p.clientX,
+      y1: p.clientY,
+      live: false,
+    };
+    this._pressGuards(true);
+  };
+
+  // Suppress text selection and native drag-and-drop for the press duration —
+  // the marquee must never fight the browser's drag ghost or leave a
+  // selection trail. Press-scoped: zero listeners at rest.
+  private _pressGuards(on: boolean): void {
+    const fn = on ? document.addEventListener : document.removeEventListener;
+    fn.call(document, 'selectstart', this._killDefault, true);
+    fn.call(document, 'dragstart', this._killDefault, true);
+  }
+
+  private _killDefault = (e: Event): void => {
+    e.preventDefault();
   };
 
   private _onArmedPointerUp = (e: Event): void => {
     const m = this._marquee;
-    if (!m) return;
+    const p = e as PointerEvent;
+    if (!m || (p.pointerId ?? 0) !== m.id) return;
     this._marquee = null;
+    this._pressGuards(false);
     // Below the threshold the press was a click; _onDocumentClick owns it.
     if (!m.live) return;
-    const p = e as PointerEvent;
     const x1 = p.clientX ?? m.x1;
     const y1 = p.clientY ?? m.y1;
     // The drag's trailing click must reach neither pinflow (double pin) nor
-    // the host (a drag is not a click). Swallows exactly ONE click (`once`,
-    // like the gesture controller); the 0-timeout clears the no-click case —
-    // mouse click fires synchronously after pointerup, so a later genuine
-    // click can never be eaten.
+    // the host (a drag is not a click). WINDOW capture — the first stop on
+    // the propagation path — so it runs before any host document-capture
+    // listener regardless of registration order; stopImmediatePropagation
+    // silences same-node listeners too (codex r1 [P1]). Swallows exactly ONE
+    // click; the 0-timeout clears the no-click case — mouse click fires
+    // synchronously after pointerup, so a later genuine click is never eaten.
     const swallow = (ce: Event): void => {
+      window.removeEventListener('click', swallow, true); // one-shot, self-removing
       ce.preventDefault();
-      ce.stopPropagation();
+      ce.stopImmediatePropagation();
     };
-    document.addEventListener('click', swallow, { capture: true, once: true });
-    window.setTimeout(() => document.removeEventListener('click', swallow, { capture: true }), 0);
+    window.addEventListener('click', swallow, true);
+    window.setTimeout(() => window.removeEventListener('click', swallow, true), 0);
     this._exitAnnotateMode();
     this._placeAreaComment(
       Math.min(m.x0, x1),
@@ -879,8 +927,15 @@ export class Annotator {
     );
   };
 
-  private _onArmedPointerCancel = (): void => {
+  private _onArmedPointerCancel = (e: Event): void => {
+    if (
+      (e as PointerEvent).pointerId !== undefined &&
+      this._marquee &&
+      ((e as PointerEvent).pointerId ?? 0) !== this._marquee.id
+    )
+      return; // a stray pointer's cancel is not ours
     this._marquee = null;
+    this._pressGuards(false);
     this._scheduleHoverFrame(); // repaint drops the marquee box
   };
 
@@ -897,7 +952,10 @@ export class Annotator {
       return r.left <= left && r.top <= top && r.right >= left + width && r.bottom >= top + height;
     };
     while (target && !contains(target)) target = target.parentElement;
-    const anchorEl = target ?? document.body;
+    // buildAnchor canonicalizes to the nearest data-testid ancestor — the
+    // rect must be measured against THAT element, or areaPercent and the
+    // selectors would describe different boxes (codex r1 [P1]).
+    const anchorEl = anchorTarget(target ?? document.body);
     const tr = anchorEl.getBoundingClientRect();
     const clamp = (v: number): number => Math.min(100, Math.max(0, v));
     const area: AreaPercent | undefined =

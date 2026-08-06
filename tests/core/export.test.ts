@@ -487,6 +487,29 @@ describe('area comments (marquee picker)', () => {
     expect(md).toContain('**Area:** 67% × 67% of the element, from 17%, 17%');
   });
 
+  it('an ORPHANED area comment keeps its Area line — last-known geometry matters most then', () => {
+    const store: ReviewerStore = {
+      ...sarah,
+      comments: [
+        makeComment({
+          id: 'cmt_o',
+          route: '/',
+          text: 'Region feedback on a element that vanished.',
+          anchor: {
+            ...makeComment({ id: 'x', route: '/', text: '' }).anchor,
+            areaPercent: { x: 10, y: 20, w: 30, h: 40 },
+          },
+        }),
+      ],
+    };
+    const md = exportReviewer(
+      store,
+      { generatedAt: '2026-04-15T14:45:00Z', project: 'my-prototype' },
+      () => true, // everything orphaned
+    );
+    expect(md).toContain('**Area:** 30% × 40% of the element, from 10%, 20%');
+  });
+
   it('point comments render no Area line', () => {
     const md = exportReviewer(
       sarah,

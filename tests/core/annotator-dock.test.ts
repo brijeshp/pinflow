@@ -128,6 +128,20 @@ describe('bottom-left dock (0.5.0 — the bottom-right control is gone)', () => 
     expect(shadow().querySelector('.drawer')).toBeNull();
   });
 
+  it('builder chip announces its drawer state (aria-expanded/controls)', () => {
+    seed([makeComment('c1', 'one')]);
+    annotator = makeAnnotator({ mode: 'builder' });
+    const chip = countChip()!;
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+    chip.click();
+    expect(chip.getAttribute('aria-expanded')).toBe('true');
+    const drawer = shadow().querySelector('.drawer')!;
+    expect(chip.getAttribute('aria-controls')).toBe(drawer.id);
+    expect(drawer.id).toBeTruthy();
+    chip.click();
+    expect(chip.getAttribute('aria-expanded')).toBe('false');
+  });
+
   it('both segments carry aria-labels (icon-only buttons must be named)', () => {
     seed([makeComment('c1', 'one')]);
     annotator = makeAnnotator();

@@ -15,6 +15,9 @@ export interface GestureControllerOptions {
   onAreaChange?: (x0: number, y0: number, x1: number, y1: number) => void;
   onAreaCommit?: (x0: number, y0: number, x1: number, y1: number) => void;
   onAreaCancel?: () => void;
+  /** While true, the controller ignores new presses entirely — the armed-mode
+   *  handlers own all input (codex r1 [P2]: no parallel activation paths). */
+  suspended?: () => boolean;
 }
 
 interface Press {
@@ -61,7 +64,10 @@ export class GestureController {
     document.addEventListener('pointerdown', this._onPointerDown, true);
     document.addEventListener('pointerup', this._onPointerUp, true);
     document.addEventListener('pointercancel', this._onPointerCancel, true);
-    document.addEventListener('click', this._onClick, true);
+    // WINDOW capture, not document: window is the first stop on the
+    // propagation path, so the swallow runs before any host document-capture
+    // listener regardless of registration order (codex r1 [P1]).
+    window.addEventListener('click', this._onClick, true);
     document.addEventListener('contextmenu', this._onContextMenu, true);
   }
 
@@ -74,7 +80,7 @@ export class GestureController {
     document.removeEventListener('pointerdown', this._onPointerDown, true);
     document.removeEventListener('pointerup', this._onPointerUp, true);
     document.removeEventListener('pointercancel', this._onPointerCancel, true);
-    document.removeEventListener('click', this._onClick, true);
+    window.removeEventListener('click', this._onClick, true);
     document.removeEventListener('contextmenu', this._onContextMenu, true);
   }
 
@@ -86,7 +92,26 @@ export class GestureController {
     if (this._press?.marquee) this._opts.onAreaCancel?.();
     this._press = null;
     document.removeEventListener('pointermove', this._onPointerMove, true);
+    document.removeEventListener('keydown', this._onKeyDown, true);
+    document.removeEventListener('selectstart', this._onKillDefault, true);
+    document.removeEventListener('dragstart', this._onKillDefault, true);
   }
+
+  // Escape aborts the press (marquee visuals included) and still shields the
+  // host from the release's trailing click — the gesture was annotation
+  // intent either way (codex r1 [P2]).
+  private _onKeyDown = (e: Event): void => {
+    if ((e as KeyboardEvent).key !== 'Escape') return;
+    this._cancelPress();
+    this._armSwallow();
+  };
+
+  // Mouse presses suppress text selection and native drag-and-drop for the
+  // press duration — a marquee must never fight the browser's drag ghost or
+  // leave a selection trail (codex r1 [P2]). Press-scoped: never at rest.
+  private _onKillDefault = (e: Event): void => {
+    e.preventDefault();
+  };
 
   private _armSwallow(): void {
     this._swallowNextClick = true;
@@ -106,6 +131,8 @@ export class GestureController {
     const pe = e as PointerEvent;
     const target = e.target as Element | null;
     if (!target) return;
+
+    if (this._opts.suspended?.()) return;
 
     // A second active pointer means this is a multi-touch gesture, not a press.
     if (this._press) {
@@ -129,6 +156,9 @@ export class GestureController {
         marquee: false,
       };
       document.addEventListener('pointermove', this._onPointerMove, true);
+      document.addEventListener('keydown', this._onKeyDown, true);
+      document.addEventListener('selectstart', this._onKillDefault, true);
+      document.addEventListener('dragstart', this._onKillDefault, true);
       return;
     }
 
@@ -163,8 +193,15 @@ export class GestureController {
         this._cancelPress();
       return;
     }
-    if (!p.marquee && Math.hypot(pe.clientX - p.x, pe.clientY - p.y) <= this._opts.moveThresholdPx)
+    // Live threshold, both directions: returning inside it DE-LATCHES the
+    // marquee (release reverts to a point pin — never a 0×0 area, codex r1 [P2]).
+    if (Math.hypot(pe.clientX - p.x, pe.clientY - p.y) <= this._opts.moveThresholdPx) {
+      if (p.marquee) {
+        p.marquee = false;
+        this._opts.onAreaCancel?.();
+      }
       return;
+    }
     if (!this._opts.onAreaCommit) {
       this._cancelPress(); // no area consumer: movement cancels, as before
       return;

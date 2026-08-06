@@ -19,7 +19,7 @@ export const STYLES =
   // export. Children carry pointer-events — the dock itself stays inert.
   // .arm/.chip share the circle; each keeps only its color/size deltas.
   '.dock{position:fixed;left:16px;bottom:16px;display:flex;align-items:center;gap:8px}' +
-  '.arm,.chip{pointer-events:auto;height:26px;border:0;padding:0;border-radius:999px;font:inherit;font-weight:600;user-select:none;box-shadow:0 4px 10px rgba(0,0,0,.28),0 0 0 2px var(--pf-surface,light-dark(#fff,#1e222b));cursor:pointer;display:grid;place-items:center}' +
+  '.arm,.chip{pointer-events:auto;height:26px;border:0;padding:0;border-radius:999px;font:inherit;font-weight:600;-webkit-user-select:none;user-select:none;box-shadow:0 4px 10px rgba(0,0,0,.28),0 0 0 2px var(--pf-surface,light-dark(#fff,#1e222b));cursor:pointer;display:grid;place-items:center}' +
   '.arm{width:26px;background:#0f172a;color:#f8fafc;font-size:15px}' +
   '.arm[data-active="true"]{background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff)}' +
   '.panel{position:fixed;pointer-events:auto;min-width:260px;max-width:320px;background:var(--pf-surface,light-dark(#fff,#1e222b));color:var(--pf-text,light-dark(#0f172a,#e7eaf1));border-radius:var(--pf-radius,12px);padding:16px;box-shadow:var(--pf-shadow,0 16px 48px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.08));font-size:13px;line-height:1.45}' +

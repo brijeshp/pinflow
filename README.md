@@ -46,17 +46,19 @@ Add one script tag to the page you want reviewed:
 ></script>
 ```
 
-Open the page. Pinflow asks for the reviewer's name once, then shows its control in the
-bottom-right corner.
+Open the page. Pinflow asks for the reviewer's name once, then shows its dock in the
+bottom-left corner.
 
-1. Select the Pinflow control, then select an element on the page.
+1. Select the **+** button to start annotating, then click an element — or drag a box
+   around a whole region.
 2. Write a comment and choose **Save**.
-3. Repeat as needed.
-4. Choose **Export & share** to download the feedback as Markdown and copy it to the
-   clipboard.
+3. Repeat as needed. Press **Escape** or select **×** to stop annotating.
+4. Select the count chip and choose **Export & share** to download the feedback as
+   Markdown and copy it to the clipboard.
 
-Reviewers can also place a pin with **Alt+click** (**Option+click** on macOS) or a 500 ms
-long-press on touch devices. These shortcuts work alongside the visible control by default.
+Reviewers can also skip the dock entirely: **Alt+click** (**Option+click** on macOS)
+drops a pin, **Alt+drag** draws a region, and a 500 ms long-press works on touch
+devices. These gestures work alongside the visible dock by default.
 
 The `data-project` value separates one prototype's feedback from another. Choose a stable,
 descriptive value and keep it unchanged for the life of the review.
