@@ -300,6 +300,43 @@ describe('GestureController', () => {
       expect(cancels).toHaveLength(1); // in-flight marquee visuals cleaned up
     });
 
+    it('a touch long-press started before arming never fires after suspension', () => {
+      let suspended = false;
+      const { activations, el } = setup({ suspended: () => suspended });
+      dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 }); // touch press, unarmed
+      suspended = true; // armed mid-press
+      vi.advanceTimersByTime(600); // the long-press timer fires into suspension
+      expect(activations).toHaveLength(0);
+    });
+
+    it('suspension mid-press also shields the release: the trailing click is swallowed', () => {
+      let suspended = false;
+      const { activations, el } = setup({
+        suspended: () => suspended,
+        onAreaChange: () => {},
+        onAreaCommit: () => {},
+        onAreaCancel: () => {},
+      });
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      suspended = true;
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 10, clientY: 10 });
+      expect(activations).toHaveLength(0);
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // the dead gesture's click never reaches anyone
+    });
+
+    it('a de-latched press whose far release was coalesced still commits an AREA (release is authoritative both ways)', () => {
+      const { activations, cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // latched
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 11, clientY: 11 }); // de-latched
+      expect(cancels).toHaveLength(1);
+      // Coalescing swallowed the outbound move; only the far release arrives.
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 90, clientY: 120 });
+      expect(commits).toEqual([[10, 10, 90, 120]]);
+      expect(activations).toHaveLength(0);
+    });
+
     it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
       const { controller, cancels, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });

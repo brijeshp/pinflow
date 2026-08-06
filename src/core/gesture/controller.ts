@@ -176,7 +176,9 @@ export class GestureController {
     document.addEventListener('pointermove', this._onPointerMove, true);
     clearTimeout(this._timer);
     this._timer = setTimeout(() => {
-      if (!this._press) return;
+      // A press that started before arming must not fire into suspension —
+      // the release path cancels it and shields its click (codex r3 [P2]).
+      if (!this._press || this._opts.suspended?.()) return;
       const { x, y, target: t } = this._press;
       this._activate(x, y, t);
     }, this._opts.longPressMs);
@@ -187,9 +189,11 @@ export class GestureController {
     const p = this._press;
     if (!p || (pe.pointerId ?? 0) !== p.pointerId) return;
     // Armed mode can take over MID-press (keyboard-activated arm segment):
-    // the in-flight gesture dies with it (codex r2 [P2]).
+    // the in-flight gesture dies with it, and the swallow window shields the
+    // eventual release's click from the armed handler (codex r2/r3 [P2]).
     if (this._opts.suspended?.()) {
       this._cancelPress();
+      this._armSwallow();
       return;
     }
     if (p.touch) {
@@ -226,23 +230,24 @@ export class GestureController {
     }
     if (this._opts.suspended?.()) {
       this._cancelPress();
+      this._armSwallow();
       return;
     }
-    if (p.marquee) {
-      // Take ownership BEFORE cleanup so _cancelPress can't fire onAreaCancel
-      // over a committed area.
-      this._press = null;
-      this._cancelPress();
-      // The RELEASE coordinates are authoritative — the return-to-origin move
-      // can be coalesced away, so the latched flag alone must not commit a
-      // degenerate area (codex r2 [P2]).
-      if (Math.hypot(pe.clientX - p.x, pe.clientY - p.y) > this._opts.moveThresholdPx) {
-        this._armSwallow();
-        this._opts.onAreaCommit?.(p.x, p.y, pe.clientX, pe.clientY);
-        return;
-      }
-      this._opts.onAreaCancel?.(); // live visuals degrade with it
+    // The RELEASE coordinates are authoritative in BOTH directions (codex
+    // r2/r3 [P2]): a coalesced return-to-origin must not commit a degenerate
+    // area, and a coalesced far release must not degrade to a point — the
+    // latched flag only tracks whether marquee VISUALS need cancelling.
+    this._press = null;
+    this._cancelPress();
+    if (
+      this._opts.onAreaCommit &&
+      Math.hypot(pe.clientX - p.x, pe.clientY - p.y) > this._opts.moveThresholdPx
+    ) {
+      this._armSwallow();
+      this._opts.onAreaCommit(p.x, p.y, pe.clientX, pe.clientY);
+      return;
     }
+    if (p.marquee) this._opts.onAreaCancel?.(); // latched visuals degrade with it
     this._activate(p.x, p.y, p.target); // Alt+click: point pin on release
   };
 

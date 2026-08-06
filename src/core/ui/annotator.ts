@@ -1010,6 +1010,10 @@ export class Annotator {
   }
 
   private _onDocumentClick = (e: MouseEvent): void => {
+    // Any in-flight armed press (pending, live, or aborted) means this click
+    // belongs to ANOTHER pointer — e.g. a joiner lifting before the marquee's
+    // initiator releases. It must never place a pin (codex r3 [P2]).
+    if (this._marquee) return;
     if (this._isOwnUi(e.target, e)) return;
     e.preventDefault();
     e.stopPropagation();

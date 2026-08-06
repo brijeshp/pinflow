@@ -361,6 +361,32 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(click.defaultPrevented).toBe(true); // and the host is shielded too
   });
 
+  it("a joining pointer's EARLY click (before the initiator releases) places nothing", () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointermove', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 2, clientX: 400, clientY: 400, pointerType: 'touch' }),
+    ); // abort
+    // The SECOND pointer lifts and clicks BEFORE the initiator releases.
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 2, clientX: 400, clientY: 400, pointerType: 'touch' }),
+    );
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(comments()).toHaveLength(0); // no pin from the joiner's click
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(comments()).toHaveLength(0); // nor from the initiator's
+  });
+
   it('text selection and native drag are suppressed during an armed marquee press', () => {
     annotator = makeAnnotator();
     arm();
