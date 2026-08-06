@@ -87,6 +87,15 @@ describe('Annotator explicit-save lifecycle', () => {
     save.click();
   }
 
+  // The placeholder is the only prompt a reviewer gets. It asks for the change
+  // they want, not for open-ended musing — the export lands in a coding agent.
+  it('the comment textarea prompts for an actionable change', () => {
+    seedStore(makeComment('original'));
+    annotator = makeAnnotator();
+
+    expect(openFirstPinInput().placeholder).toBe('What should change?');
+  });
+
   it('Save persists the text, closes the popup, and Delete stays destructive-only', () => {
     seedStore(makeComment('original'));
     annotator = makeAnnotator();

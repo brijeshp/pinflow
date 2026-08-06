@@ -1100,7 +1100,7 @@ export class Annotator {
     const frozen = isResolved(comment);
     const wrap = el('div', 'input');
     const ta = el('textarea');
-    ta.placeholder = "What's on your mind?";
+    ta.placeholder = 'What should change?';
     ta.value = comment.text;
     ta.rows = 3;
     ta.readOnly = frozen;
