@@ -337,6 +337,36 @@ describe('GestureController', () => {
       expect(activations).toHaveLength(0);
     });
 
+    it('suspension holds pointer ownership to the RELEASE: a >700ms hold still shields the click', () => {
+      let suspended = false;
+      const { activations, el } = setup({
+        suspended: () => suspended,
+        onAreaChange: () => {},
+        onAreaCommit: () => {},
+        onAreaCancel: () => {},
+      });
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      suspended = true;
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // takeover detected
+      vi.advanceTimersByTime(800); // longer than any fixed swallow window
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // swallow armed at RELEASE, not at cancel
+      expect(activations).toHaveLength(0);
+    });
+
+    it('a suspended touch release is shielded too — the compatibility click never becomes a pin', () => {
+      let suspended = false;
+      const { activations, el } = setup({ suspended: () => suspended });
+      dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 }); // touch, unarmed
+      suspended = true;
+      vi.advanceTimersByTime(600); // guarded timer expires into suspension
+      dispatch(el, 'pointerup', { clientX: 30, clientY: 40 });
+      const click = dispatch(el, 'click');
+      expect(click.defaultPrevented).toBe(true);
+      expect(activations).toHaveLength(0);
+    });
+
     it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
       const { controller, cancels, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });

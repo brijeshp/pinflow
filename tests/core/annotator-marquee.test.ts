@@ -361,6 +361,54 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(click.defaultPrevented).toBe(true); // and the host is shielded too
   });
 
+  it('a click arriving while the marquee is aborted (no release yet) is CONSUMED — the host never sees it', () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointermove', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 2, clientX: 400, clientY: 400, pointerType: 'touch' }),
+    ); // abort
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    t.dispatchEvent(click); // stray click mid-abort, before any release
+    expect(click.defaultPrevented).toBe(true);
+    expect(comments()).toHaveLength(0);
+  });
+
+  it('initiator-first abort ordering: the JOINER’s later click also places nothing', () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointermove', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 2, clientX: 400, clientY: 400, pointerType: 'touch' }),
+    ); // abort
+    // Initiator releases and clicks FIRST (consumes the one-shot swallow)...
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(comments()).toHaveLength(0);
+    // ...then the joiner releases and its compatibility click arrives.
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 2, clientX: 400, clientY: 400, pointerType: 'touch' }),
+    );
+    const joinerClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    t.dispatchEvent(joinerClick);
+    expect(comments()).toHaveLength(0); // no pin from either ordering
+    expect(joinerClick.defaultPrevented).toBe(true);
+  });
+
   it("a joining pointer's EARLY click (before the initiator releases) places nothing", () => {
     annotator = makeAnnotator();
     arm();

@@ -135,6 +135,9 @@ export class Annotator {
     /** A second pointer joined: the whole gesture is dead, including the
      *  initiating pointer's eventual compatibility click. */
     aborted: boolean;
+    /** Pointers still down on an aborted marquee — each release swallows its
+     *  own compatibility click; the state clears when the last one lifts. */
+    pending: number;
   } | null = null;
   private _reflowFrame = 0;
   private _orphanRetryAt = 0;
@@ -318,7 +321,8 @@ export class Annotator {
       suspended: () => this._annotating,
       onAreaChange: (x0, y0, x1, y1) => {
         const m =
-          this._marquee ?? (this._marquee = { id: 0, x0, y0, x1, y1, live: true, aborted: false });
+          this._marquee ??
+          (this._marquee = { id: 0, x0, y0, x1, y1, live: true, aborted: false, pending: 0 });
         m.x1 = x1;
         m.y1 = y1;
         m.live = true;
@@ -871,14 +875,20 @@ export class Annotator {
   private _onArmedPointerDown = (e: Event): void => {
     const p = e as PointerEvent;
     if (this._marquee) {
-      // A second pointer joining aborts the WHOLE gesture — the state stays
-      // (flagged) so the initiating pointer's release can swallow its
-      // compatibility click instead of falling through to a point pin
-      // (codex r2 [P2]).
-      this._marquee.live = false;
-      this._marquee.aborted = true;
-      this._pressGuards(false);
-      this._scheduleHoverFrame();
+      // A second pointer joining aborts the WHOLE gesture. The state stays
+      // (flagged) until EVERY participating pointer has lifted, so each
+      // release can swallow its own compatibility click — both orderings
+      // (codex r2/r4 [P2]). First join: initiator + joiner are down.
+      const m = this._marquee;
+      if (!m.aborted) {
+        m.aborted = true;
+        m.live = false;
+        m.pending = 2;
+        this._pressGuards(false);
+        this._scheduleHoverFrame();
+      } else {
+        m.pending += 1; // a third+ pointer joined the dead gesture
+      }
       return;
     }
     if (p.isPrimary === false || p.pointerType === 'touch' || (p.button ?? 0) !== 0) return;
@@ -891,6 +901,7 @@ export class Annotator {
       y1: p.clientY,
       live: false,
       aborted: false,
+      pending: 0,
     };
     this._pressGuards(true);
   };
@@ -911,15 +922,19 @@ export class Annotator {
   private _onArmedPointerUp = (e: Event): void => {
     const m = this._marquee;
     const p = e as PointerEvent;
-    if (!m || (p.pointerId ?? 0) !== m.id) return;
-    this._marquee = null;
-    this._pressGuards(false);
+    if (!m) return;
     if (m.aborted) {
-      // Multi-pointer abort: the initiating pointer's compatibility click
-      // must not fall through to a point pin (codex r2 [P2]).
+      // EVERY participating pointer's release swallows its own compatibility
+      // click (which follows synchronously); the state clears when the last
+      // pointer lifts (codex r2/r4 [P2]).
+      m.pending -= 1;
       this._swallowNextClick();
+      if (m.pending <= 0) this._marquee = null;
       return;
     }
+    if ((p.pointerId ?? 0) !== m.id) return;
+    this._marquee = null;
+    this._pressGuards(false);
     const x1 = p.clientX ?? m.x1;
     const y1 = p.clientY ?? m.y1;
     // The RELEASE coordinates decide, not the latched flag — the
@@ -957,12 +972,16 @@ export class Annotator {
   }
 
   private _onArmedPointerCancel = (e: Event): void => {
-    if (
-      (e as PointerEvent).pointerId !== undefined &&
-      this._marquee &&
-      ((e as PointerEvent).pointerId ?? 0) !== this._marquee.id
-    )
-      return; // a stray pointer's cancel is not ours
+    const m = this._marquee;
+    if (!m) return;
+    if (m.aborted) {
+      // No compatibility click follows a cancel — just retire the pointer.
+      m.pending -= 1;
+      if (m.pending <= 0) this._marquee = null;
+      return;
+    }
+    const pid = (e as PointerEvent).pointerId;
+    if (pid !== undefined && (pid ?? 0) !== m.id) return; // a stray pointer's cancel is not ours
     this._marquee = null;
     this._pressGuards(false);
     this._scheduleHoverFrame(); // repaint drops the marquee box
@@ -1012,8 +1031,13 @@ export class Annotator {
   private _onDocumentClick = (e: MouseEvent): void => {
     // Any in-flight armed press (pending, live, or aborted) means this click
     // belongs to ANOTHER pointer — e.g. a joiner lifting before the marquee's
-    // initiator releases. It must never place a pin (codex r3 [P2]).
-    if (this._marquee) return;
+    // initiator releases. It places nothing AND is consumed: armed mode owns
+    // input, so no mid-gesture click may leak to the host (codex r3/r4 [P2]).
+    if (this._marquee) {
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     if (this._isOwnUi(e.target, e)) return;
     e.preventDefault();
     e.stopPropagation();

@@ -27,6 +27,10 @@ interface Press {
   target: Element;
   touch: boolean;
   marquee: boolean;
+  /** Armed mode took over mid-press: the press survives so the RELEASE can be
+   *  shielded (a fixed swallow window would expire under a long hold), but it
+   *  can no longer activate or draw (codex r4 [P2]). */
+  dead: boolean;
 }
 
 // How long the post-activation click-swallow stays armed. A long-press that
@@ -154,6 +158,7 @@ export class GestureController {
         target,
         touch: false,
         marquee: false,
+        dead: false,
       };
       document.addEventListener('pointermove', this._onPointerMove, true);
       document.addEventListener('keydown', this._onKeyDown, true);
@@ -172,28 +177,44 @@ export class GestureController {
       target,
       touch: true,
       marquee: false,
+      dead: false,
     };
     document.addEventListener('pointermove', this._onPointerMove, true);
     clearTimeout(this._timer);
     this._timer = setTimeout(() => {
+      const pr = this._press;
+      if (!pr) return;
       // A press that started before arming must not fire into suspension —
-      // the release path cancels it and shields its click (codex r3 [P2]).
-      if (!this._press || this._opts.suspended?.()) return;
-      const { x, y, target: t } = this._press;
-      this._activate(x, y, t);
+      // it dies in place and its release is shielded (codex r3/r4 [P2]).
+      if (this._opts.suspended?.()) {
+        this._killPress(pr);
+        return;
+      }
+      this._activate(pr.x, pr.y, pr.target);
     }, this._opts.longPressMs);
   };
+
+  // Armed mode can take over MID-press (keyboard-activated arm segment): the
+  // press goes DEAD — visuals cancel and the timer stops — but ownership is
+  // retained so the matching release arms the click-swallow AT release time; a
+  // window started at cancellation would expire under a long hold (codex r4).
+  private _killPress(p: Press): void {
+    if (p.dead) return;
+    p.dead = true;
+    clearTimeout(this._timer);
+    this._timer = undefined;
+    if (p.marquee) {
+      p.marquee = false;
+      this._opts.onAreaCancel?.();
+    }
+  }
 
   private _onPointerMove = (e: Event): void => {
     const pe = e as PointerEvent;
     const p = this._press;
     if (!p || (pe.pointerId ?? 0) !== p.pointerId) return;
-    // Armed mode can take over MID-press (keyboard-activated arm segment):
-    // the in-flight gesture dies with it, and the swallow window shields the
-    // eventual release's click from the armed handler (codex r2/r3 [P2]).
-    if (this._opts.suspended?.()) {
-      this._cancelPress();
-      this._armSwallow();
+    if (p.dead || this._opts.suspended?.()) {
+      this._killPress(p);
       return;
     }
     if (p.touch) {
@@ -224,13 +245,17 @@ export class GestureController {
     const pe = e as PointerEvent;
     const p = this._press;
     if (!p || (pe.pointerId ?? 0) !== p.pointerId) return;
-    if (p.touch) {
-      this._cancelPress(); // a tap; the long-press timer owns touch activation
+    // Dead-press finalization comes BEFORE the touch branch: a suspended
+    // touch release must shield its compatibility click too (codex r4 [P2]).
+    if (p.dead || this._opts.suspended?.()) {
+      this._killPress(p);
+      this._press = null;
+      this._cancelPress();
+      this._armSwallow(); // armed AT release — the click follows synchronously
       return;
     }
-    if (this._opts.suspended?.()) {
-      this._cancelPress();
-      this._armSwallow();
+    if (p.touch) {
+      this._cancelPress(); // a tap; the long-press timer owns touch activation
       return;
     }
     // The RELEASE coordinates are authoritative in BOTH directions (codex
