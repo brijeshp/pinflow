@@ -149,10 +149,17 @@ export class GestureController {
     // A second active pointer means this is a multi-touch gesture, not a
     // press. A DEAD press is exempt: it exists solely to shield its own
     // release, and an intruding pointer must not evict that ownership
-    // (codex r6 [P2]).
+    // (codex r6 [P2]) — but the SAME pointer pressing again proves the dead
+    // press's release was lost (an outside-window release delivers no
+    // pointerup — documented browser behavior): retire the stale press and
+    // process this down as a fresh gesture (codex r8 [P2]).
     if (this._press) {
-      if (!this._press.dead) this._cancelPress();
-      return;
+      if (!this._press.dead) {
+        this._cancelPress();
+        return;
+      }
+      if ((pe.pointerId ?? 0) !== this._press.pointerId) return;
+      this._cancelPress(); // stale — its marquee flag is already false, no cancel echo
     }
 
     // Desktop: a primary-button Alt press opens a pending gesture — the
@@ -259,8 +266,7 @@ export class GestureController {
     // Dead-press finalization comes BEFORE the touch branch: a suspended
     // touch release must shield its compatibility click too (codex r4 [P2]).
     if (p.dead || this._opts.suspended?.()) {
-      this._killPress(p);
-      this._press = null;
+      this._killPress(p); // marquee flag drops first — no cancel echo below
       this._cancelPress();
       this._armSwallow(); // armed AT release — the click follows synchronously
       return;

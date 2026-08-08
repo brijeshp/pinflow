@@ -1024,7 +1024,7 @@ export class Annotator {
       return;
     }
     const pid = (e as PointerEvent).pointerId;
-    if (pid !== undefined && (pid ?? 0) !== m.id) return; // a stray pointer's cancel is not ours
+    if (pid !== undefined && pid !== m.id) return; // a stray pointer's cancel is not ours
     this._marquee = null;
     this._pressGuards(false);
     this._scheduleHoverFrame(); // repaint drops the marquee box

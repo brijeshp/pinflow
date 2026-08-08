@@ -434,6 +434,36 @@ describe('GestureController', () => {
       expect(click.defaultPrevented).toBe(true); // release still shielded
     });
 
+    it("a LOST release cannot poison the same pointer's next press (codex r8)", () => {
+      const { activations, controller, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      controller.suspendPress(); // armed takeover; press goes dead
+      // The release happens OUTSIDE the window — no pointerup ever arrives
+      // (documented browser behavior). Later, the same pointer presses again:
+      dispatch(el, 'pointerdown', {
+        pointerType: 'mouse',
+        altKey: false,
+        clientX: 200,
+        clientY: 200,
+      });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 200, clientY: 200 });
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(false); // an ordinary host click passes
+      expect(activations).toHaveLength(0);
+    });
+
+    it('after a lost release, the same pointer can start a FRESH Alt gesture (codex r8)', () => {
+      const { activations, controller, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      controller.suspendPress();
+      // Lost release; the same pointer begins a new Alt+click:
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 50, clientY: 50 });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 50, clientY: 50 });
+      expect(activations).toHaveLength(1); // the fresh press works normally
+      expect(activations[0]).toMatchObject({ x: 50, y: 50 });
+    });
+
     it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
       const { controller, cancels, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
