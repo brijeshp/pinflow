@@ -135,9 +135,11 @@ export class Annotator {
     /** A second pointer joined: the whole gesture is dead, including the
      *  initiating pointer's eventual compatibility click. */
     aborted: boolean;
-    /** Pointers still down on an aborted marquee — each release swallows its
-     *  own compatibility click; the state clears when the last one lifts. */
-    pending: number;
+    /** Ids of pointers still down on an aborted marquee — ONLY participants
+     *  retire members (a pre-existing bystander pointer must not skew the
+     *  accounting, codex r5); each participant's release swallows its own
+     *  compatibility click, and the state clears when the last one lifts. */
+    pending: number[];
   } | null = null;
   private _reflowFrame = 0;
   private _orphanRetryAt = 0;
@@ -322,7 +324,7 @@ export class Annotator {
       onAreaChange: (x0, y0, x1, y1) => {
         const m =
           this._marquee ??
-          (this._marquee = { id: 0, x0, y0, x1, y1, live: true, aborted: false, pending: 0 });
+          (this._marquee = { id: 0, x0, y0, x1, y1, live: true, aborted: false, pending: [] });
         m.x1 = x1;
         m.y1 = y1;
         m.live = true;
@@ -775,6 +777,7 @@ export class Annotator {
     document.removeEventListener('pointercancel', this._onArmedPointerCancel, true);
     this._marquee = null;
     this._pressGuards(false);
+    this._abortGuard(false);
     this._clearHover();
     document.body.style.cursor = this._prevBodyCursor;
     this._prevBodyCursor = '';
@@ -880,14 +883,19 @@ export class Annotator {
       // release can swallow its own compatibility click — both orderings
       // (codex r2/r4 [P2]). First join: initiator + joiner are down.
       const m = this._marquee;
+      const joiner = p.pointerId ?? 0;
       if (!m.aborted) {
         m.aborted = true;
         m.live = false;
-        m.pending = 2;
+        m.pending = [m.id, joiner];
         this._pressGuards(false);
+        // Standing WINDOW-capture interceptor for the abort's lifetime: mid-
+        // abort stray clicks must never reach host capture listeners that
+        // registered before pinflow (codex r5 [P2]).
+        this._abortGuard(true);
         this._scheduleHoverFrame();
-      } else {
-        m.pending += 1; // a third+ pointer joined the dead gesture
+      } else if (!m.pending.includes(joiner)) {
+        m.pending = [...m.pending, joiner]; // a third+ pointer joined the dead gesture
       }
       return;
     }
@@ -901,7 +909,7 @@ export class Annotator {
       y1: p.clientY,
       live: false,
       aborted: false,
-      pending: 0,
+      pending: [],
     };
     this._pressGuards(true);
   };
@@ -919,17 +927,37 @@ export class Annotator {
     e.preventDefault();
   };
 
+  // Standing window-capture click interceptor, alive only while a marquee
+  // abort is in flight: the first stop on the propagation path, so it runs
+  // before ANY host capture listener regardless of registration order.
+  // Idempotent: duplicate add/remove of the same handler is a no-op.
+  private _onAbortClick = (ce: Event): void => {
+    ce.preventDefault();
+    ce.stopImmediatePropagation();
+  };
+
+  private _abortGuard(on: boolean): void {
+    const fn = on ? window.addEventListener : window.removeEventListener;
+    fn.call(window, 'click', this._onAbortClick, true);
+  }
+
   private _onArmedPointerUp = (e: Event): void => {
     const m = this._marquee;
     const p = e as PointerEvent;
     if (!m) return;
     if (m.aborted) {
-      // EVERY participating pointer's release swallows its own compatibility
-      // click (which follows synchronously); the state clears when the last
-      // pointer lifts (codex r2/r4 [P2]).
-      m.pending -= 1;
+      // Only PARTICIPANTS retire the abort; each release swallows its own
+      // compatibility click (which follows synchronously). The state — and
+      // the standing window guard — clear when the last participant lifts
+      // (codex r2/r4/r5 [P2]).
+      const pid = p.pointerId ?? 0;
+      if (!m.pending.includes(pid)) return;
+      m.pending = m.pending.filter((x) => x !== pid);
       this._swallowNextClick();
-      if (m.pending <= 0) this._marquee = null;
+      if (m.pending.length === 0) {
+        this._marquee = null;
+        this._abortGuard(false);
+      }
       return;
     }
     if ((p.pointerId ?? 0) !== m.id) return;
@@ -975,9 +1003,14 @@ export class Annotator {
     const m = this._marquee;
     if (!m) return;
     if (m.aborted) {
-      // No compatibility click follows a cancel — just retire the pointer.
-      m.pending -= 1;
-      if (m.pending <= 0) this._marquee = null;
+      // No compatibility click follows a cancel — just retire the participant.
+      const pid = (e as PointerEvent).pointerId ?? 0;
+      if (!m.pending.includes(pid)) return;
+      m.pending = m.pending.filter((x) => x !== pid);
+      if (m.pending.length === 0) {
+        this._marquee = null;
+        this._abortGuard(false);
+      }
       return;
     }
     const pid = (e as PointerEvent).pointerId;

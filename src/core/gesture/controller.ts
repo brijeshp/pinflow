@@ -101,13 +101,12 @@ export class GestureController {
     document.removeEventListener('dragstart', this._onKillDefault, true);
   }
 
-  // Escape aborts the press (marquee visuals included) and still shields the
-  // host from the release's trailing click — the gesture was annotation
-  // intent either way (codex r1 [P2]).
+  // Escape aborts the press (marquee visuals included) but RETAINS ownership:
+  // the press goes dead and the matching release arms the click-swallow — a
+  // window started here would expire under a >700ms hold (codex r1/r5 [P2]).
   private _onKeyDown = (e: Event): void => {
     if ((e as KeyboardEvent).key !== 'Escape') return;
-    this._cancelPress();
-    this._armSwallow();
+    if (this._press) this._killPress(this._press);
   };
 
   // Mouse presses suppress text selection and native drag-and-drop for the

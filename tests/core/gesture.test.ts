@@ -367,6 +367,39 @@ describe('GestureController', () => {
       expect(activations).toHaveLength(0);
     });
 
+    it('Escape retains ownership: a >700ms hold after Escape still shields the release click', () => {
+      const { activations, cancels, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(document, 'keydown', { key: 'Escape' });
+      expect(cancels).toHaveLength(1); // visuals die immediately
+      vi.advanceTimersByTime(800); // longer than any fixed swallow window
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // swallow armed at RELEASE
+      expect(activations).toHaveLength(0);
+    });
+
+    it('Escape on a SUSPENDED press also holds ownership through a long hold (codex r5)', () => {
+      let suspended = false;
+      const cancels: number[] = [];
+      const { activations, el } = setup({
+        suspended: () => suspended,
+        onAreaChange: () => {},
+        onAreaCommit: () => {},
+        onAreaCancel: () => cancels.push(1),
+      });
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      suspended = true;
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // marks dead
+      dispatch(document, 'keydown', { key: 'Escape' }); // must not start a decaying window
+      vi.advanceTimersByTime(750);
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true);
+      expect(activations).toHaveLength(0);
+    });
+
     it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
       const { controller, cancels, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });

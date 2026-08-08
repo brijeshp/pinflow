@@ -10,7 +10,7 @@ Pinflow: Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero 
 
 - **pnpm only.** Node >= 18.
 - **Zero runtime dependencies.** Only optional peer deps (react >= 18, vue >= 3).
-- **Size budgets are hard ceilings**, enforced by `pnpm size` (`size-limit` in `package.json` is the source of truth). Budgets only ever ratchet down. Check the budget impact of every core change.
+- **Size budgets are hard ceilings**, enforced by `pnpm size` (`size-limit` in `package.json` is the source of truth). Budgets only ever ratchet down between features; a feature may move a ceiling up only as a deliberate, changeset-documented trade approved by the repo owner, immediately re-ratcheted razor-thin over actuals (policy details: `docs/wiki/build-and-release.md`). Check the budget impact of every core change.
 - **core↔voice isolation.** `pinflow/voice` is external to core builds (`tsup.config.ts`). Voice code must never enter the core import graph — "0 bytes for text users." The seam is `src/core/voice-contract.ts` + `src/core/voice-loader.ts`.
 - **`_`-prefix mangling.** tsup mangles properties matching `/^_/`. Prefixing a member with `_` makes it minify-mangled; removing the prefix (or adding it to something crossing a module boundary at runtime) can break builds silently. Treat `_` renames as semantic changes.
 - **TDD-first; 80% coverage gate on `src/core/**`** (`vitest.config.ts`). Write the failing test before the fix/feature.

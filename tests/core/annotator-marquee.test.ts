@@ -435,6 +435,64 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(comments()).toHaveLength(0); // nor from the initiator's
   });
 
+  it("a PRE-EXISTING ignored pointer's cancel cannot skew the abort accounting (codex r5)", () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    // Pointer 3 was down BEFORE the marquee began (armed path ignores touch).
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 3, clientX: 10, clientY: 10, pointerType: 'touch' }),
+    );
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointermove', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 2, clientX: 400, clientY: 400, pointerType: 'touch' }),
+    ); // abort: participants are exactly {1, 2}
+    t.dispatchEvent(ptr('pointercancel', { pointerId: 3 })); // the bystander lifts — NOT a participant
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 2, clientX: 400, clientY: 400, pointerType: 'touch' }),
+    );
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    // Initiator still down — the abort state must still be alive to shield it.
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+    );
+    const initiatorClick = new MouseEvent('click', { bubbles: true, cancelable: true });
+    t.dispatchEvent(initiatorClick);
+    expect(comments()).toHaveLength(0); // no pin from any ordering
+    expect(initiatorClick.defaultPrevented).toBe(true);
+  });
+
+  it('mid-abort stray clicks are intercepted at WINDOW capture — before pre-pinflow host listeners (codex r5)', () => {
+    const hostSeen = vi.fn();
+    document.addEventListener('click', hostSeen, true); // registered BEFORE pinflow exists
+    try {
+      annotator = makeAnnotator();
+      arm();
+      hostSeen.mockClear(); // the arming click legitimately reached the host
+      const t = hostParagraph();
+      t.dispatchEvent(
+        ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+      );
+      t.dispatchEvent(
+        ptr('pointermove', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+      );
+      t.dispatchEvent(
+        ptr('pointerdown', { pointerId: 2, clientX: 400, clientY: 400, pointerType: 'touch' }),
+      ); // abort
+      const stray = new MouseEvent('click', { bubbles: true, cancelable: true });
+      t.dispatchEvent(stray); // before any release
+      expect(hostSeen).not.toHaveBeenCalled(); // never reaches the earlier doc-capture listener
+      expect(stray.defaultPrevented).toBe(true);
+    } finally {
+      document.removeEventListener('click', hostSeen, true);
+    }
+  });
+
   it('text selection and native drag are suppressed during an armed marquee press', () => {
     annotator = makeAnnotator();
     arm();
