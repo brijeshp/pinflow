@@ -400,6 +400,26 @@ describe('GestureController', () => {
       expect(activations).toHaveLength(0);
     });
 
+    it('a second pointer joining a DEAD press cannot steal its release shielding (codex r6)', () => {
+      const { activations, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(document, 'keydown', { key: 'Escape' }); // press goes dead, ownership retained
+      dispatch(el, 'pointerdown', { pointerId: 2 }); // a second pointer joins
+      vi.advanceTimersByTime(750);
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 10, clientY: 10 });
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // shield survives the intruder
+      expect(activations).toHaveLength(0);
+    });
+
+    it("an unrelated pointer's cancel does not kill a live press (codex r6)", () => {
+      const { activations, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 5, clientY: 6 });
+      dispatch(el, 'pointercancel', { pointerId: 9 }); // someone else's cancel
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 5, clientY: 6 });
+      expect(activations).toHaveLength(1); // the press survived to activate
+    });
+
     it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
       const { controller, cancels, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });

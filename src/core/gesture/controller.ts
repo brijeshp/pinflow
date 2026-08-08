@@ -137,9 +137,12 @@ export class GestureController {
 
     if (this._opts.suspended?.()) return;
 
-    // A second active pointer means this is a multi-touch gesture, not a press.
+    // A second active pointer means this is a multi-touch gesture, not a
+    // press. A DEAD press is exempt: it exists solely to shield its own
+    // release, and an intruding pointer must not evict that ownership
+    // (codex r6 [P2]).
     if (this._press) {
-      this._cancelPress();
+      if (!this._press.dead) this._cancelPress();
       return;
     }
 
@@ -275,8 +278,13 @@ export class GestureController {
     this._activate(p.x, p.y, p.target); // Alt+click: point pin on release
   };
 
-  private _onPointerCancel = (): void => {
-    if (this._press) this._cancelPress();
+  private _onPointerCancel = (e: Event): void => {
+    // Only the press's OWN pointer cancels it — an unrelated pointer's
+    // cancel must not kill a live press or a dead press's release shield
+    // (codex r6 [P2]). No compatibility click follows a cancel, so no swallow.
+    const p = this._press;
+    if (!p || ((e as PointerEvent).pointerId ?? 0) !== p.pointerId) return;
+    this._cancelPress();
   };
 
   private _onClick = (e: Event): void => {

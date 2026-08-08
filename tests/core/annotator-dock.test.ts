@@ -233,6 +233,50 @@ describe('stealth Alt+drag marquee (gesture grammar: Alt+click = point, Alt+drag
     expect(shadow().querySelector('.hl')).toBeNull(); // visual cleaned up after commit
   });
 
+  it('arming MID-gesture-drag clears the gesture-owned marquee — no stranded abort guard (codex r6)', async () => {
+    annotator = makeAnnotator();
+    const t = document.createElement('p');
+    t.textContent = 'host paragraph';
+    document.body.appendChild(t);
+    // Stealth Alt+drag in flight (gesture-owned marquee, sentinel id).
+    t.dispatchEvent(
+      ptr('pointerdown', {
+        pointerId: 1,
+        pointerType: 'mouse',
+        altKey: true,
+        clientX: 100,
+        clientY: 100,
+      }),
+    );
+    t.dispatchEvent(
+      ptr('pointermove', { pointerId: 1, pointerType: 'mouse', clientX: 300, clientY: 300 }),
+    );
+    await nextFrame();
+    expect(shadow().querySelector<HTMLElement>('.hl')?.dataset['marquee']).toBeTruthy();
+    // Keyboard-activated arm takes over mid-drag.
+    shadow().querySelector<HTMLButtonElement>('.arm')!.click();
+    expect(shadow().querySelector('[data-marquee]')).toBeNull(); // gesture marquee cleared on entry
+    // A stray touch taps, then the original pointer releases.
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 2, pointerType: 'touch', clientX: 400, clientY: 400 }),
+    );
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 2, pointerType: 'touch', clientX: 400, clientY: 400 }),
+    );
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 1, pointerType: 'mouse', clientX: 300, clientY: 300 }),
+    );
+    // The release's compatibility click — the controller's one-shot swallow owns it.
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
+    await new Promise((r) => setTimeout(r, 0)); // flush the one-shot windows
+    // Still armed: a later click must REACH the armed handler and place a pin.
+    // A stranded abort guard (the pre-fix failure) would stopImmediatePropagation
+    // at window capture and block placement entirely.
+    t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(1);
+  });
+
   it('Alt+click (no drag) still places a point pin on release', () => {
     annotator = makeAnnotator();
     const t = document.createElement('p');

@@ -752,6 +752,13 @@ export class Annotator {
   }
 
   private _enterAnnotateMode(): void {
+    // A gesture-owned marquee may be in flight (keyboard-activated arm mid-
+    // Alt-drag). It carries a sentinel pointer id the armed handlers must
+    // never adopt — clear it BEFORE the armed listeners attach, or its
+    // phantom participant strands the abort accounting and the window guard
+    // (codex r6 [P2]). The controller's own press dies via suspended().
+    this._marquee = null;
+    this._clearHover();
     this._annotating = true;
     this._syncArm();
     document.addEventListener('click', this._onDocumentClick, true);
