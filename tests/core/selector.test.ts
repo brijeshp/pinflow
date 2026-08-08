@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildSelectors,
   findByCandidates,
@@ -256,5 +256,93 @@ describe('fuzzy minimum-fingerprint boundary (verification round)', () => {
     expect(probe('elevenchars', 'elevenchara')).toBeNull();
     // 12 chars, one char edited → fuzzy eligible and similar enough.
     expect(probe('twelve chars', 'twelve charz')).not.toBeNull();
+  });
+});
+
+// 0.4.1 P2. The heal ladder shipped three defects on one path: it trusted
+// position over contradicting content, it burned its walk budget on <head>,
+// and it normalised entire subtrees to keep 80 characters. These must land
+// together — verify-before-trust makes the fingerprint walk run on every
+// successful positional resolve, so without the other two it is a regression.
+describe('heal correctness under stress (0.4.1 P2)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  // P2c. A positional rung proves only that SOMETHING still sits at that path.
+  // Virtualised lists and infinite scroll recycle nodes, so a stale
+  // li:nth-of-type(1) resolves confidently onto different content. selector.ts
+  // calls a wrong re-anchor "worse than an honest orphan" — and the rung
+  // ordering guaranteed one.
+  it('a recycled positional hit loses to the element that carries the fingerprint', () => {
+    document.body.innerHTML =
+      '<ul><li>Wireless keyboard, black</li><li>Order number 1042 shipped</li></ul>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: 'li:nth-of-type(1)', xpath: '/html/body/ul[1]/li[1]' },
+      'Order number 1042 shipped',
+    );
+    expect(found?.textContent).toBe('Order number 1042 shipped');
+  });
+
+  // Conservatism cuts both ways: when nothing corroborates, the positional hit
+  // is still better than nothing, so it must survive as the fallback.
+  it('keeps the positional hit when no element corroborates the fingerprint', () => {
+    document.body.innerHTML = '<ul><li>Wireless keyboard, black</li></ul>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: 'li:nth-of-type(1)', xpath: '/html/body/ul[1]/li[1]' },
+      'Order number 1042 shipped',
+    );
+    expect(found?.textContent).toBe('Wireless keyboard, black');
+  });
+
+  // P2b. The walk started at the document root, so <head> was scored. A page
+  // titled "Checkout" would heal a pin on a "Checkout" heading to <title> —
+  // an exact match, found first, and never displaced because the deepest-wins
+  // rule only replaces a match with its own descendant.
+  it('never heals to an element inside <head>', () => {
+    const doc = new DOMParser().parseFromString(
+      '<html><head><title>Checkout</title></head><body><main><h1>Checkout</h1></main></body></html>',
+      'text/html',
+    );
+    const found = findByCandidates(
+      doc,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'Checkout',
+    );
+    expect(found?.tagName).toBe('H1');
+  });
+
+  // P2a. getTextFingerprint normalised the whole subtree before slicing to 80.
+  // A naive `slice(400)` before the regex is 81x faster but WRONG on
+  // pretty-printed markup, which is mostly whitespace: it would silently
+  // shorten fingerprints and orphan every existing pin on upgrade.
+  it('bounds the work without shortening the fingerprint on whitespace-heavy markup', () => {
+    const items = Array.from(
+      { length: 400 },
+      (_, i) => `\n${' '.repeat(40)}<span>${String.fromCharCode(97 + (i % 26))}</span>`,
+    ).join('');
+    document.body.innerHTML = `<div id="ws">${items}\n</div>`;
+    const el = document.getElementById('ws')!;
+    const naive = (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    expect(getTextFingerprint(el)).toBe(naive);
+    expect(getTextFingerprint(el)).toHaveLength(80);
+  });
+
+  // P2d. 2,000 nodes is ~1.5 ms on a laptop and ~9.5 ms on a phone, so a pure
+  // count cap is device-dependent. The walk must also yield on elapsed time.
+  it('abandons the walk when the time budget is exhausted', () => {
+    const rows = Array.from({ length: 300 }, (_, i) => `<p>row ${i}</p>`).join('');
+    document.body.innerHTML = `<main>${rows}<p>the pinned paragraph text</p></main>`;
+    const sels = { testid: null, id: null, css: '#nope', xpath: '/nope' };
+
+    expect(findByCandidates(document, sels, 'the pinned paragraph text')).not.toBeNull();
+
+    // First call establishes the deadline; every later call is past it.
+    let n = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => (n++ === 0 ? 0 : 1e6));
+    expect(findByCandidates(document, sels, 'the pinned paragraph text')).toBeNull();
   });
 });
