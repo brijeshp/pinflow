@@ -8,18 +8,23 @@ export interface ExportMeta {
 }
 
 // EVERY interpolated field is untrusted (localStorage, URL params, host
-// callbacks, source hydration) — not just comment text. A newline in a
-// reviewer name, route key, selector, or resolution note could fabricate
-// top-level markdown structure (fake headings, instructions) in an artifact
-// that gets pasted into coding agents. `inline()` collapses all newline forms
-// into a space; `code()` additionally keeps backtick-wrapped fields from
-// closing their own code span. (Codex audit #2 — never weaken.)
+// callbacks, source hydration) — not just comment text. This is the baseline
+// escaper applied to all of them: newlines collapse so no field can fabricate
+// a heading or section, and backticks are neutralised so no field can open a
+// code span that swallows the rest of the block. (Codex audit #2 — never
+// weaken.)
+//
+// Backtick handling used to live in a separate `code()` helper applied
+// per-field, so every new line asked "which escaper does this one need?" —
+// and three consecutive review rounds found a field that answered it wrong:
+// the css tag, then the text fingerprint, then a whole class of them
+// (accessible name, nearest heading, font-family, resolution, comment id).
+// The decision is gone. One baseline, applied everywhere. Only `comment.text`
+// bypasses it, via quoted(), because a human's prose should keep its backticks.
 function inline(v: unknown): string {
-  return String(v ?? '').replace(/[\r\n\u2028\u2029]+/g, ' ');
-}
-
-function code(v: unknown): string {
-  return inline(v).replace(/`/g, "'");
+  return String(v ?? '')
+    .replace(/[\r\n\u2028\u2029]+/g, ' ')
+    .replace(/`/g, "'");
 }
 
 // Blockquote continuation must cover bare \r too.
@@ -30,14 +35,20 @@ function quoted(text: string): string {
 // For values rendered inside the element label — the attribute pair
 // (data-testid="…", id="…") and the ("fingerprint") segment beside it.
 //
-// Markdown structure is already safe there, but code() does not touch quotes
-// or angle brackets, so a page author could close the attribute and forge a
+// Markdown structure is already safe there, but the baseline does not touch
+// quotes or angle brackets, so a value could close the attribute and forge a
 // sibling (data-testid="pro" x="y"), terminate the pseudo-tag early (a>), or —
-// from the fingerprint, which is raw element text — emit an entire second
-// well-formed label. An agent extracting data-testid="([^"]*)" then reads an
-// attribute pinflow never emitted. Structure was defended; semantics were not.
+// from the fingerprint or the tag, both of which carry arbitrary stored text —
+// emit an entire second well-formed label. An agent extracting
+// data-testid="([^"]*)" then reads an attribute pinflow never emitted, and the
+// NON-GLOBAL form returns the forged one first. Structure was defended;
+// semantics were not.
+//
+// All FOUR interpolations in the label go through this — tag, testid, id,
+// fingerprint. Rounds 1 and 2 each fixed a subset, which is how the tag
+// survived twice.
 function attr(v: unknown): string {
-  return code(v).replace(/"/g, "'").replace(/</g, '‹').replace(/>/g, '›');
+  return inline(v).replace(/"/g, "'").replace(/</g, '‹').replace(/>/g, '›');
 }
 
 // Called per-comment to decide if the anchor still resolves. Comments for
@@ -48,14 +59,16 @@ export type IsOrphaned = (comment: Comment) => boolean;
 /** Optional host-provided friendly label for a route/frame key (config.describeRoute). */
 export type DescribeRoute = (key: string) => string;
 
-// code(), not inline(): the tag is interpolated into a code span, so a backtick
-// surviving here closes that span early — `<body` >` — and the trailing
-// backtick opens an inverted one. inline() alone kills the newline (no
-// fabricated heading) while leaving the markup corrupt.
+// attr(), like every other interpolation in the element label. The tag is
+// derived from the stored css path, and storage.ts validates that only as
+// `typeof === 'string'` — so a source() payload, an imported JSON export, or a
+// tampered localStorage can put `"` or `<` in it and forge an attribute inside
+// the pseudo-tag. Not reachable from page markup (cssSegment builds from
+// tagName), which is exactly why it survived two review rounds.
 function tagFromCss(css: string): string {
   const last = css.split('>').pop()?.trim() ?? '';
   const tag = last.split(/[.:#[]/)[0];
-  return code(tag) || 'element';
+  return attr(tag) || 'element';
 }
 
 function elementLabel(comment: Comment): string {
@@ -66,10 +79,8 @@ function elementLabel(comment: Comment): string {
     : selectors.id
       ? ` id="${attr(selectors.id)}"`
       : '';
-  // attr(), not inline(): this is a quote-delimited segment on the same line as
-  // the attribute above, and it is raw element text — the most page-controlled
-  // field in the artifact. With inline() it could emit a complete second
-  // element label, handing back exactly what attr() exists to prevent.
+  // Quote-delimited, on the same line as the attribute above, and raw element
+  // text — the most page-controlled field in the artifact.
   const text = textFingerprint ? ` ("${attr(textFingerprint)}")` : '';
   return `\`<${tag}${ident}>\`${text}`;
 }
@@ -77,9 +88,9 @@ function elementLabel(comment: Comment): string {
 function selectorLines(comment: Comment): string {
   const { selectors } = comment.anchor;
   return [
-    `- testid: ${selectors.testid ? `\`${code(selectors.testid)}\`` : '(none)'}`,
-    `- css: \`${code(selectors.css)}\``,
-    `- xpath: \`${code(selectors.xpath)}\``,
+    `- testid: ${selectors.testid ? `\`${inline(selectors.testid)}\`` : '(none)'}`,
+    `- css: \`${inline(selectors.css)}\``,
+    `- xpath: \`${inline(selectors.xpath)}\``,
   ].join('\n');
 }
 
@@ -121,12 +132,12 @@ function visualLines(comment: Comment): string[] {
   if (s?.fontSize || s?.fontFamily)
     parts.push(`font ${inline([s.fontSize, s.fontFamily].filter(Boolean).join(' '))}`);
   if (s?.radius) parts.push(`radius ${inline(s.radius)}`);
-  // code(), not inline(): these two carry URLs straight off the page, and a
-  // lone backtick in one opens a span that swallows the rest of the block.
-  if (s?.backgroundImage) parts.push(`bg-image ${code(s.backgroundImage)}`);
+  // These two carry URLs straight off the page. The baseline neutralises the
+  // backtick; the pack forbids fetching them, which is the other half.
+  if (s?.backgroundImage) parts.push(`bg-image ${inline(s.backgroundImage)}`);
   const lines: string[] = [];
   if (parts.length) lines.push(`**Computed:** ${parts.join(', ')}`);
-  if (ctx.src) lines.push(`**Image:** ${code(ctx.src)}`);
+  if (ctx.src) lines.push(`**Image:** ${inline(ctx.src)}`);
   return lines;
 }
 
@@ -161,7 +172,7 @@ function orphanBlock(comment: Comment & { reviewer?: string }, index: number): s
     `**Last known element:** ${elementLabel(comment)}`,
     ...(ctx ? [ctx] : []),
     ...visualLines(comment),
-    `**Last known selector:** \`${code(comment.anchor.selectors.css)}\``,
+    `**Last known selector:** \`${inline(comment.anchor.selectors.css)}\``,
     `**Route:** ${inline(comment.route)}`,
     '',
     quoted(comment.text),
@@ -229,7 +240,7 @@ function bodyFromGroups(
       // labels this key; the plain v1 heading otherwise.
       const label = describeRoute?.(g.route);
       const heading = label
-        ? `## ${inline(label)}\n\`${code(g.route)}\``
+        ? `## ${inline(label)}\n\`${inline(g.route)}\``
         : `## Route: ${inline(g.route)}`;
       return [heading, '', blocks.join('\n\n---\n\n')].join('\n');
     })

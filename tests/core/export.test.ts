@@ -542,6 +542,74 @@ it('a hostile text fingerprint cannot forge a second element label', async () =>
   expect((line.match(/`/g) ?? []).length % 2).toBe(0);
 });
 
+// Security round 2, P1. The element label has FOUR interpolations — tag,
+// testid, id, fingerprint — and rounds 1 and 2 each fixed a subset. The tag was
+// left at code(), which passes `"`, so a stored css path forged an attribute
+// that the NON-GLOBAL regex (the one this file's own comment cites) returns
+// FIRST, before the real testid is ever reached.
+//
+// Not reachable from page markup — cssSegment builds from tagName. Reachable
+// from the store: storage.ts validates selectors.css as `typeof === 'string'`
+// and nothing more, so a source() payload, an imported JSON export, or a
+// tampered localStorage supplies it freely.
+it('no interpolation in the element label can forge an attribute', async () => {
+  const evil = 'x" data-testid="pwn" y';
+  const line = await elementLine(
+    labelOnly({ testid: 'real-button', id: null, css: `main > ${evil}`, xpath: '/html' }, evil),
+  );
+  const all = [...line.matchAll(/data-testid="([^"]*)"/g)].map((m) => m[1]);
+  expect(all).toEqual(['real-button']);
+  // The non-global form must agree — it is what an agent writes by default.
+  expect(/data-testid="([^"]*)"/.exec(line)?.[1]).toBe('real-button');
+});
+
+// Security round 2, P2. "A lone backtick opens a span that swallows the rest of
+// the block" is field-independent, but only Image and bg-image were moved off
+// inline(). fontFamily is the sharpest: visualSnapshot strips only leading and
+// trailing quotes, so `font-family: "a\`b"` puts a raw backtick in the artifact,
+// uncapped and purely page-controlled. context.name is the alt/aria-label field
+// the pack actively sends agents to.
+it('no field can open a stray code span', async () => {
+  const { exportReviewer } = await import('../../src/core/export');
+  const odd = 'oh`no';
+  const md = exportReviewer(
+    {
+      reviewer: odd,
+      project: 'p',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      comments: [
+        {
+          id: odd,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          route: odd,
+          fullUrl: 'https://x/',
+          text: 'legit',
+          modality: 'text' as const,
+          resolution: odd,
+          status: 'done' as const,
+          anchor: {
+            selectors: { testid: null, id: null, css: 'div', xpath: '/html' },
+            textFingerprint: '',
+            positionPercent: { x: 1, y: 1 },
+            viewport: { width: 800, height: 600 },
+            context: {
+              name: odd,
+              heading: odd,
+              styles: { fontFamily: odd, background: odd },
+            },
+          },
+        },
+      ],
+    } as never,
+    { generatedAt: '2026-01-01T00:00:00.000Z', project: 'p' },
+    () => false,
+  );
+  for (const line of md.split('\n')) {
+    expect((line.match(/`/g) ?? []).length % 2, line).toBe(0);
+  }
+});
+
 // Security round 1, P2. attr() handled `"` but left `<` and `>`, so the
 // pseudo-tag itself was forgeable: /<(\w+)[^>]*>/ terminates early at `a>`.
 it('angle brackets in a testid cannot terminate the element pseudo-tag', async () => {
