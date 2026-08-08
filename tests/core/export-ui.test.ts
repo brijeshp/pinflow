@@ -451,13 +451,56 @@ describe('export UI — codex review hardening (surface states, real pointer ord
       .find((b) => b.textContent === 'Export & share')!
       .click();
     await new Promise((r) => setTimeout(r, 0));
-    expect(shadow().querySelector('.panel')?.textContent).toContain('Saved to your downloads');
+    expect(shadow().querySelector('.panel')?.textContent).toContain('Your feedback is ready');
     document.dispatchEvent(
       new KeyboardEvent('keydown', { key: 'E', metaKey: true, shiftKey: true, bubbles: true }),
     );
     const panel = shadow().querySelector('.panel');
     expect(panel?.textContent).toContain('1 comment');
-    expect(panel?.textContent).not.toContain('Saved to your downloads');
+    expect(panel?.textContent).not.toContain('Your feedback is ready');
+  });
+
+  // 0.4.1 P3. download() fires a DETACHED a.click() and returns void — no
+  // event, no promise, so a completed save is not observable in general. In
+  // iOS in-app webviews (Instagram, LinkedIn, Slack) it frequently no-ops,
+  // which is precisely where the reviewer-on-a-phone moat puts people, and the
+  // panel asserted success there anyway. Only the clipboard write is verified.
+  async function exportAndReadPanel(clipboardWorks: boolean): Promise<string> {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: clipboardWorks ? { writeText: () => Promise.resolve() } : undefined,
+          configurable: true,
+        },
+      }),
+    );
+    seedStore([makeComment('c1', 'one')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    Array.from(shadow().querySelectorAll('button'))
+      .find((b) => b.textContent === 'Export & share')!
+      .click();
+    await new Promise((r) => setTimeout(r, 0));
+    return shadow().querySelector('.panel')?.textContent ?? '';
+  }
+
+  it('#8: never claims the file was saved, and names the clipboard when it worked', async () => {
+    const text = await exportAndReadPanel(true);
+    expect(text).not.toMatch(/saved to your downloads/i);
+    // The verified channel is worth naming, together with the recovery it
+    // enables when the unverifiable one silently did nothing.
+    expect(text).toMatch(/clipboard/i);
+    expect(text).toMatch(/paste/i);
+  });
+
+  it('#9: without a clipboard, points at the download without asserting it landed', async () => {
+    const text = await exportAndReadPanel(false);
+    expect(text).not.toMatch(/saved to your downloads/i);
+    expect(text).not.toMatch(/clipboard/i);
+    expect(text).toMatch(/downloads/i);
   });
 
   it('#5: an open sheet refreshes its counts when the corpus changes', () => {
