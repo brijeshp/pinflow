@@ -331,6 +331,81 @@ describe('heal correctness under stress (0.4.1 P2)', () => {
     expect(getTextFingerprint(el)).toHaveLength(80);
   });
 
+  // Round 1 P1. Demotion must never let a WORSE match win. A positional hit
+  // that css and xpath both agree on outranks a merely-fuzzy stranger — and
+  // getting this backwards is not transient: _persistHeal writes the resolved
+  // element back into anchor.selectors, so the next load corroborates the
+  // stranger trivially and the original anchor is unrecoverable. The trigger is
+  // a reviewer asking for copy to be rewritten, the most common request there is.
+  it('a fuzzy stranger never outranks a positional hit whose text was legitimately rewritten', () => {
+    document.body.innerHTML =
+      '<main>' +
+      '<p id="real">Get started in seconds</p>' +
+      '<p id="stranger">Start your free 30-day trial today, no card</p>' +
+      '</main>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#real', xpath: '/html/body/main[1]/p[1]' },
+      'Start your free 30-day trial today, no credit card required',
+    );
+    expect(found?.id).toBe('real');
+  });
+
+  // Round 1 P2. Moving the counter below the skip meant skipped nodes cost
+  // nothing — and once an exact match exists, EVERY remaining node is skipped.
+  // Measured at 16,002 of 16,005 elements walked with both bounds nominally in
+  // force, against main's 2,001. Pre-order traversal makes the match's subtree
+  // contiguous, so the first non-descendant ends the walk.
+  it('stops walking once the exact match subtree is behind it', () => {
+    const noise = Array.from({ length: 800 }, (_, i) => `<p>filler ${i}</p>`).join('');
+    document.body.innerHTML = `<main><p>the pinned paragraph text</p>${noise}</main>`;
+    const spy = vi.spyOn(Element.prototype, 'contains');
+    findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'the pinned paragraph text',
+    );
+    // One containment probe to discover the subtree ended, not one per node.
+    expect(spy.mock.calls.length).toBeLessThan(20);
+  });
+
+  // Round 1 P2. tagName preserves case outside the HTML namespace, so an SVG
+  // <title> reports 'title' and slipped the skip list — the same zero-layout
+  // wrong-attach the <head> fix exists to prevent. Uppercasing the tag before
+  // the test closes it (and makes the whole list work in XHTML, where every
+  // entry was previously inert).
+  //
+  // KNOWN RESIDUAL, deliberately not fixed here: the enclosing <svg> still
+  // matches, because textContent aggregates its <title> child. That is a much
+  // milder case — the <svg> has a layout box, so the pin is placeable and the
+  // reviewer may genuinely have pinned the icon. Suppressing it would mean
+  // custom text extraction per candidate, which is a real cost for a narrow
+  // case. Asserting the safety property rather than a specific winner.
+  it('never heals to a zero-box SVG metadata node', () => {
+    document.body.innerHTML =
+      '<main><svg viewBox="0 0 1 1"><title>Checkout</title><circle r="1"/></svg><h1>Checkout</h1></main>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'Checkout',
+    );
+    expect(found?.tagName.toUpperCase()).not.toBe('TITLE');
+    expect(found?.tagName.toUpperCase()).not.toBe('DESC');
+  });
+
+  // Round 1 test gap. The whitespace fixture above normalises to 95 chars, so
+  // it takes the fast path — the fallback branch whose absence would orphan
+  // stored pins on upgrade was never executed by any test.
+  it('takes the full-string fallback when the bounded prefix yields under 80 chars', () => {
+    const el = document.createElement('div');
+    el.textContent = `${' '.repeat(3000)}the actual content arrives well past the bounded prefix boundary`;
+    document.body.appendChild(el);
+    expect(getTextFingerprint(el)).toBe(
+      (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 80),
+    );
+    expect(getTextFingerprint(el).startsWith('the actual content')).toBe(true);
+  });
+
   // P2d. 2,000 nodes is ~1.5 ms on a laptop and ~9.5 ms on a phone, so a pure
   // count cap is device-dependent. The walk must also yield on elapsed time.
   it('abandons the walk when the time budget is exhausted', () => {

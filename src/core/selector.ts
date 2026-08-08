@@ -25,9 +25,13 @@ const FINGERPRINT_WALK_MS = 2;
 // most: <title>Checkout</title> is an exact-fingerprint candidate that would
 // out-rank a real "Checkout" heading, because the deepest-wins rule only ever
 // replaces a match with its own descendant. The rest carry text that is never
-// rendered where the reviewer pointed.
+// rendered where the reviewer pointed. DESC/METADATA are the SVG equivalents.
+//
+// Matched against an UPPERCASED tagName: tagName preserves case outside the
+// HTML namespace, so an SVG <title> reports 'title' and would otherwise slip
+// through — as would every entry here inside an XHTML document.
 const SKIP_TAG_RE =
-  /^(HTML|BODY|HEAD|SCRIPT|STYLE|LINK|META|TITLE|NOSCRIPT|TEMPLATE|BR|WBR|OPTION|TRACK|SOURCE)$/;
+  /^(HTML|BODY|HEAD|SCRIPT|STYLE|LINK|META|TITLE|DESC|METADATA|NOSCRIPT|TEMPLATE|BR|WBR|OPTION|TRACK|SOURCE)$/;
 
 // Enough raw characters to yield 80 normalised ones in any realistic markup.
 const FP_SCAN_LIMIT = 2048;
@@ -138,8 +142,10 @@ export function getXPath(el: Element): string {
 export function getTextFingerprint(el: Element): string {
   const raw = el.textContent ?? '';
   // Normalising an entire subtree to keep 80 characters is O(total text), and
-  // this runs per candidate during a heal walk: a 33 kB anchor measured 97 µs,
-  // and 640 µs at 6x CPU throttle. Bounding the scan is worth ~81x.
+  // this runs per candidate during a heal walk. Bounding the scan takes 200
+  // calls over a 100 kB subtree from 98.6 ms to 35.6 ms — but note the floor:
+  // el.textContent alone is 29.5 ms of that, so this is ~2.8x end to end and
+  // within 20% of irreducible. Per-candidate cost is still O(subtree text).
   //
   // A bare slice would be WRONG, though. Pretty-printed markup is mostly
   // indentation, so a fixed prefix can normalise to far fewer than 80 chars —
@@ -190,9 +196,15 @@ export function findByCandidates(
     if (hit) return hit;
   }
   // A positional hit that contradicts a strong stored fingerprint is demoted,
-  // not discarded: the text pass gets first refusal, and this is still returned
-  // if nothing corroborates. Conservative in both directions — we never lose a
-  // match we had before, we only prefer a corroborated one.
+  // not discarded: it still beats a merely-fuzzy candidate at the bottom of
+  // this function, and only an EXACT fingerprint match displaces it.
+  //
+  // Honest about the residual risk: this is not strictly conservative. When a
+  // stale duplicate of the old text survives elsewhere (responsive blocks,
+  // i18n, cached SSR shells) and the pinned element was legitimately rewritten,
+  // the duplicate is an exact match and wins. That case is not decidable from
+  // the DOM alone — the zero-box guard below catches the common hidden variant,
+  // and nothing catches a visible one.
   let positional: Element | null = null;
   try {
     const hit = root.querySelector(selectors.css);
@@ -222,10 +234,13 @@ export function findByCandidates(
     /* xpath not supported or malformed */
   }
   if (fingerprint) {
-    // Seed at <body> when walking a whole document: <head> is never a pin
+    // Seed at <body> when walking a whole DOCUMENT: <head> is never a pin
     // target, and starting at the root spent walk budget on every <meta> and
-    // <link> before reaching content.
-    const from = (root as Document).body ?? (root as Node);
+    // <link> before reaching content. The nodeType test matters — an Element
+    // root can expose an unrelated `.body` (a <form> with a control named
+    // "body" does, via named-property access), which would silently redirect
+    // the walk into the wrong subtree.
+    const from = root.nodeType === 9 ? ((root as Document).body ?? root) : root;
     const walker = doc.createTreeWalker(from, NodeFilter.SHOW_ELEMENT);
     const deadline = performance.now() + FINGERPRINT_WALK_MS;
     let count = 0;
@@ -242,18 +257,24 @@ export function findByCandidates(
     let bestScore = 0;
     while (node) {
       const el = node as Element;
-      // Skipped tags must not consume budget: the counter used to increment in
-      // the loop condition, so a page with 40 preloads spent 45 of its 2,000
-      // slots before reaching <body>.
-      // Once an exact match exists only its own descendants can replace it
-      // (the deepest-wins rule below), so everything else is dead weight.
-      if (SKIP_TAG_RE.test(el.tagName) || (exact && !exact.contains(el))) {
+      // Once an exact match exists, only its own descendants can replace it
+      // (the deepest-wins rule below). Pre-order traversal makes that subtree
+      // contiguous, so the first non-descendant marks its end and nothing after
+      // it can win — BREAK, not continue. Skipping instead walked the rest of
+      // the document for nothing: 16,002 of 16,005 elements on a large page,
+      // slower than doing no optimisation at all.
+      if (exact && !exact.contains(el)) break;
+      // Budget is charged before the tag skip, not after. Charging only scored
+      // nodes let a <select> with thousands of <option>s outrun both bounds.
+      if (count++ >= FINGERPRINT_WALK_LIMIT) break;
+      // performance.now() is not free, so sample it. Every 16 rather than 64:
+      // a body-seeded walk meets the largest containers first, and 64 calls to
+      // textContent on a 100 kB page is ~9.5 ms before the budget is consulted.
+      if ((count & 15) === 0 && performance.now() > deadline) break;
+      if (SKIP_TAG_RE.test(el.tagName.toUpperCase())) {
         node = walker.nextNode();
         continue;
       }
-      if (count++ >= FINGERPRINT_WALK_LIMIT) break;
-      // performance.now() is not free; sample it rather than polling it.
-      if ((count & 63) === 0 && performance.now() > deadline) break;
       const fp = getTextFingerprint(el);
       if (fp === fingerprint) {
         if (!exact || exact.contains(el)) exact = el;
@@ -275,7 +296,18 @@ export function findByCandidates(
       }
       node = walker.nextNode();
     }
-    return exact ?? best ?? positional;
+    // Ordering is load-bearing. `positional` outranks `best` because a css or
+    // xpath hit is structural evidence, while `best` is a 0.6-similarity guess
+    // — letting a stranger win there attaches the comment to unrelated content,
+    // and _persistHeal then writes that element into anchor.selectors, so the
+    // next load corroborates the stranger trivially and the original anchor is
+    // gone for good.
+    //
+    // Only an EXACT fingerprint match displaces a positional hit, and only if
+    // it could actually be what the reviewer pointed at: a zero-box element
+    // never is. One layout read, and only in the rare case where both exist.
+    if (exact && positional && exact.getClientRects().length === 0) return positional;
+    return exact ?? positional ?? best;
   }
   return positional;
 }
