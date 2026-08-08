@@ -27,6 +27,16 @@ function quoted(text: string): string {
   return `> ${text.replace(/\r\n|\r|\n/g, '\n> ')}`;
 }
 
+// For values rendered INSIDE an attribute pair — data-testid="…", id="…".
+// Markdown structure is already safe there (the whole label is a code span),
+// but code() does not touch double quotes, so a page author can close the
+// attribute and forge a sibling: data-testid="pro" x="y". An agent extracting
+// data-testid="([^"]*)" then reads a truncated value and trusts an attribute
+// pinflow never emitted. Structure was defended; semantics were not.
+function attr(v: unknown): string {
+  return code(v).replace(/"/g, "'");
+}
+
 // Called per-comment to decide if the anchor still resolves. Comments for
 // which this returns true are pulled into the "Orphaned comments" section
 // (spec §5.2, §7.2).
@@ -35,22 +45,26 @@ export type IsOrphaned = (comment: Comment) => boolean;
 /** Optional host-provided friendly label for a route/frame key (config.describeRoute). */
 export type DescribeRoute = (key: string) => string;
 
+// code(), not inline(): the tag is interpolated into a code span, so a backtick
+// surviving here closes that span early — `<body` >` — and the trailing
+// backtick opens an inverted one. inline() alone kills the newline (no
+// fabricated heading) while leaving the markup corrupt.
 function tagFromCss(css: string): string {
   const last = css.split('>').pop()?.trim() ?? '';
   const tag = last.split(/[.:#[]/)[0];
-  return inline(tag) || 'element';
+  return code(tag) || 'element';
 }
 
 function elementLabel(comment: Comment): string {
   const { selectors, textFingerprint } = comment.anchor;
   const tag = tagFromCss(selectors.css);
-  const attr = selectors.testid
-    ? ` data-testid="${code(selectors.testid)}"`
+  const ident = selectors.testid
+    ? ` data-testid="${attr(selectors.testid)}"`
     : selectors.id
-      ? ` id="${code(selectors.id)}"`
+      ? ` id="${attr(selectors.id)}"`
       : '';
   const text = textFingerprint ? ` ("${inline(textFingerprint)}")` : '';
-  return `\`<${tag}${attr}>\`${text}`;
+  return `\`<${tag}${ident}>\`${text}`;
 }
 
 function selectorLines(comment: Comment): string {

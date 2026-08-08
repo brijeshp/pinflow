@@ -462,3 +462,74 @@ it('injection cannot ride ANY interpolated field — reviewer, route, resolution
     expect(md).toContain('> bare\n> carriage\n> returns');
   }
 });
+
+// The two tests below close holes the corpus above already exercised but never
+// asserted. Both are CONTAINED (no block structure is fabricated, which is why
+// the existing assertions pass) — they corrupt the line's own markup instead.
+// Fixed now because 0.5.0 routes five new line types through one shared node
+// label, which would multiply the exposure.
+
+function labelOnly(
+  selectors: { testid: string | null; id: string | null; css: string; xpath: string },
+  textFingerprint = '',
+): string {
+  return {
+    reviewer: 'r',
+    project: 'p',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    comments: [
+      {
+        id: 'c1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        route: '/r',
+        fullUrl: 'https://x/',
+        text: 'legit',
+        modality: 'text' as const,
+        anchor: {
+          selectors,
+          textFingerprint,
+          positionPercent: { x: 1, y: 1 },
+          viewport: { width: 800, height: 600 },
+        },
+      },
+    ],
+  } as never;
+}
+
+async function elementLine(store: unknown): Promise<string> {
+  const { exportReviewer } = await import('../../src/core/export');
+  const md = exportReviewer(
+    store as never,
+    { generatedAt: '2026-01-01T00:00:00.000Z', project: 'p' },
+    () => false,
+  );
+  const line = md.split('\n').find((l) => l.startsWith('**Element:**'));
+  expect(line).toBeDefined();
+  return line as string;
+}
+
+// Hole A: tagFromCss ran inline() where it needs code(). inline() kills the
+// newline (so no fabricated heading — the existing assertion) but leaves the
+// backtick, which closes the label's code span early: `<body` >`. Everything
+// after renders as prose and the trailing backtick opens an inverted span.
+it('a backtick in the css path cannot unbalance the element label code span', async () => {
+  const line = await elementLine(
+    labelOnly({ testid: null, id: null, css: 'body`\n## css-injected', xpath: '/html' }),
+  );
+  expect((line.match(/`/g) ?? []).length % 2).toBe(0);
+});
+
+// Hole B: code() neutralizes backticks but not double quotes, so a testid can
+// close its own attribute and forge a sibling. Markdown structure is safe (it
+// is inside a code span) but the SEMANTICS are forged: an agent extracting
+// data-testid="([^"]*)" reads `pro` and sees a second attribute that the page
+// author wrote, not pinflow.
+it('a double quote in a testid cannot forge a second attribute', async () => {
+  const line = await elementLine(
+    labelOnly({ testid: 'pro" x="y', id: null, css: 'div', xpath: '/html' }),
+  );
+  // Exactly the two delimiting the attribute value (fingerprint is empty, so
+  // the ("…") segment contributes none).
+  expect((line.match(/"/g) ?? []).length).toBe(2);
+});
