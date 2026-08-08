@@ -277,6 +277,36 @@ describe('stealth Alt+drag marquee (gesture grammar: Alt+click = point, Alt+drag
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(1);
   });
 
+  it('transient arm→disarm mid-Alt-drag: the original release commits nothing (codex r7)', async () => {
+    annotator = makeAnnotator();
+    const t = document.createElement('p');
+    t.textContent = 'host paragraph';
+    document.body.appendChild(t);
+    t.dispatchEvent(
+      ptr('pointerdown', {
+        pointerId: 1,
+        pointerType: 'mouse',
+        altKey: true,
+        clientX: 100,
+        clientY: 100,
+      }),
+    );
+    t.dispatchEvent(
+      ptr('pointermove', { pointerId: 1, pointerType: 'mouse', clientX: 300, clientY: 300 }),
+    );
+    const arm = shadow().querySelector<HTMLButtonElement>('.arm')!;
+    arm.click(); // keyboard-armed mid-drag...
+    arm.click(); // ...and immediately disarmed — suspended() is false again
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 1, pointerType: 'mouse', clientX: 300, clientY: 300 }),
+    );
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    t.dispatchEvent(click);
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
+    expect(click.defaultPrevented).toBe(true); // the dead release's click stays shielded
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
   it('Alt+click (no drag) still places a point pin on release', () => {
     annotator = makeAnnotator();
     const t = document.createElement('p');

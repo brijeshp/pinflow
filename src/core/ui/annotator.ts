@@ -756,7 +756,10 @@ export class Annotator {
     // Alt-drag). It carries a sentinel pointer id the armed handlers must
     // never adopt — clear it BEFORE the armed listeners attach, or its
     // phantom participant strands the abort accounting and the window guard
-    // (codex r6 [P2]). The controller's own press dies via suspended().
+    // (codex r6 [P2]). The controller press dies SYNCHRONOUSLY here, not via
+    // the lazy suspended() probe: a transient arm→disarm between pointer
+    // events would otherwise leave it live to commit on release (codex r7).
+    this._gesture?.suspendPress();
     this._marquee = null;
     this._clearHover();
     this._annotating = true;

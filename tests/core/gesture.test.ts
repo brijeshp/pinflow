@@ -420,6 +420,20 @@ describe('GestureController', () => {
       expect(activations).toHaveLength(1); // the press survived to activate
     });
 
+    it('suspendPress() kills an in-flight press NOW but keeps its release shielded (codex r7)', () => {
+      const { activations, cancels, commits, controller, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // latched
+      controller.suspendPress(); // armed mode takes over synchronously
+      expect(cancels).toHaveLength(1); // marquee visuals die immediately
+      // A transient arm→disarm means suspended() is false again by release time.
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      expect(commits).toHaveLength(0); // the dead press must NOT resume and commit
+      expect(activations).toHaveLength(0);
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // release still shielded
+    });
+
     it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
       const { controller, cancels, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });

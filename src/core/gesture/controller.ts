@@ -75,6 +75,15 @@ export class GestureController {
     document.addEventListener('contextmenu', this._onContextMenu, true);
   }
 
+  /** Armed mode is taking over NOW: kill any in-flight press synchronously.
+   *  It goes dead — visuals cancel, the timer stops — but ownership is
+   *  retained so its eventual release stays shielded even if armed mode has
+   *  already toggled off again by then (codex r7 [P2]). Unprefixed: crosses
+   *  the module boundary at runtime (mangling contract). */
+  suspendPress(): void {
+    if (this._press) this._killPress(this._press);
+  }
+
   stop(): void {
     if (!this._running) return;
     this._running = false;
