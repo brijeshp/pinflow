@@ -27,14 +27,17 @@ function quoted(text: string): string {
   return `> ${text.replace(/\r\n|\r|\n/g, '\n> ')}`;
 }
 
-// For values rendered INSIDE an attribute pair — data-testid="…", id="…".
-// Markdown structure is already safe there (the whole label is a code span),
-// but code() does not touch double quotes, so a page author can close the
-// attribute and forge a sibling: data-testid="pro" x="y". An agent extracting
-// data-testid="([^"]*)" then reads a truncated value and trusts an attribute
-// pinflow never emitted. Structure was defended; semantics were not.
+// For values rendered inside the element label — the attribute pair
+// (data-testid="…", id="…") and the ("fingerprint") segment beside it.
+//
+// Markdown structure is already safe there, but code() does not touch quotes
+// or angle brackets, so a page author could close the attribute and forge a
+// sibling (data-testid="pro" x="y"), terminate the pseudo-tag early (a>), or —
+// from the fingerprint, which is raw element text — emit an entire second
+// well-formed label. An agent extracting data-testid="([^"]*)" then reads an
+// attribute pinflow never emitted. Structure was defended; semantics were not.
 function attr(v: unknown): string {
-  return code(v).replace(/"/g, "'");
+  return code(v).replace(/"/g, "'").replace(/</g, '‹').replace(/>/g, '›');
 }
 
 // Called per-comment to decide if the anchor still resolves. Comments for
@@ -63,7 +66,11 @@ function elementLabel(comment: Comment): string {
     : selectors.id
       ? ` id="${attr(selectors.id)}"`
       : '';
-  const text = textFingerprint ? ` ("${inline(textFingerprint)}")` : '';
+  // attr(), not inline(): this is a quote-delimited segment on the same line as
+  // the attribute above, and it is raw element text — the most page-controlled
+  // field in the artifact. With inline() it could emit a complete second
+  // element label, handing back exactly what attr() exists to prevent.
+  const text = textFingerprint ? ` ("${attr(textFingerprint)}")` : '';
   return `\`<${tag}${ident}>\`${text}`;
 }
 
@@ -114,10 +121,12 @@ function visualLines(comment: Comment): string[] {
   if (s?.fontSize || s?.fontFamily)
     parts.push(`font ${inline([s.fontSize, s.fontFamily].filter(Boolean).join(' '))}`);
   if (s?.radius) parts.push(`radius ${inline(s.radius)}`);
-  if (s?.backgroundImage) parts.push(`bg-image ${inline(s.backgroundImage)}`);
+  // code(), not inline(): these two carry URLs straight off the page, and a
+  // lone backtick in one opens a span that swallows the rest of the block.
+  if (s?.backgroundImage) parts.push(`bg-image ${code(s.backgroundImage)}`);
   const lines: string[] = [];
   if (parts.length) lines.push(`**Computed:** ${parts.join(', ')}`);
-  if (ctx.src) lines.push(`**Image:** ${inline(ctx.src)}`);
+  if (ctx.src) lines.push(`**Image:** ${code(ctx.src)}`);
   return lines;
 }
 

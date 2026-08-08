@@ -16,6 +16,13 @@ const SKIP_CLASS_RE = /^(hover|focus|active|is-|has-|[a-z]+-[0-9]+|(?=.*\d)[a-z0
 // huge and this is the last-ditch path.
 const FINGERPRINT_WALK_LIMIT = 2000;
 
+// Traversal safety valve, separate from the scored-node budget above. Charging
+// skipped tags against FINGERPRINT_WALK_LIMIT stops a <select> of <option>s
+// outrunning the bound, but it also lets 1,500 <source> elements in an image
+// gallery evict real content — the heal then lands on the page container,
+// which is a wrong attach. Two counters: one bounds meaning, one bounds work.
+const FINGERPRINT_VISIT_LIMIT = 20000;
+
 // The count cap alone is device-dependent: 2,000 nodes measures ~1.5 ms on a
 // laptop and ~9.5 ms on a mid-range phone, well past the 4 ms frame budget the
 // anchor cache exists to protect. Whichever bound trips first wins.
@@ -244,6 +251,7 @@ export function findByCandidates(
     const walker = doc.createTreeWalker(from, NodeFilter.SHOW_ELEMENT);
     const deadline = performance.now() + FINGERPRINT_WALK_MS;
     let count = 0;
+    let visited = 0;
     let node = walker.nextNode();
     // One walk, two verdicts. textContent flows UP, so a wrapper mirrors its
     // child's fingerprint — both the exact and fuzzy passes therefore prefer
@@ -264,17 +272,23 @@ export function findByCandidates(
       // the document for nothing: 16,002 of 16,005 elements on a large page,
       // slower than doing no optimisation at all.
       if (exact && !exact.contains(el)) break;
-      // Budget is charged before the tag skip, not after. Charging only scored
-      // nodes let a <select> with thousands of <option>s outrun both bounds.
-      if (count++ >= FINGERPRINT_WALK_LIMIT) break;
-      // performance.now() is not free, so sample it. Every 16 rather than 64:
-      // a body-seeded walk meets the largest containers first, and 64 calls to
-      // textContent on a 100 kB page is ~9.5 ms before the budget is consulted.
-      if ((count & 15) === 0 && performance.now() > deadline) break;
+      // Every node charges the visit budget and the clock, so no run of skipped
+      // tags can outrun either. Sampling the clock here rather than below also
+      // means a long skip run cannot escape the deadline.
+      if (++visited >= FINGERPRINT_VISIT_LIMIT) break;
+      // performance.now() is not free, so sample it. Every 16 rather than 64
+      // because a body-seeded walk meets the largest containers first. Note the
+      // honest limit: this bounds ITERATION COUNT, not per-node cost — one
+      // textContent read on an 86 kB container is ~6 ms on its own, so a
+      // three-node walk can still overshoot. Fixing that needs early-exit text
+      // extraction, which is real work and deliberately deferred.
+      if ((visited & 15) === 0 && performance.now() > deadline) break;
       if (SKIP_TAG_RE.test(el.tagName.toUpperCase())) {
         node = walker.nextNode();
         continue;
       }
+      // Only nodes we actually score spend the semantic budget.
+      if (count++ >= FINGERPRINT_WALK_LIMIT) break;
       const fp = getTextFingerprint(el);
       if (fp === fingerprint) {
         if (!exact || exact.contains(el)) exact = el;

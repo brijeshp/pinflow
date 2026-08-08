@@ -357,6 +357,9 @@ describe('heal correctness under stress (0.4.1 P2)', () => {
   // force, against main's 2,001. Pre-order traversal makes the match's subtree
   // contiguous, so the first non-descendant ends the walk.
   it('stops walking once the exact match subtree is behind it', () => {
+    // Same reason: the deadline firing early would make this pass without the
+    // break, i.e. for the wrong reason.
+    vi.spyOn(performance, 'now').mockReturnValue(0);
     const noise = Array.from({ length: 800 }, (_, i) => `<p>filler ${i}</p>`).join('');
     document.body.innerHTML = `<main><p>the pinned paragraph text</p>${noise}</main>`;
     const spy = vi.spyOn(Element.prototype, 'contains');
@@ -391,6 +394,52 @@ describe('heal correctness under stress (0.4.1 P2)', () => {
     );
     expect(found?.tagName.toUpperCase()).not.toBe('TITLE');
     expect(found?.tagName.toUpperCase()).not.toBe('DESC');
+    // Pin the documented residual too, so a future change cannot move it
+    // silently and quietly turn the comment above into fiction.
+    expect(found?.tagName.toUpperCase()).toBe('SVG');
+  });
+
+  // Round 2 P2. Charging budget before the tag skip stopped a <select> of
+  // <option>s outrunning the bound, but reintroduced main's starvation: 1,500
+  // <source> elements in a gallery evict real content from the 2,000-node cap
+  // and the heal lands on the page container — a wrong attach. Two counters:
+  // a scored-node budget for semantics, a visit budget as the safety valve.
+  it('elements that can never be pin targets do not starve the scored-node budget', () => {
+    // Freeze the clock: this asserts the COUNT budget, and leaving the 2 ms
+    // wall-clock deadline live would make a 2,100-node walk race a loaded CI
+    // machine and fail for an unrelated reason.
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    const sources = '<source srcset="x.webp">'.repeat(2100);
+    document.body.innerHTML = `<main><picture>${sources}</picture><p id="target">the pinned paragraph text</p></main>`;
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'the pinned paragraph text',
+    );
+    expect(found?.id).toBe('target');
+  });
+
+  // Round 2 P2. The zero-box guard shipped with no coverage: happy-dom returns
+  // one rect for everything, including display:none and detached nodes, so the
+  // branch never executes naturally. Stubbing the layout read is the only way
+  // to reach it — and an untested branch in the one function whose failure mode
+  // is silent is the wrong thing to ship.
+  it('an exact match with no layout box never displaces a positional hit', () => {
+    document.body.innerHTML =
+      '<main>' +
+      '<p id="real">Get started in seconds</p>' +
+      '<p id="stale" hidden>Start your free 30-day trial today, no credit card required</p>' +
+      '</main>';
+    const stale = document.getElementById('stale')!;
+    const sels = { testid: null, id: null, css: '#real', xpath: '/html/body/main[1]/p[1]' };
+    const fp = 'Start your free 30-day trial today, no credit card required';
+
+    // Without the stub the duplicate looks laid-out and wins — the documented
+    // undecidable case.
+    expect(findByCandidates(document, sels, fp)?.id).toBe('stale');
+
+    vi.spyOn(stale, 'getClientRects').mockReturnValue([] as unknown as DOMRectList);
+    expect(findByCandidates(document, sels, fp)?.id).toBe('real');
   });
 
   // Round 1 test gap. The whitespace fixture above normalises to 95 chars, so
