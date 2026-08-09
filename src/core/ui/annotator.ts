@@ -833,7 +833,10 @@ export class Annotator {
       return;
     }
     const target = e.target;
-    this._hoverTarget = this._isOwnUi(target, e) ? null : (target as Element);
+    // Preview = capture: highlight the CANONICAL anchor target (the nearest
+    // data-testid ancestor, exactly what a click will store), not the leaf
+    // under the cursor — the box the reviewer sees is the box they select.
+    this._hoverTarget = this._isOwnUi(target, e) ? null : anchorTarget(target as Element);
     this._scheduleHoverFrame();
   };
 
@@ -1359,13 +1362,14 @@ export class Annotator {
         }
         this._openInput(c.id);
       });
-      if (c.anchor.areaPercent) {
-        const area = el('div', 'area');
-        if (isResolved(c) && c.status) area.dataset['status'] = c.status;
-        this._placeArea(area, c, target);
-        this._ui.root.appendChild(area);
-        this._areas.set(c.id, area);
-      }
+      // Every comment gets a footprint element: drawn areas show the drawn
+      // rect, element-anchored points show the CAPTURED element's bounds
+      // (_placeArea hides degenerate cases — orphans, near-viewport anchors).
+      const area = el('div', 'area');
+      if (isResolved(c) && c.status) area.dataset['status'] = c.status;
+      this._placeArea(area, c, target);
+      this._ui.root.appendChild(area);
+      this._areas.set(c.id, area);
       this._placePin(pin, c, target);
       this._ui.root.appendChild(pin);
       this._pins.set(c.id, pin);
@@ -1377,11 +1381,25 @@ export class Annotator {
   // cached-anchor reflow path (orphaned: hidden with its pin).
   private _placeArea(area: HTMLDivElement, comment: Comment, target: Element | null): void {
     const a = comment.anchor.areaPercent;
-    if (!target || !a) {
+    if (!target) {
       area.style.display = 'none';
       return;
     }
-    const rect = this._areaRect(a, target.getBoundingClientRect());
+    const r = target.getBoundingClientRect();
+    // Element-anchored comments footprint the captured element itself, except
+    // degenerate anchors: collapsed boxes, or near-viewport ones (a click on
+    // empty space anchors <body> — ants around the whole page are noise).
+    const rect = a
+      ? this._areaRect(a, r)
+      : r.width >= 1 &&
+          r.height >= 1 &&
+          (r.width < window.innerWidth * 0.9 || r.height < window.innerHeight * 0.9)
+        ? r
+        : null;
+    if (!rect) {
+      area.style.display = 'none';
+      return;
+    }
     const s = area.style;
     s.display = '';
     s.left = `${rect.left}px`;

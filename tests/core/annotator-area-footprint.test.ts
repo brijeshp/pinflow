@@ -89,11 +89,100 @@ describe('area footprint (marching ants)', () => {
     expect(area!.style.height).toBe('200px'); // 40% of 500
   });
 
-  it('point comments render NO footprint', () => {
+  it('an element-anchored point comment footprints the CAPTURED element bounds', () => {
+    const card = document.createElement('div');
+    card.setAttribute('data-testid', 'card');
+    document.body.appendChild(card);
+    vi.spyOn(card, 'getBoundingClientRect').mockReturnValue({
+      left: 40,
+      top: 60,
+      width: 300,
+      height: 200,
+      right: 340,
+      bottom: 260,
+      x: 40,
+      y: 60,
+      toJSON: () => ({}),
+    } as DOMRect);
+    seed([
+      makeComment('p1', {
+        anchor: {
+          selectors: { testid: 'card', id: null, css: '#nope', xpath: '/nope' },
+          textFingerprint: '',
+          positionPercent: { x: 50, y: 50 },
+          viewport: { width: 800, height: 600 },
+        },
+      }),
+    ]);
+    annotator = makeAnnotator();
+    const area = shadow().querySelector<HTMLElement>('.area')!;
+    expect(area.style.display).not.toBe('none');
+    expect(area.style.left).toBe('40px');
+    expect(area.style.top).toBe('60px');
+    expect(area.style.width).toBe('300px');
+    expect(area.style.height).toBe('200px');
+    // The pin keeps its click point — the point IS part of the intent here.
+    const pin = shadow().querySelector<HTMLElement>('.pin')!;
+    expect(pin.style.left).toBe('190px'); // 40 + 50% of 300
+  });
+
+  it('degenerate anchors (near-viewport boxes) show NO visible footprint', () => {
+    // A body-anchored point comment: clicking empty space is a point, not a
+    // selection — ants around the whole page would be noise.
+    mockBodyRect({
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+    });
     seed([makeComment('p1')]);
     annotator = makeAnnotator();
     expect(shadow().querySelector('.pin')).not.toBeNull();
-    expect(shadow().querySelector('.area')).toBeNull();
+    const area = shadow().querySelector<HTMLElement>('.area');
+    expect(area === null || area.style.display === 'none').toBe(true);
+  });
+
+  it('an element footprint hides when its element grows to viewport size on reflow', () => {
+    const card = document.createElement('div');
+    card.setAttribute('data-testid', 'card');
+    document.body.appendChild(card);
+    const spy = vi.spyOn(card, 'getBoundingClientRect').mockReturnValue({
+      left: 40,
+      top: 60,
+      width: 300,
+      height: 200,
+      right: 340,
+      bottom: 260,
+      x: 40,
+      y: 60,
+      toJSON: () => ({}),
+    } as DOMRect);
+    seed([
+      makeComment('p1', {
+        anchor: {
+          selectors: { testid: 'card', id: null, css: '#nope', xpath: '/nope' },
+          textFingerprint: '',
+          positionPercent: { x: 50, y: 50 },
+          viewport: { width: 800, height: 600 },
+        },
+      }),
+    ]);
+    annotator = makeAnnotator();
+    expect(shadow().querySelector<HTMLElement>('.area')!.style.display).not.toBe('none');
+    // The host expands the element to (near) fullscreen.
+    spy.mockReturnValue({
+      left: 0,
+      top: 0,
+      width: window.innerWidth,
+      height: window.innerHeight,
+      right: window.innerWidth,
+      bottom: window.innerHeight,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    } as DOMRect);
+    (annotator as unknown as Repositionable)._repositionPins();
+    expect(shadow().querySelector<HTMLElement>('.area')!.style.display).toBe('none');
   });
 
   it('reflow repositions the footprint with the pins (no rebuild)', () => {

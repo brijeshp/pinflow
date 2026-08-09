@@ -99,6 +99,26 @@ describe('armed-mode hover outline', () => {
     expect(hl!.style.height).toBe('50px');
   });
 
+  it('outlines the CANONICAL anchor target (data-testid ancestor), not the hovered leaf', async () => {
+    annotator = makeAnnotator();
+    arm();
+    const card = document.createElement('div');
+    card.dataset['testid'] = 'card';
+    const leaf = document.createElement('span');
+    leaf.textContent = 'price';
+    card.appendChild(leaf);
+    document.body.appendChild(card);
+    mockRect(card, { left: 40, top: 60, width: 300, height: 200 });
+    mockRect(leaf, { left: 100, top: 100, width: 40, height: 16 });
+
+    moveOver(leaf); // the cursor is on the leaf...
+    await nextFrame();
+
+    const hl = shadow().querySelector<HTMLElement>('.hl')!;
+    expect(hl.style.left).toBe('40px'); // ...but the CAPTURE will be the card
+    expect(hl.style.width).toBe('300px'); // preview = what clicking stores
+  });
+
   it('never outlines pinflow’s own UI (composedPath guard, like _onDocumentClick)', async () => {
     annotator = makeAnnotator();
     arm();
