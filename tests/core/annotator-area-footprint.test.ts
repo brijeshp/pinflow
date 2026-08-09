@@ -210,6 +210,47 @@ describe('area footprint (marching ants)', () => {
     expect(a.y + a.h).toBeLessThanOrEqual(100);
   });
 
+  it("area pins STRADDLE the footprint's top-left corner, not the region center", () => {
+    mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
+    // positionPercent records the drawn center (50/50 → 500,250) — display
+    // derives the corner from areaPercent instead: presentation, not data.
+    seed([makeComment('a1', { area: { x: 10, y: 20, w: 50, h: 40 } })]);
+    annotator = makeAnnotator();
+    const pin = shadow().querySelector<HTMLElement>('.pin')!;
+    expect(pin.style.left).toBe('100px'); // footprint left (10% of 1000)
+    expect(pin.style.top).toBe('100px'); // footprint top (20% of 500)
+  });
+
+  it('point pins keep their positionPercent placement', () => {
+    mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
+    seed([makeComment('p1')]); // 50%/50%, no area
+    annotator = makeAnnotator();
+    const pin = shadow().querySelector<HTMLElement>('.pin')!;
+    expect(pin.style.left).toBe('500px');
+    expect(pin.style.top).toBe('250px');
+  });
+
+  it('the area pin rides the CLAMPED footprint corner (edge-clamped rects included)', () => {
+    mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
+    seed([makeComment('a1', { area: { x: 100, y: 100, w: 100, h: 100 } })]);
+    annotator = makeAnnotator();
+    const pin = shadow().querySelector<HTMLElement>('.pin')!;
+    expect(pin.style.left).toBe('998px'); // the inward-shifted corner, in lockstep
+    expect(pin.style.top).toBe('498px');
+  });
+
+  it('reflow keeps the area pin glued to the footprint corner', () => {
+    mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
+    seed([makeComment('a1', { area: { x: 10, y: 20, w: 50, h: 40 } })]);
+    annotator = makeAnnotator();
+    mockBodyRect({ left: 0, top: -100, width: 1000, height: 500 });
+    (annotator as unknown as Repositionable)._repositionPins();
+    const pin = shadow().querySelector<HTMLElement>('.pin')!;
+    const area = shadow().querySelector<HTMLElement>('.area')!;
+    expect(pin.style.left).toBe(area.style.left);
+    expect(pin.style.top).toBe(area.style.top);
+  });
+
   it('footprint styling: non-interactive marching ants in currentColor, frozen under reduced motion', () => {
     const rule = /\.area\{[^}]*\}/.exec(STYLES)?.[0] ?? '';
     expect(rule).toContain('pointer-events:none');

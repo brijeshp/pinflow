@@ -1381,20 +1381,34 @@ export class Annotator {
       area.style.display = 'none';
       return;
     }
-    const r = target.getBoundingClientRect();
-    // Compound clamp: stored data is untrusted (each leaf validates 0–100
-    // independently, but x+w may exceed 100) — never paint past the anchor.
-    // The 2px visibility floor (an axis-aligned drag's line must not vanish)
-    // is capped to the anchor and shifts the box INWARD at clamped edges, so
-    // position + extent stay inside the anchor together (codex fr1/fr2).
-    const w = Math.min(Math.max(2, (Math.min(a.w, 100 - a.x) / 100) * r.width), r.width);
-    const h = Math.min(Math.max(2, (Math.min(a.h, 100 - a.y) / 100) * r.height), r.height);
+    const rect = this._areaRect(a, target.getBoundingClientRect());
     const s = area.style;
     s.display = '';
-    s.left = `${r.left + Math.max(0, Math.min((a.x / 100) * r.width, r.width - w))}px`;
-    s.top = `${r.top + Math.max(0, Math.min((a.y / 100) * r.height, r.height - h))}px`;
-    s.width = `${w}px`;
-    s.height = `${h}px`;
+    s.left = `${rect.left}px`;
+    s.top = `${rect.top}px`;
+    s.width = `${rect.width}px`;
+    s.height = `${rect.height}px`;
+  }
+
+  // The RENDERED footprint rect, shared by the footprint and its pin (the pin
+  // straddles this rect's top-left corner — they must never drift apart).
+  // Compound clamp: stored data is untrusted (each leaf validates 0–100
+  // independently, but x+w may exceed 100) — never paint past the anchor.
+  // The 2px visibility floor (an axis-aligned drag's line must not vanish)
+  // is capped to the anchor and shifts the box INWARD at clamped edges, so
+  // position + extent stay inside the anchor together (codex fr1/fr2).
+  private _areaRect(
+    a: AreaPercent,
+    r: DOMRect,
+  ): { left: number; top: number; width: number; height: number } {
+    const width = Math.min(Math.max(2, (Math.min(a.w, 100 - a.x) / 100) * r.width), r.width);
+    const height = Math.min(Math.max(2, (Math.min(a.h, 100 - a.y) / 100) * r.height), r.height);
+    return {
+      left: r.left + Math.max(0, Math.min((a.x / 100) * r.width, r.width - width)),
+      top: r.top + Math.max(0, Math.min((a.y / 100) * r.height, r.height - height)),
+      width,
+      height,
+    };
   }
 
   private _placePin(pin: HTMLButtonElement, comment: Comment, target: Element | null): void {
@@ -1409,7 +1423,17 @@ export class Annotator {
     }
     delete pin.dataset['orphaned'];
     pin.style.display = '';
-    place(pin, anchorToScreen(target, comment.anchor.positionPercent));
+    // Area pins straddle the footprint's top-left corner (the pin's own
+    // translate(-50%,-50%) centers it ON the corner point) — derived at
+    // render from areaPercent, so display policy needs no schema change and
+    // positionPercent keeps recording the drawn center as provenance.
+    const a = comment.anchor.areaPercent;
+    place(
+      pin,
+      a
+        ? this._areaRect(a, target.getBoundingClientRect())
+        : anchorToScreen(target, comment.anchor.positionPercent),
+    );
   }
 
   // Cheap path used on scroll/resize: just reposition existing pins, skipping
