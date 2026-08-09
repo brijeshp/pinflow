@@ -66,7 +66,7 @@ describe('exportReviewer', () => {
     expect(md).toContain('## Route: /');
     expect(md).toContain('### [cmt_1] Comment 1 — 2026-04-15T14:24:00Z');
     expect(md).toContain(
-      '**Element:** `<button data-testid="primary-cta">` ("Get started for free")',
+      '**Element:** `<button data-testid="primary-cta">` (“Get started for free”)',
     );
     expect(md).toContain('- testid: `primary-cta`');
     expect(md).toContain('**Position:** 47% from left, 38% from top of element');
@@ -552,16 +552,27 @@ it('a hostile text fingerprint cannot forge a second element label', async () =>
 // from the store: storage.ts validates selectors.css as `typeof === 'string'`
 // and nothing more, so a source() payload, an imported JSON export, or a
 // tampered localStorage supplies it freely.
-it('no interpolation in the element label can forge an attribute', async () => {
-  const evil = 'x" data-testid="pwn" y';
-  const line = await elementLine(
-    labelOnly({ testid: 'real-button', id: null, css: `main > ${evil}`, xpath: '/html' }, evil),
-  );
-  const all = [...line.matchAll(/data-testid="([^"]*)"/g)].map((m) => m[1]);
-  expect(all).toEqual(['real-button']);
-  // The non-global form must agree — it is what an agent writes by default.
-  expect(/data-testid="([^"]*)"/.exec(line)?.[1]).toBe('real-button');
-});
+// Runs BOTH arms. Round 3 found that pinning `testid` left the `id=` branch
+// unexercised — and that was the arm still yielding a spurious capture. Third
+// round running, the uncovered arm was the one that failed.
+it.each([
+  ['testid', { testid: 'real-button', id: null }, ['real-button']],
+  // Round 3's exact payload: the id's OWN closing quote supplies the pair,
+  // so the regex runs from it to the fingerprint segment's opening quote.
+  ['id', { testid: null, id: 'a data-testid=' }, []],
+] as const)(
+  'no interpolation in the element label can forge an attribute (%s arm)',
+  async (_arm, ids, expected) => {
+    const evil = 'x" data-testid="pwn" y';
+    const line = await elementLine(
+      labelOnly({ ...ids, css: `main > ${evil}`, xpath: '/html' }, evil),
+    );
+    const all = [...line.matchAll(/data-testid="([^"]*)"/g)].map((m) => m[1]);
+    expect(all).toEqual([...expected]);
+    // The non-global form must agree — it is what an agent writes by default.
+    expect(/data-testid="([^"]*)"/.exec(line)?.[1]).toBe(expected[0]);
+  },
+);
 
 // Security round 2, P2. "A lone backtick opens a span that swallows the rest of
 // the block" is field-independent, but only Image and bg-image were moved off
@@ -608,6 +619,28 @@ it('no field can open a stray code span', async () => {
   for (const line of md.split('\n')) {
     expect((line.match(/`/g) ?? []).length % 2, line).toBe(0);
   }
+});
+
+// Security round 3. Three rounds each enumerated the fields someone remembered
+// and each missed one. Now that there is a single baseline, the durable
+// assertion is structural rather than enumerative: every interpolation of
+// untrusted data must route through an escaper, checked against the source.
+// This would have caught all three misses; a field list would not have.
+it('every untrusted interpolation in export.ts routes through an escaper', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(`${process.cwd()}/src/core/export.ts`, 'utf8');
+  const UNTRUSTED = /\b(comment|ctx|selectors|store|meta|s|g)\.[a-zA-Z]/;
+  const ESCAPED = /(^|[^A-Za-z])(inline|attr)\(/;
+  const offenders = [...src.matchAll(/\$\{([^`}]*)\}/g)]
+    .map((m) => m[1]!.trim())
+    .filter(
+      (e) =>
+        UNTRUSTED.test(e) &&
+        !ESCAPED.test(e) &&
+        !/^Math\./.test(e) && // numeric, and the operands are storage-validated finite
+        !/\.length$/.test(e), // a count, not text
+    );
+  expect(offenders).toEqual([]);
 });
 
 // Security round 1, P2. attr() handled `"` but left `<` and `>`, so the

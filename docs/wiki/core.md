@@ -110,11 +110,12 @@ Generated: <timestamp>
 
 Builder export adds a summary table (total, by reviewer, by route) and reviewer names per comment. Orphaned comments get their own section with last-known selectors. **Every interpolated field is untrusted** — comment text (blockquote-continued incl. bare `\r`), reviewer names, routes, ids, selectors, resolutions, context, and `describeRoute` labels are all newline-collapsed and code-span-safe so no field can fabricate top-level markdown or instructions when the artifact is pasted into a coding agent. Never weaken this escaping.
 
-Three escapers, and the choice between them is load-bearing:
+**Two escapers, and only one decision.** There used to be a third (`code()`, adding backtick handling on top of `inline()`), applied per field — which meant every new line asked "which escaper does this one need?", and three consecutive review rounds found a field that answered it wrong. Backtick handling now lives in the baseline and the question is gone:
 
-- `inline()` collapses newlines — enough for prose fields that sit alone on a line.
-- `code()` also neutralises backticks. Required for anything inside a code span (`tagFromCss()` used `inline()`, and a backtick in a stored CSS path closed the element label's span early) and for any raw page URL rendered bare — `**Image:**` and `bg-image` carry element `src` values, where one stray backtick opens a span that swallows the rest of the block.
-- `attr()` additionally replaces `"` and both angle brackets. It guards everything in the element label: the attribute pair (`data-testid="…"`, `id="…"`), where a `"` closes the attribute and forges a sibling an agent extracting `data-testid="([^"]*)"` would trust, and the `("fingerprint")` segment beside it, which is **raw element text** and could otherwise emit an entire second well-formed label.
+- **`inline()`** — the baseline for _every_ interpolated field. Collapses all newline forms, so nothing can fabricate a heading or section, and neutralises backticks, so nothing can open a code span that swallows the rest of the block. The only bypass is `comment.text`, via `quoted()`, because a human's prose should keep its backticks.
+- **`attr()`** — `inline()` plus `"`, `<` and `>`. Guards all **four** interpolations in the element label: the tag, the `data-testid="…"` / `id="…"` pair, and the `("fingerprint")` segment. Each of those can close the attribute and forge a sibling that an agent extracting `data-testid="([^"]*)"` would trust — and the non-global form of that regex returns the _forged_ one first. The tag matters even though `cssSegment()` cannot produce a hostile one: `storage.ts` validates `selectors.css` as `typeof === 'string'` and nothing more, so a `source()` payload or an imported export supplies it freely.
+
+`selectorLines()` deliberately stays on the baseline — it is the only faithful copy of a selector value, and the agent pack directs searches there precisely because `attr()` substitutes characters in the label.
 
 Escaping defends the artifact's **structure**, not its **meaning** — a perfectly-escaped accessible name can still read as an instruction. The reading protocol that names that boundary ships as markdown in `agent/` (see `build-and-release.md`), deliberately outside the bundle.
 

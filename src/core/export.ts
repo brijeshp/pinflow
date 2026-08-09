@@ -79,9 +79,14 @@ function elementLabel(comment: Comment): string {
     : selectors.id
       ? ` id="${attr(selectors.id)}"`
       : '';
-  // Quote-delimited, on the same line as the attribute above, and raw element
-  // text — the most page-controlled field in the artifact.
-  const text = textFingerprint ? ` ("${attr(textFingerprint)}")` : '';
+  // Typographic quotes, matching contextLine's ‘…’. Not decoration: with ASCII
+  // quotes this segment was the last free `"` on the line, so on the id= path
+  // /data-testid="([^"]*)"/ ran from the id's own closing quote to this
+  // segment's opening one and captured pinflow's own structure — a false
+  // positive an agent would then search for. It also makes the fingerprint
+  // visually un-confusable with an attribute, which is the confusion that
+  // produced a finding in all three review rounds.
+  const text = textFingerprint ? ` (“${attr(textFingerprint)}”)` : '';
   return `\`<${tag}${ident}>\`${text}`;
 }
 
