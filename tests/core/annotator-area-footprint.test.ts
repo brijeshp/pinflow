@@ -177,6 +177,19 @@ describe('area footprint (marching ants)', () => {
     expect(area.style.width).toBe('300px');
   });
 
+  it('the 2px floor shifts INWARD at clamped edges — never past the anchor (codex fr2 P2)', () => {
+    mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
+    // Fully edge-clamped rect: position at 100%, extent clamps to 0, floor
+    // kicks in — the floored box must sit INSIDE the anchor's far corner.
+    seed([makeComment('a1', { area: { x: 100, y: 100, w: 100, h: 100 } })]);
+    annotator = makeAnnotator();
+    const area = shadow().querySelector<HTMLElement>('.area')!;
+    expect(area.style.width).toBe('2px');
+    expect(area.style.height).toBe('2px');
+    expect(area.style.left).toBe('998px'); // 1000 − 2, not 1000
+    expect(area.style.top).toBe('498px'); // 500 − 2, not 500
+  });
+
   it('a fresh marquee never STORES a compound-overflow rect (x+w, y+h ≤ 100)', () => {
     mockBodyRect({ left: 0, top: 0, width: 1000, height: 1000 });
     annotator = makeAnnotator();

@@ -1382,15 +1382,19 @@ export class Annotator {
       return;
     }
     const r = target.getBoundingClientRect();
-    const s = area.style;
-    s.display = '';
-    s.left = `${r.left + (a.x / 100) * r.width}px`;
-    s.top = `${r.top + (a.y / 100) * r.height}px`;
     // Compound clamp: stored data is untrusted (each leaf validates 0–100
     // independently, but x+w may exceed 100) — never paint past the anchor.
-    // Floor at 2px so an axis-aligned drag's line is not invisible (codex fr1).
-    s.width = `${Math.max(2, (Math.min(a.w, 100 - a.x) / 100) * r.width)}px`;
-    s.height = `${Math.max(2, (Math.min(a.h, 100 - a.y) / 100) * r.height)}px`;
+    // The 2px visibility floor (an axis-aligned drag's line must not vanish)
+    // is capped to the anchor and shifts the box INWARD at clamped edges, so
+    // position + extent stay inside the anchor together (codex fr1/fr2).
+    const w = Math.min(Math.max(2, (Math.min(a.w, 100 - a.x) / 100) * r.width), r.width);
+    const h = Math.min(Math.max(2, (Math.min(a.h, 100 - a.y) / 100) * r.height), r.height);
+    const s = area.style;
+    s.display = '';
+    s.left = `${r.left + Math.max(0, Math.min((a.x / 100) * r.width, r.width - w))}px`;
+    s.top = `${r.top + Math.max(0, Math.min((a.y / 100) * r.height, r.height - h))}px`;
+    s.width = `${w}px`;
+    s.height = `${h}px`;
   }
 
   private _placePin(pin: HTMLButtonElement, comment: Comment, target: Element | null): void {
