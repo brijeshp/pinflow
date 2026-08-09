@@ -57,4 +57,5 @@ Pinflow: Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero 
 - Plans live in `docs/plans/YYYY-MM-DD-NNN-<type>-<slug>-plan.md`.
 - Remote is `origin` (public GitHub). Work lands on feature branches merged to `main`; **pushing `main` triggers the release chain** (`release.yml` runs the full battery on that SHA, then changesets opens a "Version Packages" PR — npm publish happens only when that PR is merged).
 - **Run the full battery on the exact SHA you are pushing, not before your last commit.** `wiki:check` in particular goes stale the moment you touch a code path, so a gate run earlier in the session proves nothing about the tree you push.
+- **Moving `docs/wiki/.last-sync` is always its own final commit**, never bundled with the code it certifies — the marker can only name a SHA that already exists, so a bundled move always lags by one and `wiki:check` fails. A wiki-only commit stays green because the checker inspects code paths only.
 - Prettier formats the whole repo (`format:check` gates CI); run `pnpm format` before committing markdown or code.
