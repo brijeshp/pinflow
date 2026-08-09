@@ -78,18 +78,22 @@ describe('bottom-left dock (0.5.0 — the bottom-right control is gone)', () => 
     expect(countChip()).toBeNull(); // no count segment with nothing to export
   });
 
-  it('arm segment toggles armed mode: crosshair + active state + stop glyph, then back', () => {
+  it('arm segment toggles armed mode: crosshair + active state + label swap, then back', () => {
     annotator = makeAnnotator();
     const arm = armBtn()!;
-    expect(arm.textContent).toBe('+');
+    // The glyph is DRAWN (geometric ::before bars, rotated 45° when armed) —
+    // never typeset: font ink is not optically centered in its em box, which
+    // is exactly how the + ended up visibly off-center. No text content.
+    expect(arm.textContent).toBe('');
+    expect(arm.getAttribute('aria-label')).toBe('Annotate this page');
     arm.click();
     expect(document.body.style.cursor).toBe('crosshair');
     expect(arm.dataset['active']).toBe('true');
-    expect(arm.textContent).toBe('×');
+    expect(arm.getAttribute('aria-label')).toBe('Stop annotating');
     arm.click();
     expect(document.body.style.cursor).toBe('');
     expect(arm.dataset['active']).toBe('false');
-    expect(arm.textContent).toBe('+');
+    expect(arm.getAttribute('aria-label')).toBe('Annotate this page');
   });
 
   it('Escape disarms and the arm segment reflects it', () => {
@@ -97,7 +101,7 @@ describe('bottom-left dock (0.5.0 — the bottom-right control is gone)', () => 
     armBtn()!.click();
     document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(armBtn()!.dataset['active']).toBe('false');
-    expect(armBtn()!.textContent).toBe('+');
+    expect(armBtn()!.getAttribute('aria-label')).toBe('Annotate this page');
   });
 
   it('the count segment appears beside the arm once comments exist, and opens the sheet', () => {
@@ -155,6 +159,19 @@ describe('bottom-left dock (0.5.0 — the bottom-right control is gone)', () => 
     clear.click(); // closes the drawer via _closePanel, not the chip toggle
     expect(shadow().querySelector('.drawer')).toBeNull();
     expect(chip.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('the arm glyph is geometric: centered bar pseudo-element, 45° rotation when armed, motion-safe', async () => {
+    const { STYLES } = await import('../../src/core/ui/styles');
+    const glyph = /\.arm::before\{[^}]*\}/.exec(STYLES)?.[0] ?? '';
+    // Drawn from two crossing bars, centered by grid — no font metrics involved.
+    expect(glyph).toContain('content:""');
+    expect(glyph).toMatch(/linear-gradient/);
+    expect(glyph).toMatch(/transition:[^;]*transform/);
+    expect(STYLES).toMatch(/\.arm\[data-active="true"\]::before\{[^}]*rotate\(45deg\)/);
+    // prefers-reduced-motion freezes the morph.
+    const reduced = /@media \(prefers-reduced-motion:reduce\)\{[^@]*\}/.exec(STYLES)?.[0] ?? '';
+    expect(reduced).toContain('.arm::before{transition:none}');
   });
 
   it('both segments carry aria-labels (icon-only buttons must be named)', () => {

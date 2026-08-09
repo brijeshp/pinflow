@@ -445,7 +445,7 @@ export class Annotator {
     // Reviewer arm segment: a pure arm/disarm toggle — click/drag on the page
     // IS the interface. Stealth stays chromeless; builder never arms.
     if (this._deps.mode === 'reviewer' && this._activationMode() !== 'stealth') {
-      const arm = el('button', 'arm', '+');
+      const arm = el('button', 'arm'); // glyph is drawn in CSS (::before bars)
       arm.type = 'button';
       arm.dataset['active'] = 'false';
       arm.setAttribute('aria-label', 'Annotate this page');
@@ -456,12 +456,12 @@ export class Annotator {
     this._ui.root.appendChild(dock);
   }
 
-  // The arm segment mirrors the armed state: + arms, × stops.
+  // The arm segment mirrors the armed state: + arms, × stops (the CSS-drawn
+  // glyph rotates 45° on data-active — no text swap).
   private _syncArm(): void {
     const a = this._armEl;
     if (!a) return;
     a.dataset['active'] = String(this._annotating);
-    a.textContent = this._annotating ? '×' : '+';
     a.setAttribute('aria-label', this._annotating ? 'Stop annotating' : 'Annotate this page');
   }
 
