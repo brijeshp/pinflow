@@ -462,11 +462,17 @@ describe('heal correctness under stress (0.4.1 P2)', () => {
     document.body.innerHTML = `<main>${rows}<p>the pinned paragraph text</p></main>`;
     const sels = { testid: null, id: null, css: '#nope', xpath: '/nope' };
 
+    // BOTH halves need a pinned clock, not just the exhausted one. The control
+    // walks 300 rows against the real 2 ms deadline, so on a slower machine the
+    // budget fires legitimately and the baseline returns null — which is how
+    // this test failed in CI while passing ~80 consecutive local runs. A test
+    // about a deadline must not be racing one.
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
     expect(findByCandidates(document, sels, 'the pinned paragraph text')).not.toBeNull();
 
     // First call establishes the deadline; every later call is past it.
     let n = 0;
-    vi.spyOn(performance, 'now').mockImplementation(() => (n++ === 0 ? 0 : 1e6));
+    clock.mockImplementation(() => (n++ === 0 ? 0 : 1e6));
     expect(findByCandidates(document, sels, 'the pinned paragraph text')).toBeNull();
   });
 });

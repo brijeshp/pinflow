@@ -294,6 +294,14 @@ engine.
 
 ## Strategic Findings (not ideas — context that outranks the list)
 
+> **Resolved 2026-08-09.** "Deliberately delayed" is now a date: **Show HN moves
+> to the week of Aug 31**, carrying the scope model, with **Product Hunt holding
+> at Sep 8**. The finding below overstated one thing — the site was not
+> unstarted, it was already built and deployed; the library is the critical
+> path, not W1. The consequence is that **0.5.0 must release by ~Aug 28 or both
+> beats move**, which makes the scope cut a scheduling decision rather than a
+> taste one. See the execution plan's revised timeline.
+
 **A. The list collides with a dated launch plan.**
 `docs/private/2026-08-04-001-feat-commercialization-execution-plan.md`: Astro site starts **Aug 10**,
 Show HN **week of Aug 17**, Product Hunt **Tue Sep 8**, gate of **≥300 waitlist signups**, Pro tier at

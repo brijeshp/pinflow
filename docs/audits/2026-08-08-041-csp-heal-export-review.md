@@ -151,11 +151,28 @@ started by fixing (`export.test.ts` asserting no fabricated heading, which
 passed while the code span was corrupt). Structural assertions are not
 automatically honest ones; the input has to be able to break them.
 
-**Open, non-blocking:** two full-suite runs failed transiently out of ~83, both
-while heavy background review agents were running, and neither was captured by
-name. 70 consecutive clean runs after pinning the clock in two timing-sensitive
-tests. Recorded rather than dismissed — if it recurs in CI it will be visible
-there.
+**Resolved after merge, by CI.** Two full-suite runs had failed transiently out
+of ~83, never captured by name. I attributed them to machine load from the
+review agents and recorded the item rather than dismissing it — which was the
+only correct part of my handling. It was a real defect, and I pinned the clock
+in the wrong two tests.
+
+The culprit was `abandons the walk when the time budget is exhausted`. Its
+**control** assertion — the "finds it normally" baseline before the mock — walked
+300 rows against the **live 2 ms deadline**. On a slower runner the budget fires
+legitimately, the walk returns null, and the baseline fails. A test about a
+deadline was racing one. It passed ~80 consecutive local runs and failed on the
+first CI run.
+
+Fixed by pinning the clock across both halves, plus a mechanical audit of every
+`findByCandidates` fixture over 30 nodes confirming all three now pin it. The
+fix is structural rather than statistical: with `now()` frozen at 0 the deadline
+is 2 and can never elapse.
+
+**The lesson is the same one as the five wrong-reason tests, in the other
+direction.** Those passed when they should have failed; this one failed when it
+should have passed. Both come from a test whose outcome depends on something it
+does not control — and 80 green runs is not evidence of determinism.
 
 ## Battery at verdict
 
