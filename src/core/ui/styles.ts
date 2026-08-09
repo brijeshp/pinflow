@@ -46,7 +46,7 @@ export const STYLES =
   // muted state) + a faint wash. background-color must come AFTER the
   // background shorthand (the shorthand resets it). Ants freeze under
   // prefers-reduced-motion.
-  '.area{position:fixed;pointer-events:none;opacity:.7;color:var(--pf-accent,#2563eb);background:repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 8px) 0 0/100% 1px no-repeat,repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 8px) 0 100%/100% 1px no-repeat,repeating-linear-gradient(0deg,currentColor 0 4px,transparent 4px 8px) 0 0/1px 100% no-repeat,repeating-linear-gradient(0deg,currentColor 0 4px,transparent 4px 8px) 100% 0/1px 100% no-repeat;background-color:color-mix(in oklab,currentColor 5%,transparent);animation:march 1s linear infinite}' +
+  '.area{position:fixed;pointer-events:none;z-index:-1;opacity:.7;color:var(--pf-accent,#2563eb);background:repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 8px) 0 0/100% 1px no-repeat,repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 8px) 0 100%/100% 1px no-repeat,repeating-linear-gradient(0deg,currentColor 0 4px,transparent 4px 8px) 0 0/1px 100% no-repeat,repeating-linear-gradient(0deg,currentColor 0 4px,transparent 4px 8px) 100% 0/1px 100% no-repeat;background-color:color-mix(in oklab,currentColor 5%,transparent);animation:march 1s linear infinite}' +
   '.area[data-status]{color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
   '@keyframes march{to{background-position:8px 0,-8px 100%,0 -8px,100% 8px}}' +
   // Drag-to-marquee: the same box, plus a page-dimming "hole" — one huge

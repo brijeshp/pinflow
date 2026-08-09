@@ -1054,13 +1054,17 @@ export class Annotator {
     const anchorEl = anchorTarget(target ?? document.body);
     const tr = anchorEl.getBoundingClientRect();
     const clamp = (v: number): number => Math.min(100, Math.max(0, v));
+    // Compound-clamped at the source: x+w and y+h can never exceed 100, so
+    // the stored rect is honest about staying inside its anchor (codex fr1).
+    const x = clamp(((left - tr.left) / tr.width) * 100);
+    const y = clamp(((top - tr.top) / tr.height) * 100);
     const area: AreaPercent | undefined =
       tr.width > 0 && tr.height > 0
         ? {
-            x: clamp(((left - tr.left) / tr.width) * 100),
-            y: clamp(((top - tr.top) / tr.height) * 100),
-            w: clamp((width / tr.width) * 100),
-            h: clamp((height / tr.height) * 100),
+            x,
+            y,
+            w: Math.min(clamp((width / tr.width) * 100), 100 - x),
+            h: Math.min(clamp((height / tr.height) * 100), 100 - y),
           }
         : undefined;
     this._placeCommentAt(cx, cy, anchorEl, area);
@@ -1382,8 +1386,11 @@ export class Annotator {
     s.display = '';
     s.left = `${r.left + (a.x / 100) * r.width}px`;
     s.top = `${r.top + (a.y / 100) * r.height}px`;
-    s.width = `${(a.w / 100) * r.width}px`;
-    s.height = `${(a.h / 100) * r.height}px`;
+    // Compound clamp: stored data is untrusted (each leaf validates 0–100
+    // independently, but x+w may exceed 100) — never paint past the anchor.
+    // Floor at 2px so an axis-aligned drag's line is not invisible (codex fr1).
+    s.width = `${Math.max(2, (Math.min(a.w, 100 - a.x) / 100) * r.width)}px`;
+    s.height = `${Math.max(2, (Math.min(a.h, 100 - a.y) / 100) * r.height)}px`;
   }
 
   private _placePin(pin: HTMLButtonElement, comment: Comment, target: Element | null): void {

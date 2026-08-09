@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { emptyStore, saveStore } from '../../src/core/storage';
+import { emptyStore, loadStore, saveStore } from '../../src/core/storage';
 import { routeKey } from '../../src/core/route-key';
 import type { AreaPercent, Comment } from '../../src/core/types';
 import { Annotator } from '../../src/core/ui/annotator';
@@ -66,12 +66,15 @@ interface Repositionable {
 describe('area footprint (marching ants)', () => {
   let annotator: Annotator | null = null;
 
-  afterEach(() => {
+  afterEach(async () => {
     annotator?.destroy();
     annotator = null;
     localStorage.clear();
     document.body.innerHTML = '';
     vi.restoreAllMocks();
+    // Flush the one-shot click-swallow window so a marquee release in one test
+    // can't eat the next test's arming click (production clears it in 0ms).
+    await new Promise((r) => setTimeout(r, 0));
   });
 
   it('an area comment renders a .area footprint at the anchored element rect × areaPercent', () => {
@@ -153,6 +156,47 @@ describe('area footprint (marching ants)', () => {
     expect(shadow().querySelector('.area')).not.toBeNull(); // the drawn region settled in place
   });
 
+  it('a stored compound-overflow rect renders CLAMPED to the anchor bounds (codex fr1 P2)', () => {
+    mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
+    // Each leaf passes 0–100 validation, but x+w = 190% — untrusted data must
+    // not paint over unrelated host content beyond the anchor.
+    seed([makeComment('a1', { area: { x: 90, y: 90, w: 100, h: 100 } })]);
+    annotator = makeAnnotator();
+    const area = shadow().querySelector<HTMLElement>('.area')!;
+    expect(area.style.left).toBe('900px');
+    expect(area.style.width).toBe('100px'); // min(w, 100 - x) → 10% of 1000
+    expect(area.style.height).toBe('50px'); // min(h, 100 - y) → 10% of 500
+  });
+
+  it('an axis-aligned (zero-height) area still renders a visible footprint (codex fr1 P3)', () => {
+    mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
+    seed([makeComment('a1', { area: { x: 10, y: 20, w: 30, h: 0 } })]);
+    annotator = makeAnnotator();
+    const area = shadow().querySelector<HTMLElement>('.area')!;
+    expect(area.style.height).toBe('2px'); // floored — a drawn line is not invisible
+    expect(area.style.width).toBe('300px');
+  });
+
+  it('a fresh marquee never STORES a compound-overflow rect (x+w, y+h ≤ 100)', () => {
+    mockBodyRect({ left: 0, top: 0, width: 1000, height: 1000 });
+    annotator = makeAnnotator();
+    shadow().querySelector<HTMLButtonElement>('.arm')!.click();
+    const t = document.createElement('p');
+    document.body.appendChild(t);
+    const ptr = (type: string, props: Record<string, unknown>): Event => {
+      const e = new Event(type, { bubbles: true, composed: true, cancelable: true });
+      Object.assign(e, { pointerId: 1, button: 0, pointerType: 'mouse', ...props });
+      return e;
+    };
+    // Drag starting mid-element and running far past its right/bottom edges.
+    t.dispatchEvent(ptr('pointerdown', { clientX: 500, clientY: 500 }));
+    t.dispatchEvent(ptr('pointermove', { clientX: 2500, clientY: 2500 }));
+    t.dispatchEvent(ptr('pointerup', { clientX: 2500, clientY: 2500 }));
+    const a = loadStore(localStorage, PROJECT, REVIEWER)!.comments[0]!.anchor.areaPercent!;
+    expect(a.x + a.w).toBeLessThanOrEqual(100);
+    expect(a.y + a.h).toBeLessThanOrEqual(100);
+  });
+
   it('footprint styling: non-interactive marching ants in currentColor, frozen under reduced motion', () => {
     const rule = /\.area\{[^}]*\}/.exec(STYLES)?.[0] ?? '';
     expect(rule).toContain('pointer-events:none');
@@ -164,5 +208,8 @@ describe('area footprint (marching ants)', () => {
     expect(STYLES).toMatch(/\.area\[data-status\]\{[^}]*color:/);
     const reduced = /@media \(prefers-reduced-motion:reduce\)\{[^@]*\}/.exec(STYLES)?.[0] ?? '';
     expect(reduced).toContain('.area{animation:none}');
+    // Paint order: footprints sit BELOW every pin and the dock — negative
+    // z-index inside .root's stacking context (codex fr1 P3).
+    expect(/\.area\{[^}]*\}/.exec(STYLES)?.[0] ?? '').toContain('z-index:-1');
   });
 });
