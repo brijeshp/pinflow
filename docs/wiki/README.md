@@ -1,6 +1,6 @@
 # Pinflow codebase wiki
 
-Agent-maintained map of this codebase. It exists so coding agents (Claude Code, Codex) don't re-derive the architecture every session — read the relevant page before grepping.
+Agent-maintained map of this codebase. It exists so coding agents don't re-derive the architecture every session — read the relevant page before grepping.
 
 ## Rules of use
 

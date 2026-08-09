@@ -33,7 +33,7 @@ Pinflow: Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero 
 
 `docs/wiki/README.md` is the index. Pages: `architecture.md`, `core.md`, `voice.md`, `api.md`, `build-and-release.md`, `testing.md`. It exists so you don't re-derive the architecture every session — read the relevant page before grepping.
 
-**Keeping it fresh:** `docs/wiki/.last-sync` records the last commit the wiki reflects. Run `pnpm wiki:check` to detect drift. Before merging a feature branch to `main` (or when wiki:check fails), follow the update procedure in `.claude/skills/wiki-update/SKILL.md` — it is a plain-markdown playbook any agent (Claude Code, Codex) can execute. Do not hand-wave updates: the playbook diffs `.last-sync..HEAD` and updates only affected pages.
+**Keeping it fresh:** `docs/wiki/.last-sync` records the last commit the wiki reflects. Run `pnpm wiki:check` to detect drift. Before merging a feature branch to `main` (or when wiki:check fails), follow the update procedure in `.claude/skills/wiki-update/SKILL.md` — it is a plain-markdown playbook any coding agent can execute. Do not hand-wave updates: the playbook diffs `.last-sync..HEAD` and updates only affected pages.
 
 ## Commands
 
@@ -55,5 +55,6 @@ Pinflow: Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero 
 
 - Commits: conventional format (`feat:`, `fix:`, `docs:`, `chore:`, …); breaking changes as `feat(scope)!:`.
 - Plans live in `docs/plans/YYYY-MM-DD-NNN-<type>-<slug>-plan.md`.
-- Repo currently has **no git remote** — no PRs; work lands as commits on feature branches merged locally to `main`. CI workflows in `.github/workflows/` are dormant until the repo is pushed to GitHub.
+- Remote is `origin` (public GitHub). Work lands on feature branches merged to `main`; **pushing `main` triggers the release chain** (`release.yml` runs the full battery on that SHA, then changesets opens a "Version Packages" PR — npm publish happens only when that PR is merged).
+- **Run the full battery on the exact SHA you are pushing, not before your last commit.** `wiki:check` in particular goes stale the moment you touch a code path, so a gate run earlier in the session proves nothing about the tree you push.
 - Prettier formats the whole repo (`format:check` gates CI); run `pnpm format` before committing markdown or code.
