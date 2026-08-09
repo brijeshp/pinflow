@@ -186,6 +186,9 @@ test('AC12: marquee drag creates an area comment with an Area export line', asyn
   const md = await fs.readFile(path!, 'utf-8');
   expect(md).toContain('**Area:**');
   expect(md).toContain('> This whole area');
+
+  // The placed region leaves its marching-ants footprint on the page.
+  await expect(page.locator('[data-pinflow-root] .area')).toBeVisible();
 });
 
 // 0.5.0 — the stealth grammar: Alt+drag draws an area with no arming at all

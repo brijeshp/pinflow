@@ -41,6 +41,14 @@ export const STYLES =
   // Armed-mode hover outline: accent border + faint accent wash over the
   // element under the crosshair. pointer-events:none — purely indicative.
   '.hl{position:fixed;pointer-events:none;border:2px solid var(--pf-accent,#2563eb);background:color-mix(in oklab,var(--pf-accent,#2563eb) 8%,transparent);border-radius:4px;transition:.08s}' +
+  // Area footprint: the placed region's marching ants — four 1px edges from
+  // repeating-linear-gradients in currentColor (ONE color override covers the
+  // muted state) + a faint wash. background-color must come AFTER the
+  // background shorthand (the shorthand resets it). Ants freeze under
+  // prefers-reduced-motion.
+  '.area{position:fixed;pointer-events:none;opacity:.7;color:var(--pf-accent,#2563eb);background:repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 8px) 0 0/100% 1px no-repeat,repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 8px) 0 100%/100% 1px no-repeat,repeating-linear-gradient(0deg,currentColor 0 4px,transparent 4px 8px) 0 0/1px 100% no-repeat,repeating-linear-gradient(0deg,currentColor 0 4px,transparent 4px 8px) 100% 0/1px 100% no-repeat;background-color:color-mix(in oklab,currentColor 5%,transparent);animation:march 1s linear infinite}' +
+  '.area[data-status]{color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
+  '@keyframes march{to{background-position:8px 0,-8px 100%,0 -8px,100% 8px}}' +
   // Drag-to-marquee: the same box, plus a page-dimming "hole" — one huge
   // box-shadow spread instead of an overlay element. Must track the pointer
   // with zero lag, so the hover transition is dropped while dragging.
@@ -49,7 +57,7 @@ export const STYLES =
   // pop-in), docked beside the arm segment.
   '.chip{min-width:26px;padding:0 8px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);font-size:12px;transform:scale(0);animation:chippop .18s ease forwards}' +
   '@keyframes chippop{to{transform:scale(1)}}' +
-  '@media (prefers-reduced-motion:reduce){.pin{animation:none;transform:translate(-50%,-50%)}.chip{animation:none;transform:none}.hl{transition:none}}' +
+  '@media (prefers-reduced-motion:reduce){.pin{animation:none;transform:translate(-50%,-50%)}.chip{animation:none;transform:none}.hl{transition:none}.area{animation:none}}' +
   '@media (max-width:640px){.pin,.arm{width:32px;height:32px;font-size:13px}.chip{min-width:32px;height:32px;font-size:13px}.arm{font-size:17px}}' +
   '.input{position:fixed;pointer-events:auto;min-width:240px;max-width:320px;background:var(--pf-surface,light-dark(#fff,#1e222b));color:var(--pf-text,light-dark(#0f172a,#e7eaf1));border-radius:var(--pf-radius,10px);padding:10px;box-shadow:var(--pf-shadow,0 12px 32px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.08))}' +
   '.input textarea{width:100%;min-height:64px;max-height:160px;resize:none;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5}' +

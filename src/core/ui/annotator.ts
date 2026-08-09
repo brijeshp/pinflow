@@ -89,6 +89,11 @@ export class Annotator {
   private _store: ReviewerStore;
   private _annotating = false;
   private _pins = new Map<string, HTMLButtonElement>();
+  // Marching-ants footprints for area comments (one per visible area comment,
+  // keyed like _pins): the drawn region stays visible on the page, muted for
+  // dispositioned comments, hidden with orphans. pointer-events:none — the
+  // host page is never occluded interactively.
+  private _areas = new Map<string, HTMLDivElement>();
   // Reflow-path caches (P2.1/P2.2): repositioning runs at up to 60fps, so it
   // must never re-scan localStorage or re-run the selector ladder per frame.
   // Both are dropped whenever data or route changes (persist / renderPins).
@@ -1317,6 +1322,8 @@ export class Annotator {
     this._syncChip();
     for (const el of this._pins.values()) el.remove();
     this._pins.clear();
+    for (const el of this._areas.values()) el.remove();
+    this._areas.clear();
     const comments = this._visibleComments();
     comments.forEach((c, i) => {
       const target = resolveAnchor(c.anchor);
@@ -1348,10 +1355,35 @@ export class Annotator {
         }
         this._openInput(c.id);
       });
+      if (c.anchor.areaPercent) {
+        const area = el('div', 'area');
+        if (isResolved(c) && c.status) area.dataset['status'] = c.status;
+        this._placeArea(area, c, target);
+        this._ui.root.appendChild(area);
+        this._areas.set(c.id, area);
+      }
       this._placePin(pin, c, target);
       this._ui.root.appendChild(pin);
       this._pins.set(c.id, pin);
     });
+  }
+
+  // The footprint is the anchored element's live rect × the stored
+  // percentages — recomputed wherever pins are placed, so it rides the same
+  // cached-anchor reflow path (orphaned: hidden with its pin).
+  private _placeArea(area: HTMLDivElement, comment: Comment, target: Element | null): void {
+    const a = comment.anchor.areaPercent;
+    if (!target || !a) {
+      area.style.display = 'none';
+      return;
+    }
+    const r = target.getBoundingClientRect();
+    const s = area.style;
+    s.display = '';
+    s.left = `${r.left + (a.x / 100) * r.width}px`;
+    s.top = `${r.top + (a.y / 100) * r.height}px`;
+    s.width = `${(a.w / 100) * r.width}px`;
+    s.height = `${(a.h / 100) * r.height}px`;
   }
 
   private _placePin(pin: HTMLButtonElement, comment: Comment, target: Element | null): void {
@@ -1390,6 +1422,8 @@ export class Annotator {
         if (target) this._persistHeal(c.id, target);
       }
       this._placePin(pin, c, target);
+      const area = this._areas.get(id);
+      if (area) this._placeArea(area, c, target);
     }
     // Orphan state may have flipped either way — keep an open sheet honest.
     if (this._panelKind === 'sheet' && this._panelEl) {
