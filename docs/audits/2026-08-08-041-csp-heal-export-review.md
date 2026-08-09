@@ -80,9 +80,56 @@ not HTML; `quoted()` terminates correctly; packaging ships exactly the intended
 37 entries with no `demo/`, `docs/`, `.claude/` or scratch files, and no
 `/Users/` anywhere in `dist/`.
 
+## Round 2 — security — CHANGES_REQUESTED
+
+| #   | Finding                                                                                                                                                                                                                                                                                                                                                                                                                | Fix                                                               |
+| --- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| P1  | **The tag was the third interpolation on the label line and was still on the baseline escaper.** Round 1 fixed the attribute, round 2 the fingerprint; both left the tag. A stored css path forged an attribute the **non-global** regex returns _first_. Reachable via `source()`, an imported export, or tampered `localStorage` — `storage.ts` validates `selectors.css` as `typeof === 'string'` and nothing more. | `attr(tag)`.                                                      |
+| P2  | The backtick gap was a **class**, not two fields: accessible name, nearest heading, `font-family`, resolution and comment id were all live. `font-family` is the sharpest — `visualSnapshot` strips only outer quotes, so `font-family: "a\`b"` put a raw backtick in the artifact.                                                                                                                                    | Folded backtick handling into the baseline; **deleted `code()`**. |
+| P2  | The pack forbade shell interpolation and then supplied `rg -F -- '<value>'` — a single-quoted shell string, when the escapers _synthesise_ single quotes. The template is the part that gets copied.                                                                                                                                                                                                                   | Tool-call form first in all four formats; template removed.       |
+| P3  | The rules file scoped the shell rule to selector values only; `**Element:**` was not described as a display rendering; a mid-line `**Label:**` was not called out.                                                                                                                                                                                                                                                     | Aligned across all four.                                          |
+
+Fixed in `984b1e6`. Deleting the helper paid for itself: **14.93 → 14.91 KB gz**.
+
+## Round 3 — security — APPROVED
+
+Brute-forced **6,859** tag × testid × fingerprint combinations under both regex
+forms: **0 escapes**, and 0 raw backticks or angle brackets surviving anywhere
+in the label. All 20 interpolation sites confirmed routed; 17 fields probed for
+backtick parity, 0 unbalanced.
+
+Three non-blocking findings, landed anyway in `2a311dd`:
+
+- **P2** — the `id=` branch still yielded a spurious capture (342/6,859): with no
+  testid, the id's own closing quote paired with the fingerprint segment's
+  opening one. Not exploitable — `attr()` means the captured span is always
+  pinflow's own `>` (`and the attacker can neither lengthen nor choose it — but
+it broke a stated invariant, and **the property test hardcoded a testid, so
+the failing arm was the uncovered one.** Third round running, the uncovered
+arm was the one that failed. Fixed with typographic quotes on the fingerprint,
+removing the last free ASCII`"` from the line.
+- **P3** — removing the `rg -F` template had silently dropped the fixed-string
+  requirement. Without `-F` a page-controlled value is a **regex**: `.*` matches
+  the whole tree. Restored.
+- **P3** — "verbatim" was false for exactly one character, since `selectorLines`
+  also substitutes backticks. Corrected in the wording, not the code:
+  `selectorLines` must stay faithful because the pack now points searches there.
+
+Also added the structural test round 3 asked for: every `${…}` in `export.ts`
+must route through an escaper, asserted against the source.
+
 ## Process notes
 
-Three times this branch produced **a test that passed for the wrong reason**,
+**The escaper decision was the root cause, and enumeration never caught it.**
+Three security rounds each fixed the fields someone remembered and each missed
+one: the attribute, then the fingerprint, then the tag — plus a class of six
+that nobody had looked at. The per-field question "which escaper does this one
+need?" was the defect. Round 2 deleted the question by folding backtick
+handling into the baseline, and round 3 replaced the enumerative tests with a
+structural one asserted against the source. That test would have caught all
+three misses; no list of fields could have.
+
+Five times this branch produced **a test that passed for the wrong reason**,
 each caught before merge:
 
 1. `delivers the interactive rule via adopted` passed against the unbroken code,
@@ -92,6 +139,12 @@ each caught before merge:
    `''`. Found by the security reviewer, not by me.
 3. The image-src test used **paired** backticks, which balance — it passed
    against the bug. Fixed to an odd count before implementing.
+4. The element-label property test hardcoded a testid, leaving the `id=` arm
+   unexercised — and that was the arm still failing. Found in round 3.
+5. Two new selector tests were **flaky by construction**: they walk thousands of
+   nodes while the real 2 ms deadline runs, so a loaded machine fails them for
+   an unrelated reason, and an early deadline would have made one pass without
+   the fix. Both now freeze the clock.
 
 That is the same failure mode as the pre-existing assertion this release
 started by fixing (`export.test.ts` asserting no fabricated heading, which
@@ -106,9 +159,11 @@ there.
 
 ## Battery at verdict
 
-388 unit passed / 2 CI-only skips, 27 e2e across chromium + mobile-chrome +
-mobile-safari, coverage 96.12% lines / 92.22% branches (gate 80/75), typecheck
-clean, format clean, `wiki:check` in sync. All five bundles under ceilings:
-IIFE 14.93/15.0, ESM 14.58/14.65, voice 4.43/4.45, react 468/470, vue 604/610.
-Four patch changesets present. Live browser proof of the CSP fix under
-`style-src 'self'`.
+392 unit passed / 2 CI-only skips, 27 e2e across chromium + mobile-chrome +
+mobile-safari, coverage above the 80/75 gate, typecheck clean, format clean,
+`wiki:check` in sync. All five bundles under ceilings: IIFE 14.92/15.0, ESM
+14.57/14.65, voice 4.43/4.45, react 468/470, vue 604/610. Four patch changesets
+present. Live browser proof of the CSP fix under `style-src 'self'`.
+
+Five review rounds across two lenses: heal ladder CHANGES_REQUESTED → APPROVED,
+security CHANGES_REQUESTED → CHANGES_REQUESTED → APPROVED.
