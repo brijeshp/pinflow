@@ -5,7 +5,7 @@ description: Update docs/wiki/ to reflect code changes since the last sync. Use 
 
 # Wiki update procedure
 
-This playbook is plain markdown so ANY coding agent (Claude Code, Codex, or a human) can execute it. The wiki replaces per-session architecture re-derivation; its value collapses if it silently rots, so updates are diff-driven and end by moving the sync marker.
+This playbook is plain markdown so any coding agent — or a human — can execute it. The wiki replaces per-session architecture re-derivation; its value collapses if it silently rots, so updates are diff-driven and end by moving the sync marker.
 
 ## Contract
 

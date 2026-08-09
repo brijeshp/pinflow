@@ -15,7 +15,7 @@ const WATCHED = [
   'playwright.config.ts',
   'package.json',
   'tsconfig.json',
-  // Governed by build-and-release.md / testing.md too (codex audit #33):
+  // Governed by build-and-release.md / testing.md too (review #33):
   '.github/workflows',
   '.changeset',
   'tests',
