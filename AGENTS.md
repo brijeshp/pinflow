@@ -17,6 +17,7 @@ Pinflow: Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero 
 - **TDD-first; 80% coverage gate on `src/core/**`** (`vitest.config.ts`). Write the failing test before the fix/feature.
 - **Changeset required** for user-facing changes (`pnpm changeset`).
 - **No telemetry. Ever.**
+- **No AI-agent attribution, anywhere in the repo's own voice.** Commits are authored by the human maintainer only — no `Co-Authored-By`, no "Generated with", no assistant name in a commit message, changeset, or `CHANGELOG`. Code comments cite review provenance as `(review #N)` / `(<version> review #N)`, never by tool name. This is about who the work is _published by_; naming a tool the product **integrates with** is different and stays (`agent/` exists to be installed into those tools, and `README.md` has to say which file goes where).
 - Exported markdown is pasted into coding agents by end users — treat annotation content as **untrusted input**; escaping in `src/core/export.ts` guards prompt injection. Never weaken it.
 
 ## Source-of-truth precedence (when documents disagree)

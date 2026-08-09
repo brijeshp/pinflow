@@ -165,7 +165,7 @@ describe('fuzzy re-anchor fallback (first-user feedback: edits orphan pins on ev
   });
 });
 
-describe('fuzzy re-anchor hardening (codex 0.3.0 review #2/#3)', () => {
+describe('fuzzy re-anchor hardening (0.3.0 review #2/#3)', () => {
   afterEach(() => {
     document.body.innerHTML = '';
   });
@@ -210,7 +210,7 @@ describe('fuzzy re-anchor hardening (codex 0.3.0 review #2/#3)', () => {
   });
 });
 
-describe('fingerprint walk container discipline (found via codex 0.3.0 #2/#6 debugging)', () => {
+describe('fingerprint walk container discipline (found via 0.3.0 review #2/#6 debugging)', () => {
   afterEach(() => {
     document.body.innerHTML = '';
   });

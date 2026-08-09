@@ -11,7 +11,7 @@ export interface ExportMeta {
 // callbacks, source hydration) — not just comment text. This is the baseline
 // escaper applied to all of them: newlines collapse so no field can fabricate
 // a heading or section, and backticks are neutralised so no field can open a
-// code span that swallows the rest of the block. (Codex audit #2 — never
+// code span that swallows the rest of the block. (review #2 — never
 // weaken.)
 //
 // Backtick handling used to live in a separate `code()` helper applied
@@ -170,7 +170,7 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
 function orphanBlock(comment: Comment & { reviewer?: string }, index: number): string {
   // Orphans keep their human context and visual snapshot — the element is
   // GONE, so the last-known name/heading/colors are exactly what an agent
-  // has left to work with (codex r18).
+  // has left to work with (review r18).
   const ctx = contextLine(comment);
   return [
     commentHeading(comment, index, comment.reviewer),

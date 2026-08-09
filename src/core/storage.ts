@@ -14,7 +14,7 @@ interface PersistedStore extends ReviewerStore {
 }
 
 // Components are URI-encoded so a ':' inside a project or reviewer name can't
-// alias another namespace (codex audit #19: project "a" + reviewer "b:c" must
+// alias another namespace (review #19: project "a" + reviewer "b:c" must
 // never equal project "a:b" + reviewer "c"). Colon-free values — every real
 // deployment observed — encode to themselves, so existing keys are unchanged.
 export function storageKey(project: string, reviewer: string): string {
@@ -89,7 +89,7 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
   const vp = anchor['viewport'];
   // Numeric leaves are dereferenced unguarded downstream (Math.round on
   // export, pixel math on render) — NaN/absent must drop the record, not
-  // produce "NaN%" artifacts (codex audit #20).
+  // produce "NaN%" artifacts (review #20).
   return (
     isObject(selectors) &&
     typeof selectors['css'] === 'string' &&
@@ -108,7 +108,7 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     finite(vp['height']) &&
     vp['width'] > 0 &&
     vp['height'] > 0 &&
-    // Optional shapes at their REAL locations (codex r3: context lives on
+    // Optional shapes at their REAL locations (review r3: context lives on
     // the anchor, not the comment): reject records whose context, fingerprint,
     // or voice metadata would corrupt export or render.
     optStr(anchor['textFingerprint']) &&
@@ -122,7 +122,7 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
 // survivor carries a `modality` (v1 stores predate the field). v3 disposition
 // fields are optional: an invalid status/resolution is stripped, not fatal.
 // Exported for the source-hydration boundary: host-supplied payloads get the
-// exact same distrust as localStorage blobs (codex audit #18).
+// exact same distrust as localStorage blobs (review #18).
 export function normalizeComments(input: unknown): Comment[] {
   if (!Array.isArray(input)) return [];
   return input
@@ -182,7 +182,7 @@ export function loadStore(
   }
   const store = migrate(parsed);
   // A legacy raw key is ambiguous ("a:b:c" parses two ways) — trust it only
-  // when the blob's OWN embedded scope matches the request (codex audit #19).
+  // when the blob's OWN embedded scope matches the request (review #19).
   if (legacy && store && (store.project !== project || store.reviewer !== reviewer)) return null;
   return store;
 }

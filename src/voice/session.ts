@@ -32,7 +32,7 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
   let stream: TranscriptionStream | null = null;
   // 'recording' → ('finalizing' →) 'settled': persistence happens exactly once,
   // on the transition INTO 'settled'. dispose() during 'finalizing' releases
-  // hardware but leaves persistence to the in-flight stop() (codex audit #5).
+  // hardware but leaves persistence to the in-flight stop() (review #5).
   let phase: 'recording' | 'finalizing' | 'settled' = 'recording';
   let disposed = false;
   const aborted = (): boolean => host.signal?.aborted === true;
@@ -47,7 +47,7 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
 
   // Hoisted ABOVE provider.open: the provider can fire onError while
   // capture.start() is still pending, and persist must exist by then
-  // (codex audit #17 — TDZ on the error path).
+  // (review #17 — TDZ on the error path).
   const persist = (text: string, interim: boolean): void => {
     if (text.trim().length === 0) {
       host.discard();
@@ -82,7 +82,7 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
       onError: (err) => {
         host.logger.warn('voice provider error', err);
         // A post-open provider failure must not leave a dead recording with a
-        // live microphone (codex audit #17): salvage what was heard and stop.
+        // live microphone (review #17): salvage what was heard and stop.
         if (phase !== 'recording') return;
         phase = 'settled';
         void deps.capture.stop();
@@ -130,7 +130,7 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
 
   if (phase !== 'recording') {
     // A provider error settled the session while the mic was still being
-    // acquired (codex audit #17): the late stream must not keep recording.
+    // acquired (review #17): the late stream must not keep recording.
     void deps.capture.stop();
     return noopSession;
   }
@@ -141,7 +141,7 @@ export async function startSession(host: VoiceHost, deps: SessionDeps): Promise<
       phase = 'finalizing';
       store.beginFinalize();
       // Await the flush handshake so the last partial PCM buffer is on the
-      // wire BEFORE the finalize frame (codex audit #21).
+      // wire BEFORE the finalize frame (review #21).
       await deps.capture.stop();
       try {
         await stream?.finalize();

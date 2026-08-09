@@ -10,7 +10,7 @@ async function importIife(attrs: Record<string, string>): Promise<void> {
   await import('../../src/core/iife');
 }
 
-describe('IIFE auto-init activation parsing (codex 0.3.0 #8)', () => {
+describe('IIFE auto-init activation parsing (0.3.0 review #8)', () => {
   afterEach(async () => {
     const { destroy } = await import('../../src/core/index');
     destroy();

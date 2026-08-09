@@ -62,7 +62,7 @@ interface AnnotatorDeps {
 interface ActiveVoice {
   mount: HTMLDivElement;
   session: VoiceSession | null;
-  /** Aborts in-flight startup (token/socket/mic) on teardown — codex #4. */
+  /** Aborts in-flight startup (token/socket/mic) on teardown — review #4. */
   abort: AbortController;
 }
 
@@ -99,7 +99,7 @@ export class Annotator {
   // Anytime-export affordance: the count chip, whichever element anchors the
   // open panel (control in toggle mode, chip for the export sheet), which KIND
   // of panel is up (a sheet summon must replace a menu/confirmation, not just
-  // toggle it away — codex #4), and the sheet's outside-dismiss teardown.
+  // toggle it away — review #4), and the sheet's outside-dismiss teardown.
   private _chipEl: HTMLButtonElement | null = null;
   private _panelAnchor: HTMLElement | null = null;
   private _panelKind: 'menu' | 'sheet' | 'confirm' | null = null;
@@ -108,7 +108,7 @@ export class Annotator {
   private _prevBodyCursor = '';
   private _reflowFrame = 0;
   private _orphanRetryAt = 0;
-  // Builder-mode reviewer filter: unchecked reviewers' pins hide (codex #14).
+  // Builder-mode reviewer filter: unchecked reviewers' pins hide (review #14).
   private readonly _builderHidden = new Set<string>();
   private _gesture: GestureController | null = null;
   // Bumped on every teardown (destroy/route change) so in-flight async voice
@@ -120,7 +120,7 @@ export class Annotator {
   private _activeVoice: ActiveVoice | null = null;
   // Deletion tombstones for the window where a source() hydration is in
   // flight: a snapshot fetched BEFORE a delete must not resurrect the
-  // deleted comment when it resolves AFTER it (codex 0.3.0 P1) — and a
+  // deleted comment when it resolves AFTER it (0.3.0 review P1) — and a
   // resurrected copy would even re-announce as an 'add' on the next
   // reconcile, restoring it server-side.
   private _pendingDeletes: Set<string> | null = null;
@@ -149,7 +149,7 @@ export class Annotator {
     window.addEventListener('resize', this._onReflow);
     // Capture phase: scroll events on nested overflow containers do NOT
     // bubble, but they DO capture through document — without this, pins over
-    // inner scrollareas keep stale fixed coordinates (codex audit #6).
+    // inner scrollareas keep stale fixed coordinates (review #6).
     document.addEventListener('scroll', this._onReflow, { passive: true, capture: true });
     // Desktop accelerator for the export sheet. A chord, so it can never
     // collide with typing in host inputs; gated at registration (config is
@@ -166,7 +166,7 @@ export class Annotator {
     const k = e as KeyboardEvent;
     if (k.repeat) return; // held chord must not strobe the sheet
     if (!(k.metaKey || k.ctrlKey) || !k.shiftKey || k.key.toLowerCase() !== 'e') return;
-    // The chord stays the HOST'S unless pinflow will actually act (codex #11):
+    // The chord stays the HOST'S unless pinflow will actually act (review #11):
     // an open sheet toggles closed; otherwise there must be something to export.
     if (this._panelKind !== 'sheet' && this._store.comments.length === 0) return;
     k.preventDefault();
@@ -190,13 +190,13 @@ export class Annotator {
     if (!source || this._deps.mode !== 'reviewer' || this._reviewer === null) return;
     // Guarded by destruction and IDENTITY, not the route generation: a SPA
     // navigating during a slow fetch must still receive its server comments
-    // (codex audit #3). Route changes only re-render; they don't invalidate
+    // (review #3). Route changes only re-render; they don't invalidate
     // the corpus the fetch belongs to.
     const forReviewer = this._reviewer;
     // The host callback is called synchronously (tests and hosts may hand
     // out the resolver immediately) but a synchronous THROW is contained the
     // same as a rejection, and the payload is normalized like any untrusted
-    // blob — a non-array or malformed entries never reach merge (codex #18).
+    // blob — a non-array or malformed entries never reach merge (review #18).
     let fetched: Promise<unknown>;
     try {
       fetched = Promise.resolve(source());
@@ -210,7 +210,7 @@ export class Annotator {
         if (this._pendingDeletes === tombstones) this._pendingDeletes = null;
         if (this._destroyed || this._reviewer !== forReviewer) return;
         const server = normalizeComments(raw).filter((c) => !tombstones.has(c.id));
-        // Two repair cases (codex r16): an id the server LACKS re-announces
+        // Two repair cases (review r16): an id the server LACKS re-announces
         // as 'add'; an id the server has but with an older updatedAt (a lost
         // update — the merge keeps the local content) re-announces as
         // 'update'. Server-newer/tie stays silent (no-echo rule).
@@ -294,7 +294,7 @@ export class Annotator {
     if (v) {
       this._activeVoice = null;
       // A session already RECORDING finalizes normally; startup still in
-      // flight aborts (no session yet to stop) — codex #4.
+      // flight aborts (no session yet to stop) — review #4.
       if (!v.session) v.abort.abort();
       const mount = v.mount;
       void Promise.resolve(v.session?.stop()).finally(() => mount.remove());
@@ -353,7 +353,7 @@ export class Annotator {
     if (!cb || this._destroyed) return;
     try {
       // Promise-wrap so a rejected ASYNC handler is contained exactly like a
-      // synchronous throw (codex audit #10) — the documented guarantee.
+      // synchronous throw (review #10) — the documented guarantee.
       void Promise.resolve(cb(this._store, { type, comment })).catch((err) =>
         this._voiceLogger.warn('onChange handler threw', err),
       );
@@ -415,7 +415,7 @@ export class Annotator {
   // Anchor the panel above whatever summoned it (control bottom-right, chip
   // bottom-left), aligned to the anchor's near edge; flipPosition handles
   // tiny viewports. An anchor can leave the DOM while an async export is in
-  // flight (last comment deleted → chip unmounted — codex #6): fall back to
+  // flight (last comment deleted → chip unmounted — review #6): fall back to
   // the control, then to the chip's home corner.
   private _positionPanel(): void {
     if (!this._panelEl) return;
@@ -499,7 +499,7 @@ export class Annotator {
     // the very element just cached — flushing it would force a redundant
     // ladder walk on the next reflow frame (P2.2 would regress). The VISIBLE
     // cache, however, still holds pre-heal comment objects and must go, or
-    // later re-resolves would use the stale selectors (codex 0.3.0 #6).
+    // later re-resolves would use the stale selectors (0.3.0 review #6).
     this._visibleCache = null;
     saveStore(this._deps.storage, this._store);
   }
@@ -511,7 +511,7 @@ export class Annotator {
         this._chipEl.remove();
         this._chipEl = null;
         // The sheet is meaningless without comments; menus/confirmations stay
-        // (the confirmation must survive its own export — codex #6 anchors it
+        // (the confirmation must survive its own export — review #6 anchors it
         // through the connectivity fallback instead).
         if (this._panelKind === 'sheet') this._closePanel();
       }
@@ -530,7 +530,7 @@ export class Annotator {
     this._chipEl.setAttribute('aria-label', label);
     this._chipEl.title = label;
     // An open sheet tracks the corpus live (hydration merge, voice commit,
-    // deletes) — Export always uses the store, so the label must too (codex #5).
+    // deletes) — Export always uses the store, so the label must too (review #5).
     if (this._panelKind === 'sheet' && this._panelEl) {
       const h = this._panelEl.querySelector('h3');
       if (h) h.textContent = this._sheetTitle();
@@ -546,12 +546,12 @@ export class Annotator {
       this._closePanel();
       return;
     }
-    this._closePanel(); // a summon REPLACES a menu/confirmation (codex #4)
-    // Resolve any open draft losslessly before exporting (codex #3): typed
+    this._closePanel(); // a summon REPLACES a menu/confirmation (review #4)
+    // Resolve any open draft losslessly before exporting (review #3): typed
     // text is saved; a still-empty draft is deleted by the save path.
     this._activeInput?.save();
     // The save can delete the sole (empty) comment — nothing left to export
-    // means nothing to summon (codex #8).
+    // means nothing to summon (review #8).
     if (this._store.comments.length === 0 || !this._chipEl?.isConnected) return;
     const sheet = this._makePanel(
       this._sheetTitle(),
@@ -570,7 +570,7 @@ export class Annotator {
     this._positionPanel();
     // The chip is exempt from outside-dismiss: its own click must reach the
     // toggle (a physical tap's pointerup would otherwise close the sheet and
-    // the trailing click reopen it — codex #7).
+    // the trailing click reopen it — review #7).
     this._sheetDismiss = this._armOutsideDismiss(
       () => [sheet, this._chipEl],
       () => this._closePanel(),
@@ -613,7 +613,7 @@ export class Annotator {
     const n = this._store.comments.length;
     this._closePanel();
     // Entering a destructive flow ends pinning; Cancel must not leave the
-    // page armed behind the reviewer's back (codex 0.3.0 #4).
+    // page armed behind the reviewer's back (0.3.0 review #4).
     if (this._annotating) this._exitAnnotateMode();
     const panel = this._makePanel(
       `Delete ${n} comment${n === 1 ? '' : 's'}?`,
@@ -801,7 +801,7 @@ export class Annotator {
 
   // `route`/`fullUrl` default to the current location; the voice degrade path
   // passes BOTH frozen at dot creation — they describe one moment and must
-  // never split across a navigation (codex audit #32).
+  // never split across a navigation (review #32).
   private _commitTextComment(
     anchor: Anchor,
     text: string,
@@ -851,7 +851,7 @@ export class Annotator {
     this._activeVoice = active;
     const myGen = this._generation;
     const route = this._routeKey();
-    // fullUrl freezes WITH the route (codex audit #32): both describe where
+    // fullUrl freezes WITH the route (review #32): both describe where
     // the recording began, and navigation mid-finalize must not split them.
     const host = this._buildVoiceHost(mount, anchor, route, window.location.href, active, myGen);
 
@@ -913,7 +913,7 @@ export class Annotator {
       // DOM or instance state — but a transcript that finished finalizing
       // AFTER destroy() (stop() was in flight when the host tore down) is
       // still the reviewer's words: persist it STORAGE-ONLY so it is not
-      // lost (codex audit #5). Reads the stored corpus fresh because
+      // lost (review #5). Reads the stored corpus fresh because
       // `this._store` is part of the dead world.
       commit: ({ text, voice }) => {
         if (this._destroyed) {
@@ -1051,7 +1051,7 @@ export class Annotator {
     // Orphan recovery is bounded, not per-frame: an anchor that mounted AFTER
     // the initial render (async host content) re-runs the ladder at most every
     // 500ms during reflow, so scrolling stays cheap while orphans can heal
-    // (codex audit #22).
+    // (review #22).
     const t = performance.now();
     const retryOrphans = t - this._orphanRetryAt > 500;
     if (retryOrphans) this._orphanRetryAt = t;
@@ -1117,7 +1117,7 @@ export class Annotator {
       const persisted = this._store.comments.find((c) => c.id === commentId);
       // Hydration can disposition this very comment while the editor is open;
       // a resolved record is the team's, so the stale edit is discarded
-      // (codex audit #7).
+      // (review #7).
       if (persisted && isResolved(persisted)) {
         this._closeActiveInput(false);
         return;
@@ -1147,7 +1147,7 @@ export class Annotator {
     };
     ta.addEventListener('keydown', onKey);
     // The chip is exempt so a tap on it reaches _toggleSheet, which saves this
-    // draft losslessly instead of the outside-tap discarding it (codex #3).
+    // draft losslessly instead of the outside-tap discarding it (review #3).
     const disarm = this._armOutsideDismiss(
       () => [wrap, this._chipEl],
       () => this._closeActiveInput(),
@@ -1190,7 +1190,7 @@ export class Annotator {
     };
   }
 
-  // Builder pins open a READ-ONLY view (codex #14): the aggregate is the
+  // Builder pins open a READ-ONLY view (review #14): the aggregate is the
   // team's record, so text is selectable/copyable but never editable here,
   // with the reviewer attribution and any disposition beneath. Same dismiss
   // semantics as every other surface.
@@ -1236,7 +1236,7 @@ export class Annotator {
   // count as primary. Shared by the draft popup and the export sheet; the
   // returned disarm is idempotent-safe cleanup. `within` is a thunk returning
   // the elements that do NOT count as outside (the surface itself + the chip,
-  // whose taps must reach their own click handlers — codex #3/#7); a thunk
+  // whose taps must reach their own click handlers — review #3/#7); a thunk
   // because the chip can be created/removed while the surface is open.
   private _armOutsideDismiss(
     within: () => Array<HTMLElement | null>,
@@ -1251,7 +1251,7 @@ export class Annotator {
       const p = e as PointerEvent;
       if (p.isPrimary === false) {
         // A second finger ANYWHERE (even on the surface) makes this a pinch,
-        // so the containment check must come after — codex r20.
+        // so the containment check must come after — review r20.
         pendingTap = null;
         return;
       }
@@ -1370,14 +1370,14 @@ export class Annotator {
 
   private async _handleReviewerExport(clear = false): Promise<void> {
     // Export is a terminal action for the armed state: the reviewer moved on
-    // from pinning (codex 0.3.0 #4). Disarm BEFORE capturing the ownership
+    // from pinning (0.3.0 review #4). Disarm BEFORE capturing the ownership
     // panel — disarming may rebuild an open menu.
     if (this._annotating) this._exitAnnotateMode();
     const [md, filename] = this._buildArtifact();
     download(md, filename);
     const startedFrom = this._panelEl;
     const copied = await copyToClipboard(md);
-    // A slow clipboard must not resurrect stale UI (codex audit #23): the
+    // A slow clipboard must not resurrect stale UI (review #23): the
     // confirmation appears only if the EXACT surface that launched the export
     // is still open — a closed or replaced panel invalidates it entirely.
     if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;

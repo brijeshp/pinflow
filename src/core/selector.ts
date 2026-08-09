@@ -49,7 +49,7 @@ const FP_SCAN_LIMIT = 2048;
 const FUZZY_THRESHOLD = 0.6;
 
 // Below this fingerprint length, fuzzy matching is disabled outright: bigram
-// sets of tiny strings make 'No' vs 'Not' score 0.67 (codex 0.3.0 #3).
+// sets of tiny strings make 'No' vs 'Not' score 0.67 (0.3.0 review #3).
 const FUZZY_MIN_FP = 12;
 
 // Sørensen–Dice similarity over character bigrams — deterministic, no deps,
@@ -257,7 +257,7 @@ export function findByCandidates(
     // child's fingerprint — both the exact and fuzzy passes therefore prefer
     // the DEEPEST element on a containment chain, and structural containers
     // (html/body) are never candidates: pinning <html> is how a heal once
-    // persisted an empty css path (codex 0.3.0 #2).
+    // persisted an empty css path (0.3.0 review #2).
     const want = bigrams(fingerprint.toLowerCase());
     const wantTag = tagFromCss(selectors.css);
     let exact: Element | null = null;
@@ -294,7 +294,7 @@ export function findByCandidates(
         if (!exact || exact.contains(el)) exact = el;
       } else if (!exact && fp && fingerprint.length >= FUZZY_MIN_FP) {
         // The floor gates RAW similarity — the tag bias must never smuggle a
-        // sub-threshold match through (codex 0.3.0 #3). Fuzzy is a lightly-
+        // sub-threshold match through (0.3.0 review #3). Fuzzy is a lightly-
         // reworded-element rescue (first-user feedback: the edit loop broke
         // an anchor on almost every pass); an exact match anywhere wins.
         const raw = dice(want, bigrams(fp.toLowerCase()));

@@ -158,7 +158,7 @@ describe('visual context capture (agent blast radius)', () => {
     expect(styles).not.toHaveProperty('radius'); // 0px default
   });
 
-  it('caps the accessible name at 80 chars even for CMS-length alt text (codex r18)', () => {
+  it('caps the accessible name at 80 chars even for CMS-length alt text (review r18)', () => {
     document.body.innerHTML = `<img id="long" alt="${'a'.repeat(300)}" src="/x.jpg">`;
     const anchor = buildAnchor(document.getElementById('long')!, 5, 5);
     expect(anchor.context?.name?.length).toBe(80);

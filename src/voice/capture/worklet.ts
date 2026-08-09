@@ -5,7 +5,7 @@
 // Exported for tests only — the test harness compiles this string with the
 // AudioWorklet globals stubbed (there is no worklet runtime in happy-dom).
 // Inside the template: stop/flush handshake ('flush' in → partial buffer +
-// 'flushed' out, codex #21) and average-over-REAL-samples decimation (the
+// 'flushed' out, review #21) and average-over-REAL-samples decimation (the
 // fractional cadence lives in `phase` alone, so amplitude never dilutes).
 // Comments must stay OUT of the template — it ships verbatim in the bundle.
 export const WORKLET_SOURCE = `

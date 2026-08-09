@@ -60,7 +60,7 @@ describe('React <Annotator />', () => {
     expect(typeof mod.Annotator).toBe('function');
   });
 
-  it('re-inits when exportUi changes (codex #9: wrapper contract parity)', async () => {
+  it('re-inits when exportUi changes (review #9: wrapper contract parity)', async () => {
     const React = await import('react');
     const { createRoot } = await import('react-dom/client');
     const { Annotator } = await import('../../src/react/index');
@@ -86,7 +86,7 @@ describe('React <Annotator />', () => {
   });
 });
 
-it('delegates function props through the latest render — no stale closures, no re-init (codex audit #9)', async () => {
+it('delegates function props through the latest render — no stale closures, no re-init (review #9)', async () => {
   const React = await import('react');
   const { createRoot } = await import('react-dom/client');
   const { Annotator } = await import('../../src/react/index');
@@ -118,7 +118,7 @@ it('delegates function props through the latest render — no stale closures, no
   });
 });
 
-it('re-inits when a function prop is ADDED or REMOVED (presence drives core behavior) (codex #9, r2)', async () => {
+it('re-inits when a function prop is ADDED or REMOVED (presence drives core behavior) (review #9, r2)', async () => {
   const React = await import('react');
   const { createRoot } = await import('react-dom/client');
   const { Annotator } = await import('../../src/react/index');

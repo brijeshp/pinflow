@@ -329,7 +329,7 @@ describe('export UI — hotkey (⌘/Ctrl+Shift+E)', () => {
     });
     document.dispatchEvent(ev);
     expect(shadow().querySelector('.panel')).toBeNull();
-    // pinflow took no action, so the host keeps its shortcut (codex #11).
+    // pinflow took no action, so the host keeps its shortcut (review #11).
     expect(ev.defaultPrevented).toBe(false);
 
     annotator.destroy();
@@ -360,7 +360,7 @@ describe('export UI — hotkey (⌘/Ctrl+Shift+E)', () => {
   });
 });
 
-describe('export UI — codex review hardening (surface states, real pointer ordering)', () => {
+describe('export UI — review hardening (surface states, real pointer ordering)', () => {
   let annotator: Annotator | null = null;
 
   afterEach(() => {
@@ -547,7 +547,7 @@ describe('export UI — codex review hardening (surface states, real pointer ord
   });
 });
 
-describe('late clipboard vs closed surfaces (codex audit #23, r2)', () => {
+describe('late clipboard vs closed surfaces (review #23, r2)', () => {
   let annotator: Annotator | null = null;
 
   afterEach(() => {
@@ -684,7 +684,7 @@ describe('sheet surfaces unanchored comments (0.3.0 orphan tray-row)', () => {
   });
 });
 
-describe('secondary panel actions disarm annotate mode (codex 0.3.0 #4)', () => {
+describe('secondary panel actions disarm annotate mode (0.3.0 review #4)', () => {
   let annotator: Annotator | null = null;
 
   afterEach(() => {
@@ -727,7 +727,7 @@ describe('secondary panel actions disarm annotate mode (codex 0.3.0 #4)', () => 
   });
 });
 
-describe('orphan state stays live through reposition (codex 0.3.0 #9)', () => {
+describe('orphan state stays live through reposition (0.3.0 review #9)', () => {
   let annotator: Annotator | null = null;
 
   afterEach(() => {
@@ -786,7 +786,7 @@ describe('orphan state stays live through reposition (codex 0.3.0 #9)', () => {
   });
 });
 
-describe('hydration races (codex 0.3.0 P1 + heal overlay)', () => {
+describe('hydration races (0.3.0 review P1 + heal overlay)', () => {
   let annotator: Annotator | null = null;
 
   afterEach(() => {

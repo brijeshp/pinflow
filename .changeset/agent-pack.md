@@ -3,10 +3,10 @@
 ---
 
 Adds an `agent/` folder to the package: the reading protocol for a Pinflow
-artifact, in the formats coding agents actually load — a Claude Code skill and
-slash command, a Cursor/Windsurf rule, and an `AGENTS.md` snippet. None of it is
-code, so it adds nothing to the browser bundle, and it improves every artifact
-already exported.
+artifact, in the four formats coding agents actually load — a skill, a slash
+command, an editor rule, and an `AGENTS.md` snippet. None of it is code, so it
+adds nothing to the browser bundle, and it improves every artifact already
+exported. `agent/README.md` maps each file to the tools that read it.
 
 The artifact has always been descriptive rather than instructional, and several
 fields are easy to misread: `**Position:**` is a percentage inside the element

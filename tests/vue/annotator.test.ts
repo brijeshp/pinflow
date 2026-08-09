@@ -32,7 +32,7 @@ describe('Vue <Annotator />', () => {
     wrapper.unmount();
   });
 
-  it('forwards exportUi to init (codex #1: wrapper contract parity)', async () => {
+  it('forwards exportUi to init (review #1: wrapper contract parity)', async () => {
     const { Annotator } = await import('../../src/vue/index');
     const wrapper = mount(Annotator, { project: 'vue-test', exportUi: 'always' });
     await vi.dynamicImportSettled();
