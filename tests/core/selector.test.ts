@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   buildSelectors,
   findByCandidates,
@@ -256,5 +256,223 @@ describe('fuzzy minimum-fingerprint boundary (verification round)', () => {
     expect(probe('elevenchars', 'elevenchara')).toBeNull();
     // 12 chars, one char edited → fuzzy eligible and similar enough.
     expect(probe('twelve chars', 'twelve charz')).not.toBeNull();
+  });
+});
+
+// 0.4.1 P2. The heal ladder shipped three defects on one path: it trusted
+// position over contradicting content, it burned its walk budget on <head>,
+// and it normalised entire subtrees to keep 80 characters. These must land
+// together — verify-before-trust makes the fingerprint walk run on every
+// successful positional resolve, so without the other two it is a regression.
+describe('heal correctness under stress (0.4.1 P2)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  // P2c. A positional rung proves only that SOMETHING still sits at that path.
+  // Virtualised lists and infinite scroll recycle nodes, so a stale
+  // li:nth-of-type(1) resolves confidently onto different content. selector.ts
+  // calls a wrong re-anchor "worse than an honest orphan" — and the rung
+  // ordering guaranteed one.
+  it('a recycled positional hit loses to the element that carries the fingerprint', () => {
+    document.body.innerHTML =
+      '<ul><li>Wireless keyboard, black</li><li>Order number 1042 shipped</li></ul>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: 'li:nth-of-type(1)', xpath: '/html/body/ul[1]/li[1]' },
+      'Order number 1042 shipped',
+    );
+    expect(found?.textContent).toBe('Order number 1042 shipped');
+  });
+
+  // Conservatism cuts both ways: when nothing corroborates, the positional hit
+  // is still better than nothing, so it must survive as the fallback.
+  it('keeps the positional hit when no element corroborates the fingerprint', () => {
+    document.body.innerHTML = '<ul><li>Wireless keyboard, black</li></ul>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: 'li:nth-of-type(1)', xpath: '/html/body/ul[1]/li[1]' },
+      'Order number 1042 shipped',
+    );
+    expect(found?.textContent).toBe('Wireless keyboard, black');
+  });
+
+  // P2b. The walk started at the document root, so <head> was scored. A page
+  // titled "Checkout" would heal a pin on a "Checkout" heading to <title> —
+  // an exact match, found first, and never displaced because the deepest-wins
+  // rule only replaces a match with its own descendant.
+  it('never heals to an element inside <head>', () => {
+    const doc = new DOMParser().parseFromString(
+      '<html><head><title>Checkout</title></head><body><main><h1>Checkout</h1></main></body></html>',
+      'text/html',
+    );
+    const found = findByCandidates(
+      doc,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'Checkout',
+    );
+    expect(found?.tagName).toBe('H1');
+  });
+
+  // P2a. getTextFingerprint normalised the whole subtree before slicing to 80.
+  // A naive `slice(400)` before the regex is 81x faster but WRONG on
+  // pretty-printed markup, which is mostly whitespace: it would silently
+  // shorten fingerprints and orphan every existing pin on upgrade.
+  it('bounds the work without shortening the fingerprint on whitespace-heavy markup', () => {
+    const items = Array.from(
+      { length: 400 },
+      (_, i) => `\n${' '.repeat(40)}<span>${String.fromCharCode(97 + (i % 26))}</span>`,
+    ).join('');
+    document.body.innerHTML = `<div id="ws">${items}\n</div>`;
+    const el = document.getElementById('ws')!;
+    const naive = (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 80);
+    expect(getTextFingerprint(el)).toBe(naive);
+    expect(getTextFingerprint(el)).toHaveLength(80);
+  });
+
+  // Round 1 P1. Demotion must never let a WORSE match win. A positional hit
+  // that css and xpath both agree on outranks a merely-fuzzy stranger — and
+  // getting this backwards is not transient: _persistHeal writes the resolved
+  // element back into anchor.selectors, so the next load corroborates the
+  // stranger trivially and the original anchor is unrecoverable. The trigger is
+  // a reviewer asking for copy to be rewritten, the most common request there is.
+  it('a fuzzy stranger never outranks a positional hit whose text was legitimately rewritten', () => {
+    document.body.innerHTML =
+      '<main>' +
+      '<p id="real">Get started in seconds</p>' +
+      '<p id="stranger">Start your free 30-day trial today, no card</p>' +
+      '</main>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#real', xpath: '/html/body/main[1]/p[1]' },
+      'Start your free 30-day trial today, no credit card required',
+    );
+    expect(found?.id).toBe('real');
+  });
+
+  // Round 1 P2. Moving the counter below the skip meant skipped nodes cost
+  // nothing — and once an exact match exists, EVERY remaining node is skipped.
+  // Measured at 16,002 of 16,005 elements walked with both bounds nominally in
+  // force, against main's 2,001. Pre-order traversal makes the match's subtree
+  // contiguous, so the first non-descendant ends the walk.
+  it('stops walking once the exact match subtree is behind it', () => {
+    // Same reason: the deadline firing early would make this pass without the
+    // break, i.e. for the wrong reason.
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    const noise = Array.from({ length: 800 }, (_, i) => `<p>filler ${i}</p>`).join('');
+    document.body.innerHTML = `<main><p>the pinned paragraph text</p>${noise}</main>`;
+    const spy = vi.spyOn(Element.prototype, 'contains');
+    findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'the pinned paragraph text',
+    );
+    // One containment probe to discover the subtree ended, not one per node.
+    expect(spy.mock.calls.length).toBeLessThan(20);
+  });
+
+  // Round 1 P2. tagName preserves case outside the HTML namespace, so an SVG
+  // <title> reports 'title' and slipped the skip list — the same zero-layout
+  // wrong-attach the <head> fix exists to prevent. Uppercasing the tag before
+  // the test closes it (and makes the whole list work in XHTML, where every
+  // entry was previously inert).
+  //
+  // KNOWN RESIDUAL, deliberately not fixed here: the enclosing <svg> still
+  // matches, because textContent aggregates its <title> child. That is a much
+  // milder case — the <svg> has a layout box, so the pin is placeable and the
+  // reviewer may genuinely have pinned the icon. Suppressing it would mean
+  // custom text extraction per candidate, which is a real cost for a narrow
+  // case. Asserting the safety property rather than a specific winner.
+  it('never heals to a zero-box SVG metadata node', () => {
+    document.body.innerHTML =
+      '<main><svg viewBox="0 0 1 1"><title>Checkout</title><circle r="1"/></svg><h1>Checkout</h1></main>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'Checkout',
+    );
+    expect(found?.tagName.toUpperCase()).not.toBe('TITLE');
+    expect(found?.tagName.toUpperCase()).not.toBe('DESC');
+    // Pin the documented residual too, so a future change cannot move it
+    // silently and quietly turn the comment above into fiction.
+    expect(found?.tagName.toUpperCase()).toBe('SVG');
+  });
+
+  // Round 2 P2. Charging budget before the tag skip stopped a <select> of
+  // <option>s outrunning the bound, but reintroduced main's starvation: 1,500
+  // <source> elements in a gallery evict real content from the 2,000-node cap
+  // and the heal lands on the page container — a wrong attach. Two counters:
+  // a scored-node budget for semantics, a visit budget as the safety valve.
+  it('elements that can never be pin targets do not starve the scored-node budget', () => {
+    // Freeze the clock: this asserts the COUNT budget, and leaving the 2 ms
+    // wall-clock deadline live would make a 2,100-node walk race a loaded CI
+    // machine and fail for an unrelated reason.
+    vi.spyOn(performance, 'now').mockReturnValue(0);
+    const sources = '<source srcset="x.webp">'.repeat(2100);
+    document.body.innerHTML = `<main><picture>${sources}</picture><p id="target">the pinned paragraph text</p></main>`;
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'the pinned paragraph text',
+    );
+    expect(found?.id).toBe('target');
+  });
+
+  // Round 2 P2. The zero-box guard shipped with no coverage: happy-dom returns
+  // one rect for everything, including display:none and detached nodes, so the
+  // branch never executes naturally. Stubbing the layout read is the only way
+  // to reach it — and an untested branch in the one function whose failure mode
+  // is silent is the wrong thing to ship.
+  it('an exact match with no layout box never displaces a positional hit', () => {
+    document.body.innerHTML =
+      '<main>' +
+      '<p id="real">Get started in seconds</p>' +
+      '<p id="stale" hidden>Start your free 30-day trial today, no credit card required</p>' +
+      '</main>';
+    const stale = document.getElementById('stale')!;
+    const sels = { testid: null, id: null, css: '#real', xpath: '/html/body/main[1]/p[1]' };
+    const fp = 'Start your free 30-day trial today, no credit card required';
+
+    // Without the stub the duplicate looks laid-out and wins — the documented
+    // undecidable case.
+    expect(findByCandidates(document, sels, fp)?.id).toBe('stale');
+
+    vi.spyOn(stale, 'getClientRects').mockReturnValue([] as unknown as DOMRectList);
+    expect(findByCandidates(document, sels, fp)?.id).toBe('real');
+  });
+
+  // Round 1 test gap. The whitespace fixture above normalises to 95 chars, so
+  // it takes the fast path — the fallback branch whose absence would orphan
+  // stored pins on upgrade was never executed by any test.
+  it('takes the full-string fallback when the bounded prefix yields under 80 chars', () => {
+    const el = document.createElement('div');
+    el.textContent = `${' '.repeat(3000)}the actual content arrives well past the bounded prefix boundary`;
+    document.body.appendChild(el);
+    expect(getTextFingerprint(el)).toBe(
+      (el.textContent ?? '').replace(/\s+/g, ' ').trim().slice(0, 80),
+    );
+    expect(getTextFingerprint(el).startsWith('the actual content')).toBe(true);
+  });
+
+  // P2d. 2,000 nodes is ~1.5 ms on a laptop and ~9.5 ms on a phone, so a pure
+  // count cap is device-dependent. The walk must also yield on elapsed time.
+  it('abandons the walk when the time budget is exhausted', () => {
+    const rows = Array.from({ length: 300 }, (_, i) => `<p>row ${i}</p>`).join('');
+    document.body.innerHTML = `<main>${rows}<p>the pinned paragraph text</p></main>`;
+    const sels = { testid: null, id: null, css: '#nope', xpath: '/nope' };
+
+    // BOTH halves need a pinned clock, not just the exhausted one. The control
+    // walks 300 rows against the real 2 ms deadline, so on a slower machine the
+    // budget fires legitimately and the baseline returns null — which is how
+    // this test failed in CI while passing ~80 consecutive local runs. A test
+    // about a deadline must not be racing one.
+    const clock = vi.spyOn(performance, 'now').mockReturnValue(0);
+    expect(findByCandidates(document, sels, 'the pinned paragraph text')).not.toBeNull();
+
+    // First call establishes the deadline; every later call is past it.
+    let n = 0;
+    clock.mockImplementation(() => (n++ === 0 ? 0 : 1e6));
+    expect(findByCandidates(document, sels, 'the pinned paragraph text')).toBeNull();
   });
 });

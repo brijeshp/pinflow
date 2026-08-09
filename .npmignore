@@ -1,5 +1,6 @@
 *
 !dist/**
+!agent/**
 !README.md
 !LICENSE
 !CHANGELOG.md

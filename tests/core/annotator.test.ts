@@ -87,6 +87,15 @@ describe('Annotator explicit-save lifecycle', () => {
     save.click();
   }
 
+  // The placeholder is the only prompt a reviewer gets. It asks for the change
+  // they want, not for open-ended musing — the export lands in a coding agent.
+  it('the comment textarea prompts for an actionable change', () => {
+    seedStore(makeComment('original'));
+    annotator = makeAnnotator();
+
+    expect(openFirstPinInput().placeholder).toBe('What should change?');
+  });
+
   it('Save persists the text, closes the popup, and Delete stays destructive-only', () => {
     seedStore(makeComment('original'));
     annotator = makeAnnotator();
@@ -571,11 +580,15 @@ describe('Annotator submission moment (L1.6)', () => {
     expect(window.location.href).toBe('mailto:dev@x.io?subject=Prototype%20feedback');
   });
 
-  it('subject defaults to "Feedback: <project>" and body text degrades without clipboard', async () => {
+  it('subject defaults to "Feedback: <project>"; without a clipboard the hand-off points at the file', async () => {
     mockDownloadPlumbing();
     mockClipboard(false);
     await exportViaSheet({ email: 'dev@x.io' });
-    expect(shadow().querySelector('.panel p')?.textContent).toContain('Share however you like');
+    // Previously this said "Share however you like", so the primary action
+    // opened an empty email with nothing to paste and nothing to attach.
+    expect(shadow().querySelector('.panel p')?.textContent).toBe(
+      'Attach the downloaded file to the email.',
+    );
     findEmailButton()!.click();
     expect(window.location.href).toBe(
       `mailto:dev@x.io?subject=${encodeURIComponent('Feedback: p')}`,

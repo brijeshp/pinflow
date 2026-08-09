@@ -7,15 +7,57 @@ export interface UIRoot {
   destroy(): void;
 }
 
-export function createUIRoot(): UIRoot {
+/**
+ * How STYLES reaches the shadow root.
+ *
+ * A shadow root has no CSP context of its own — the document policy governs the
+ * whole tree — and HTML's "update a style block" algorithm runs the inline-style
+ * check when a `<style>` is inserted. Under `style-src 'self'` with no
+ * `'unsafe-inline'` the sheet is dropped. Because the host's
+ * `pointer-events:none` below is set through CSSOM, which CSP does NOT restrict,
+ * while every `pointer-events:auto` lives in that sheet, the widget degrades to
+ * an invisible, completely non-interactive overlay: pins and buttons present,
+ * all dead, no error. CSP defines no hook for CSSOM, so a constructed sheet
+ * survives where a `<style>` element does not.
+ */
+export type StyleStrategy = 'adopted' | 'element';
+
+/**
+ * Deliberately uncached — `init()` is a singleton, so this runs once per mount,
+ * and a module-level cache would leak across tests for no measurable gain.
+ */
+export function resolveStyleStrategy(): StyleStrategy {
+  try {
+    const probe = new CSSStyleSheet(); // pre-Safari-16.4: Illegal constructor
+    probe.replaceSync(':host{--pf-probe:1}');
+    // A rule count of 0 means the engine accepted replaceSync and discarded the
+    // rules — an empty sheet would style nothing while reporting success. No
+    // separate `'adoptedStyleSheets' in ShadowRoot.prototype` probe: every
+    // engine shipped the constructor and the adoption surface together
+    // (Chrome 73, Firefox 101, Safari 16.4), so it only buys bytes.
+    return probe.cssRules.length ? 'adopted' : 'element';
+  } catch {
+    return 'element';
+  }
+}
+
+export function createUIRoot(strategy: StyleStrategy = resolveStyleStrategy()): UIRoot {
   const host = document.createElement('div');
   host.setAttribute('data-pinflow-root', '');
   host.style.cssText =
     'all:initial;position:fixed;inset:0;pointer-events:none;z-index:2147483646;color-scheme:inherit';
   const shadow = host.attachShadow({ mode: 'open' });
-  const style = document.createElement('style');
-  style.textContent = STYLES;
-  shadow.appendChild(style);
+  if (strategy === 'adopted') {
+    const sheet = new CSSStyleSheet();
+    sheet.replaceSync(STYLES);
+    // Assignment, not push(): the array was frozen before Chrome 99, and
+    // assignment works on every engine that has the property at all.
+    shadow.adoptedStyleSheets = [sheet];
+  } else {
+    const style = document.createElement('style');
+    style.textContent = STYLES;
+    shadow.appendChild(style);
+  }
   const root = document.createElement('div');
   root.className = 'root';
   shadow.appendChild(root);

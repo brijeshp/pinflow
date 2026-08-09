@@ -27,7 +27,7 @@ By route:
 ## Route: /
 
 ### [cmt_1] Comment 1 — Sarah, 2026-04-15T14:24:00Z
-**Element:** \`<button data-testid="primary-cta">\` ("Get started for free")
+**Element:** \`<button data-testid="primary-cta">\` (“Get started for free”)
 **Selector candidates:**
 - testid: \`primary-cta\`
 - css: \`main > section:nth-of-type(1) > button.cta-primary\`
@@ -40,7 +40,7 @@ By route:
 ---
 
 ### [cmt_2] Comment 2 — Sarah, 2026-04-15T14:31:00Z
-**Element:** \`<h1>\` ("Welcome to Sensavera")
+**Element:** \`<h1>\` (“Welcome to Sensavera”)
 **Selector candidates:**
 - testid: (none)
 - css: \`main > header > h1\`
@@ -55,7 +55,7 @@ By route:
 ## Route: /pricing
 
 ### [cmt_3] Comment 1 — Sarah, 2026-04-15T14:24:00Z
-**Element:** \`<button data-testid="primary-cta">\` ("Get started for free")
+**Element:** \`<button data-testid="primary-cta">\` (“Get started for free”)
 **Selector candidates:**
 - testid: \`primary-cta\`
 - css: \`main > section:nth-of-type(1) > button.cta-primary\`
@@ -70,7 +70,7 @@ By route:
 ## Route: /signup
 
 ### [cmt_m1] Comment 1 — Mike, 2026-04-15T14:24:00Z
-**Element:** \`<button data-testid="primary-cta">\` ("Get started for free")
+**Element:** \`<button data-testid="primary-cta">\` (“Get started for free”)
 **Selector candidates:**
 - testid: \`primary-cta\`
 - css: \`main > section:nth-of-type(1) > button.cta-primary\`
@@ -95,7 +95,7 @@ Routes covered: /, /pricing
 ## Route: /
 
 ### [cmt_1] Comment 1 — 2026-04-15T14:24:00Z
-**Element:** \`<button data-testid="primary-cta">\` ("Get started for free")
+**Element:** \`<button data-testid="primary-cta">\` (“Get started for free”)
 **Selector candidates:**
 - testid: \`primary-cta\`
 - css: \`main > section:nth-of-type(1) > button.cta-primary\`
@@ -108,7 +108,7 @@ Routes covered: /, /pricing
 ---
 
 ### [cmt_2] Comment 2 — 2026-04-15T14:31:00Z
-**Element:** \`<h1>\` ("Welcome to Sensavera")
+**Element:** \`<h1>\` (“Welcome to Sensavera”)
 **Selector candidates:**
 - testid: (none)
 - css: \`main > header > h1\`
@@ -123,7 +123,7 @@ Routes covered: /, /pricing
 ## Route: /pricing
 
 ### [cmt_3] Comment 1 — 2026-04-15T14:24:00Z
-**Element:** \`<button data-testid="primary-cta">\` ("Get started for free")
+**Element:** \`<button data-testid="primary-cta">\` (“Get started for free”)
 **Selector candidates:**
 - testid: \`primary-cta\`
 - css: \`main > section:nth-of-type(1) > button.cta-primary\`

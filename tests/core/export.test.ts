@@ -66,7 +66,7 @@ describe('exportReviewer', () => {
     expect(md).toContain('## Route: /');
     expect(md).toContain('### [cmt_1] Comment 1 — 2026-04-15T14:24:00Z');
     expect(md).toContain(
-      '**Element:** `<button data-testid="primary-cta">` ("Get started for free")',
+      '**Element:** `<button data-testid="primary-cta">` (“Get started for free”)',
     );
     expect(md).toContain('- testid: `primary-cta`');
     expect(md).toContain('**Position:** 47% from left, 38% from top of element');
@@ -518,4 +518,250 @@ describe('area comments (marquee picker)', () => {
     );
     expect(md).not.toContain('**Area:**');
   });
+});
+
+// The two tests below close holes the corpus above already exercised but never
+// asserted. Both are CONTAINED (no block structure is fabricated, which is why
+// the existing assertions pass) — they corrupt the line's own markup instead.
+// Fixed now because 0.5.0 routes five new line types through one shared node
+// label, which would multiply the exposure.
+
+function labelOnly(
+  selectors: { testid: string | null; id: string | null; css: string; xpath: string },
+  textFingerprint: string,
+): string {
+  return {
+    reviewer: 'r',
+    project: 'p',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    comments: [
+      {
+        id: 'c1',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        updatedAt: '2026-01-01T00:00:00.000Z',
+        route: '/r',
+        fullUrl: 'https://x/',
+        text: 'legit',
+        modality: 'text' as const,
+        anchor: {
+          selectors,
+          textFingerprint,
+          positionPercent: { x: 1, y: 1 },
+          viewport: { width: 800, height: 600 },
+        },
+      },
+    ],
+  } as never;
+}
+
+async function elementLine(store: unknown): Promise<string> {
+  const { exportReviewer } = await import('../../src/core/export');
+  const md = exportReviewer(
+    store as never,
+    { generatedAt: '2026-01-01T00:00:00.000Z', project: 'p' },
+    () => false,
+  );
+  const line = md.split('\n').find((l) => l.startsWith('**Element:**'));
+  expect(line).toBeDefined();
+  return line as string;
+}
+
+// Hole A: tagFromCss ran inline() where it needs code(). inline() kills the
+// newline (so no fabricated heading — the existing assertion) but leaves the
+// backtick, which closes the label's code span early: `<body` >`. Everything
+// after renders as prose and the trailing backtick opens an inverted span.
+it('a backtick in the css path cannot unbalance the element label code span', async () => {
+  const line = await elementLine(
+    labelOnly({ testid: null, id: null, css: 'body`\n## css-injected', xpath: '/html' }, ''),
+  );
+  expect((line.match(/`/g) ?? []).length % 2).toBe(0);
+});
+
+// Security round 1, P1. `attr()` guarded data-testid and id — and the text
+// fingerprint sits in a double-quote-delimited segment on the SAME LINE,
+// escaped with inline() only. It handed back exactly the capability attr() was
+// added to remove. The two tests either side of this one passed only because
+// labelOnly() defaulted the fingerprint to '' — they avoided the field that
+// breaks them.
+it('a hostile text fingerprint cannot forge a second element label', async () => {
+  const line = await elementLine(
+    labelOnly(
+      { testid: 'safe-id', id: null, css: 'div', xpath: '/html' },
+      'x") `<div data-testid="admin-delete-all">` ("y',
+    ),
+  );
+  // The threat is precisely what an agent extracts. `data-testid=` may survive
+  // as inert text; what must not survive is a second QUOTED value matching the
+  // pattern an agent greps for.
+  expect((line.match(/data-testid="([^"]*)"/g) ?? []).length).toBe(1);
+  expect(line).toContain('data-testid="safe-id"');
+  expect(line).not.toContain('admin-delete-all"');
+  expect((line.match(/`/g) ?? []).length % 2).toBe(0);
+});
+
+// Security round 2, P1. The element label has FOUR interpolations — tag,
+// testid, id, fingerprint — and rounds 1 and 2 each fixed a subset. The tag was
+// left at code(), which passes `"`, so a stored css path forged an attribute
+// that the NON-GLOBAL regex (the one this file's own comment cites) returns
+// FIRST, before the real testid is ever reached.
+//
+// Not reachable from page markup — cssSegment builds from tagName. Reachable
+// from the store: storage.ts validates selectors.css as `typeof === 'string'`
+// and nothing more, so a source() payload, an imported JSON export, or a
+// tampered localStorage supplies it freely.
+// Runs BOTH arms. Round 3 found that pinning `testid` left the `id=` branch
+// unexercised — and that was the arm still yielding a spurious capture. Third
+// round running, the uncovered arm was the one that failed.
+it.each([
+  ['testid', { testid: 'real-button', id: null }, ['real-button']],
+  // Round 3's exact payload: the id's OWN closing quote supplies the pair,
+  // so the regex runs from it to the fingerprint segment's opening quote.
+  ['id', { testid: null, id: 'a data-testid=' }, []],
+] as const)(
+  'no interpolation in the element label can forge an attribute (%s arm)',
+  async (_arm, ids, expected) => {
+    const evil = 'x" data-testid="pwn" y';
+    const line = await elementLine(
+      labelOnly({ ...ids, css: `main > ${evil}`, xpath: '/html' }, evil),
+    );
+    const all = [...line.matchAll(/data-testid="([^"]*)"/g)].map((m) => m[1]);
+    expect(all).toEqual([...expected]);
+    // The non-global form must agree — it is what an agent writes by default.
+    expect(/data-testid="([^"]*)"/.exec(line)?.[1]).toBe(expected[0]);
+  },
+);
+
+// Security round 2, P2. "A lone backtick opens a span that swallows the rest of
+// the block" is field-independent, but only Image and bg-image were moved off
+// inline(). fontFamily is the sharpest: visualSnapshot strips only leading and
+// trailing quotes, so `font-family: "a\`b"` puts a raw backtick in the artifact,
+// uncapped and purely page-controlled. context.name is the alt/aria-label field
+// the pack actively sends agents to.
+it('no field can open a stray code span', async () => {
+  const { exportReviewer } = await import('../../src/core/export');
+  const odd = 'oh`no';
+  const md = exportReviewer(
+    {
+      reviewer: odd,
+      project: 'p',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      comments: [
+        {
+          id: odd,
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          route: odd,
+          fullUrl: 'https://x/',
+          text: 'legit',
+          modality: 'text' as const,
+          resolution: odd,
+          status: 'done' as const,
+          anchor: {
+            selectors: { testid: null, id: null, css: 'div', xpath: '/html' },
+            textFingerprint: '',
+            positionPercent: { x: 1, y: 1 },
+            viewport: { width: 800, height: 600 },
+            context: {
+              name: odd,
+              heading: odd,
+              styles: { fontFamily: odd, background: odd },
+            },
+          },
+        },
+      ],
+    } as never,
+    { generatedAt: '2026-01-01T00:00:00.000Z', project: 'p' },
+    () => false,
+  );
+  for (const line of md.split('\n')) {
+    expect((line.match(/`/g) ?? []).length % 2, line).toBe(0);
+  }
+});
+
+// Security round 3. Three rounds each enumerated the fields someone remembered
+// and each missed one. Now that there is a single baseline, the durable
+// assertion is structural rather than enumerative: every interpolation of
+// untrusted data must route through an escaper, checked against the source.
+// This would have caught all three misses; a field list would not have.
+it('every untrusted interpolation in export.ts routes through an escaper', async () => {
+  const { readFileSync } = await import('node:fs');
+  const src = readFileSync(`${process.cwd()}/src/core/export.ts`, 'utf8');
+  const UNTRUSTED = /\b(comment|ctx|selectors|store|meta|s|g)\.[a-zA-Z]/;
+  const ESCAPED = /(^|[^A-Za-z])(inline|attr)\(/;
+  const offenders = [...src.matchAll(/\$\{([^`}]*)\}/g)]
+    .map((m) => m[1]!.trim())
+    .filter(
+      (e) =>
+        UNTRUSTED.test(e) &&
+        !ESCAPED.test(e) &&
+        !/^Math\./.test(e) && // numeric, and the operands are storage-validated finite
+        !/\.length$/.test(e), // a count, not text
+    );
+  expect(offenders).toEqual([]);
+});
+
+// Security round 1, P2. attr() handled `"` but left `<` and `>`, so the
+// pseudo-tag itself was forgeable: /<(\w+)[^>]*>/ terminates early at `a>`.
+it('angle brackets in a testid cannot terminate the element pseudo-tag', async () => {
+  const line = await elementLine(
+    labelOnly({ testid: 'a> <input name=x', id: null, css: 'div', xpath: '/html' }, ''),
+  );
+  expect((line.match(/</g) ?? []).length).toBe(1);
+  expect((line.match(/>/g) ?? []).length).toBe(1);
+});
+
+// Security round 1, P2. ctx.src is a raw element src (any scheme, up to 200
+// chars) rendered bare on its own line with inline() — a backtick there opens
+// a span that swallows the rest of the block.
+it('a hostile image src cannot open a code span', async () => {
+  const { exportReviewer } = await import('../../src/core/export');
+  const md = exportReviewer(
+    {
+      reviewer: 'r',
+      project: 'p',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      comments: [
+        {
+          id: 'c1',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          updatedAt: '2026-01-01T00:00:00.000Z',
+          route: '/r',
+          fullUrl: 'https://x/',
+          text: 'legit',
+          modality: 'text' as const,
+          anchor: {
+            selectors: { testid: null, id: null, css: 'img', xpath: '/html' },
+            textFingerprint: '',
+            positionPercent: { x: 1, y: 1 },
+            viewport: { width: 800, height: 600 },
+            context: {
+              src: 'https://evil.example/x?q=`whoami',
+              styles: { backgroundImage: 'url(`ouch)' },
+            },
+          },
+        },
+      ],
+    } as never,
+    { generatedAt: '2026-01-01T00:00:00.000Z', project: 'p' },
+    () => false,
+  );
+  for (const label of ['**Image:**', '**Computed:**']) {
+    const line = md.split('\n').find((l) => l.startsWith(label));
+    expect(line, label).toBeDefined();
+    expect((line!.match(/`/g) ?? []).length % 2, label).toBe(0);
+  }
+});
+
+// Hole B: code() neutralizes backticks but not double quotes, so a testid can
+// close its own attribute and forge a sibling. Markdown structure is safe (it
+// is inside a code span) but the SEMANTICS are forged: an agent extracting
+// data-testid="([^"]*)" reads `pro` and sees a second attribute that the page
+// author wrote, not pinflow.
+it('a double quote in a testid cannot forge a second attribute', async () => {
+  const line = await elementLine(
+    labelOnly({ testid: 'pro" x="y', id: null, css: 'div', xpath: '/html' }, ''),
+  );
+  // Exactly the two delimiting the attribute value (fingerprint is empty, so
+  // the ("…") segment contributes none).
+  expect((line.match(/"/g) ?? []).length).toBe(2);
 });
