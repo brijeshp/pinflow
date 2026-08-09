@@ -110,8 +110,13 @@ export interface ScreenPosition {
   top: number;
 }
 
-export function anchorToScreen(el: Element, position: PositionPercent): ScreenPosition {
-  const rect = el.getBoundingClientRect();
+export function anchorToScreen(
+  el: Element,
+  position: PositionPercent,
+  // Callers on the per-frame reflow path pass a shared rect so pin and
+  // footprint cost ONE layout read per target (ce-review #6).
+  rect: DOMRect = el.getBoundingClientRect(),
+): ScreenPosition {
   return {
     left: rect.left + (rect.width * position.x) / 100,
     top: rect.top + (rect.height * position.y) / 100,

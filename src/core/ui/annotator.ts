@@ -130,6 +130,11 @@ export class Annotator {
   // point pin. The marquee is a PICKER: release resolves the tightest
   // containing element and drops a normal element-anchored comment carrying
   // `areaPercent`. Listeners share the armed window (P2: zero work at rest).
+  // One-shot: the next armed click belongs to a finished/aborted gesture.
+  // Needed because _onDocumentClick registers at ARM time — earlier than any
+  // per-gesture one-shot listener on the same window target, so listener
+  // order alone cannot shield a click that arrives while still armed.
+  private _eatClick = false;
   private _marquee: {
     id: number;
     x0: number;
@@ -769,12 +774,12 @@ export class Annotator {
     this._clearHover();
     this._annotating = true;
     this._syncArm();
-    document.addEventListener('click', this._onDocumentClick, true);
+    window.addEventListener('click', this._onDocumentClick, true);
     document.addEventListener('keydown', this._onKeyDown);
     document.addEventListener('pointermove', this._onHoverMove, { passive: true, capture: true });
-    document.addEventListener('pointerdown', this._onArmedPointerDown, true);
-    document.addEventListener('pointerup', this._onArmedPointerUp, true);
-    document.addEventListener('pointercancel', this._onArmedPointerCancel, true);
+    window.addEventListener('pointerdown', this._onArmedPointerDown, true);
+    window.addEventListener('pointerup', this._onArmedPointerUp, true);
+    window.addEventListener('pointercancel', this._onArmedPointerCancel, true);
     this._prevBodyCursor = document.body.style.cursor;
     document.body.style.cursor = 'crosshair';
     // Arming is pinning intent — it replaces whatever surface was up.
@@ -784,12 +789,20 @@ export class Annotator {
   private _exitAnnotateMode(): void {
     this._annotating = false;
     this._syncArm();
-    document.removeEventListener('click', this._onDocumentClick, true);
+    window.removeEventListener('click', this._onDocumentClick, true);
     document.removeEventListener('keydown', this._onKeyDown);
     document.removeEventListener('pointermove', this._onHoverMove, { capture: true });
-    document.removeEventListener('pointerdown', this._onArmedPointerDown, true);
-    document.removeEventListener('pointerup', this._onArmedPointerUp, true);
-    document.removeEventListener('pointercancel', this._onArmedPointerCancel, true);
+    window.removeEventListener('pointerdown', this._onArmedPointerDown, true);
+    window.removeEventListener('pointerup', this._onArmedPointerUp, true);
+    window.removeEventListener('pointercancel', this._onArmedPointerCancel, true);
+    // A press still held at teardown (Escape mid-press) keeps a shield until
+    // its OWN release: the pointerup and its compatibility click belong to
+    // the annotation gesture, never the host (ce #2). Aborted marquees shield
+    // every remaining participant.
+    if (this._marquee) {
+      for (const id of this._marquee.aborted ? this._marquee.pending : [this._marquee.id])
+        this._shieldDyingPress(id);
+    }
     this._marquee = null;
     this._pressGuards(false);
     this._abortGuard(false);
@@ -896,29 +909,46 @@ export class Annotator {
   private _onArmedPointerDown = (e: Event): void => {
     const p = e as PointerEvent;
     if (this._marquee) {
-      // A second pointer joining aborts the WHOLE gesture. The state stays
-      // (flagged) until EVERY participating pointer has lifted, so each
-      // release can swallow its own compatibility click — both orderings
-      // (codex r2/r4 [P2]). First join: initiator + joiner are down.
       const m = this._marquee;
       const joiner = p.pointerId ?? 0;
-      if (!m.aborted) {
-        m.aborted = true;
-        m.live = false;
-        m.pending = [m.id, joiner];
+      // The INITIATOR pressing again proves its release was lost outside the
+      // window (no pointerup arrives — documented browser behavior): retire
+      // the stale marquee and fall through to a fresh press (ce #5).
+      if (!m.aborted && joiner === m.id) {
+        this._marquee = null;
         this._pressGuards(false);
-        // Standing WINDOW-capture interceptor for the abort's lifetime: mid-
-        // abort stray clicks must never reach host capture listeners that
-        // registered before pinflow (codex r5 [P2]).
-        this._abortGuard(true);
         this._scheduleHoverFrame();
-      } else if (!m.pending.includes(joiner)) {
-        m.pending = [...m.pending, joiner]; // a third+ pointer joined the dead gesture
+      } else {
+        // A second pointer joining aborts the WHOLE gesture. The state stays
+        // (flagged) until EVERY participating pointer has lifted, so each
+        // release can swallow its own compatibility click — both orderings
+        // (codex r2/r4 [P2]). First join: initiator + joiner are down.
+        if (!m.aborted) {
+          m.aborted = true;
+          m.live = false;
+          m.pending = [m.id, joiner];
+          this._pressGuards(false);
+          // Standing WINDOW-capture interceptor for the abort's lifetime: mid-
+          // abort stray clicks must never reach host capture listeners that
+          // registered before pinflow (codex r5 [P2]).
+          this._abortGuard(true);
+          this._scheduleHoverFrame();
+        } else if (!m.pending.includes(joiner)) {
+          m.pending = [...m.pending, joiner]; // a third+ pointer joined the dead gesture
+        }
+        return;
       }
-      return;
     }
     if (p.isPrimary === false || p.pointerType === 'touch' || (p.button ?? 0) !== 0) return;
     if (this._isOwnUi(e.target, e)) return;
+    // Accepted press: armed mode owns EVERY phase of this pointer. Stopping
+    // it at window capture — before any host listener, wherever registered —
+    // keeps host buttons, sliders, routers, and drag surfaces inert during
+    // annotation; preventDefault also suppresses the compatibility mouse
+    // events. The trailing click still fires and _onDocumentClick owns it
+    // (ce #3). Touch and pinflow's own UI returned above, untouched.
+    e.preventDefault();
+    e.stopImmediatePropagation();
     this._marquee = {
       id: p.pointerId ?? 0,
       x0: p.clientX,
@@ -931,6 +961,35 @@ export class Annotator {
     };
     this._pressGuards(true);
   };
+
+  // A press orphaned by armed-mode teardown: window-capture one-shots own its
+  // release — the pointerup is suppressed and its compatibility click
+  // swallowed — then self-detach. A SAME-pointer re-press retires the shield
+  // without swallowing (the release was lost outside the window; the next
+  // engagement is a genuine host interaction — ce #2/#5).
+  private _shieldDyingPress(id: number): void {
+    const retire = (): void => {
+      window.removeEventListener('pointerdown', onDown, true);
+      window.removeEventListener('pointerup', onUp, true);
+      window.removeEventListener('pointercancel', onCancel, true);
+    };
+    const onDown = (e: Event): void => {
+      if (((e as PointerEvent).pointerId ?? 0) === id) retire();
+    };
+    const onUp = (e: Event): void => {
+      if (((e as PointerEvent).pointerId ?? 0) !== id) return;
+      retire();
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      this._swallowNextClick();
+    };
+    const onCancel = (e: Event): void => {
+      if (((e as PointerEvent).pointerId ?? 0) === id) retire();
+    };
+    window.addEventListener('pointerdown', onDown, true);
+    window.addEventListener('pointerup', onUp, true);
+    window.addEventListener('pointercancel', onCancel, true);
+  }
 
   // Suppress text selection and native drag-and-drop for the press duration —
   // the marquee must never fight the browser's drag ghost or leave a
@@ -963,6 +1022,13 @@ export class Annotator {
     const m = this._marquee;
     const p = e as PointerEvent;
     if (!m) return;
+    // Our accepted pointer's release is ours end-to-end (ce #3). Aborted
+    // participants (pinch fingers) keep their natural phases — only their
+    // compatibility clicks are swallowed.
+    if (!m.aborted && (p.pointerId ?? 0) === m.id) {
+      e.preventDefault();
+      e.stopImmediatePropagation();
+    }
     if (m.aborted) {
       // Only PARTICIPANTS retire the abort; each release swallows its own
       // compatibility click (which follows synchronously). The state — and
@@ -1008,13 +1074,22 @@ export class Annotator {
   // 0-timeout clears the no-click case — a mouse click fires synchronously
   // after pointerup, so a later genuine click is never eaten.
   private _swallowNextClick(): void {
+    // Two mechanisms, one contract: the flag shields while ARMED (where
+    // _onDocumentClick is first in window listener order), the one-shot
+    // listener shields after teardown. Both self-clear on the next task —
+    // a mouse click follows its pointerup synchronously.
+    this._eatClick = true;
     const swallow = (ce: Event): void => {
       window.removeEventListener('click', swallow, true); // one-shot, self-removing
+      this._eatClick = false;
       ce.preventDefault();
       ce.stopImmediatePropagation();
     };
     window.addEventListener('click', swallow, true);
-    window.setTimeout(() => window.removeEventListener('click', swallow, true), 0);
+    window.setTimeout(() => {
+      window.removeEventListener('click', swallow, true);
+      this._eatClick = false;
+    }, 0);
   }
 
   private _onArmedPointerCancel = (e: Event): void => {
@@ -1084,6 +1159,12 @@ export class Annotator {
   }
 
   private _onDocumentClick = (e: MouseEvent): void => {
+    if (this._eatClick) {
+      this._eatClick = false;
+      e.preventDefault();
+      e.stopPropagation();
+      return;
+    }
     // Any in-flight armed press (pending, live, or aborted) means this click
     // belongs to ANOTHER pointer — e.g. a joiner lifting before the marquee's
     // initiator releases. It places nothing AND is consumed: armed mode owns
@@ -1365,12 +1446,13 @@ export class Annotator {
       // Every comment gets a footprint element: drawn areas show the drawn
       // rect, element-anchored points show the CAPTURED element's bounds
       // (_placeArea hides degenerate cases — orphans, near-viewport anchors).
+      const rect = target ? target.getBoundingClientRect() : null;
       const area = el('div', 'area');
       if (isResolved(c) && c.status) area.dataset['status'] = c.status;
-      this._placeArea(area, c, target);
+      this._placeArea(area, c, target, rect);
       this._ui.root.appendChild(area);
       this._areas.set(c.id, area);
-      this._placePin(pin, c, target);
+      this._placePin(pin, c, target, rect);
       this._ui.root.appendChild(pin);
       this._pins.set(c.id, pin);
     });
@@ -1379,33 +1461,38 @@ export class Annotator {
   // The footprint is the anchored element's live rect × the stored
   // percentages — recomputed wherever pins are placed, so it rides the same
   // cached-anchor reflow path (orphaned: hidden with its pin).
-  private _placeArea(area: HTMLDivElement, comment: Comment, target: Element | null): void {
+  private _placeArea(
+    area: HTMLDivElement,
+    comment: Comment,
+    target: Element | null,
+    rect: DOMRect | null,
+  ): void {
     const a = comment.anchor.areaPercent;
-    if (!target) {
+    if (!target || !rect) {
       area.style.display = 'none';
       return;
     }
-    const r = target.getBoundingClientRect();
+    const r = rect;
     // Element-anchored comments footprint the captured element itself, except
     // degenerate anchors: collapsed boxes, or near-viewport ones (a click on
     // empty space anchors <body> — ants around the whole page are noise).
-    const rect = a
+    const box = a
       ? this._areaRect(a, r)
       : r.width >= 1 &&
           r.height >= 1 &&
           (r.width < window.innerWidth * 0.9 || r.height < window.innerHeight * 0.9)
         ? r
         : null;
-    if (!rect) {
+    if (!box) {
       area.style.display = 'none';
       return;
     }
     const s = area.style;
     s.display = '';
-    s.left = `${rect.left}px`;
-    s.top = `${rect.top}px`;
-    s.width = `${rect.width}px`;
-    s.height = `${rect.height}px`;
+    s.left = `${box.left}px`;
+    s.top = `${box.top}px`;
+    s.width = `${box.width}px`;
+    s.height = `${box.height}px`;
   }
 
   // The RENDERED footprint rect, shared by the footprint and its pin (the pin
@@ -1429,7 +1516,12 @@ export class Annotator {
     };
   }
 
-  private _placePin(pin: HTMLButtonElement, comment: Comment, target: Element | null): void {
+  private _placePin(
+    pin: HTMLButtonElement,
+    comment: Comment,
+    target: Element | null,
+    rect: DOMRect | null,
+  ): void {
     if (!target) {
       // Orphaned pin: HIDDEN, not a gray floater — a parked dot pointing at
       // nothing reads as breakage (first-user feedback). The element stays
@@ -1446,11 +1538,10 @@ export class Annotator {
     // render from areaPercent, so display policy needs no schema change and
     // positionPercent keeps recording the drawn center as provenance.
     const a = comment.anchor.areaPercent;
+    const r = rect ?? target.getBoundingClientRect();
     place(
       pin,
-      a
-        ? this._areaRect(a, target.getBoundingClientRect())
-        : anchorToScreen(target, comment.anchor.positionPercent),
+      a ? this._areaRect(a, r) : anchorToScreen(target, comment.anchor.positionPercent, r),
     );
   }
 
@@ -1474,9 +1565,12 @@ export class Annotator {
         this._anchorCache.set(c.id, target);
         if (target) this._persistHeal(c.id, target);
       }
-      this._placePin(pin, c, target);
+      // ONE geometry read per target per frame, shared by pin + footprint —
+      // interleaved read→write→read forces layout twice (ce-review #6).
+      const rect = target ? target.getBoundingClientRect() : null;
+      this._placePin(pin, c, target, rect);
       const area = this._areas.get(id);
-      if (area) this._placeArea(area, c, target);
+      if (area) this._placeArea(area, c, target, rect);
     }
     // Orphan state may have flipped either way — keep an open sheet honest.
     if (this._panelKind === 'sheet' && this._panelEl) {

@@ -185,6 +185,18 @@ describe('area footprint (marching ants)', () => {
     expect(shadow().querySelector<HTMLElement>('.area')!.style.display).toBe('none');
   });
 
+  it('reflow reads ONE rect per target per frame — pin and footprint share it (ce #6)', () => {
+    mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
+    seed([makeComment('a1', { area: { x: 10, y: 20, w: 50, h: 40 } })]);
+    annotator = makeAnnotator();
+    const spy = document.body.getBoundingClientRect as ReturnType<typeof vi.fn>;
+    (spy as unknown as { mockClear: () => void }).mockClear();
+    (annotator as unknown as Repositionable)._repositionPins();
+    // One geometry read serves the pin AND the footprint; interleaved
+    // read→write→read per frame forces layout twice (ce-review #6).
+    expect(spy).toHaveBeenCalledTimes(1);
+  });
+
   it('reflow repositions the footprint with the pins (no rebuild)', () => {
     mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
     seed([makeComment('a1', { area: { x: 10, y: 20, w: 50, h: 40 } })]);

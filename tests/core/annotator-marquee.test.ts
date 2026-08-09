@@ -240,8 +240,8 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
   });
 
   it('marquee press listeners exist only while armed (P2 posture)', () => {
-    const addSpy = vi.spyOn(document, 'addEventListener');
-    const removeSpy = vi.spyOn(document, 'removeEventListener');
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
     annotator = makeAnnotator({ mode: 'toggle' }); // gesture inert — isolates the marquee listeners
     const adds = (t: string) => addSpy.mock.calls.filter((c) => c[0] === t).length;
     const removes = (t: string) => removeSpy.mock.calls.filter((c) => c[0] === t).length;
@@ -524,6 +524,123 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     } finally {
       document.removeEventListener('click', hostSeen, true);
     }
+  });
+
+  it('Escape with a HELD press keeps a shield: its release and click never reach the host (ce #2)', () => {
+    const hostDown = vi.fn();
+    const hostUp = vi.fn();
+    document.addEventListener('pointerup', hostUp, true);
+    try {
+      annotator = makeAnnotator();
+      arm();
+      const t = hostParagraph();
+      t.dispatchEvent(
+        ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+      );
+      t.dispatchEvent(
+        ptr('pointermove', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+      );
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })); // disarm mid-press
+      expect(document.body.style.cursor).toBe(''); // teardown happened...
+      t.dispatchEvent(
+        ptr('pointerup', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+      );
+      expect(hostUp).not.toHaveBeenCalled(); // ...but the dying press still owns its release
+      const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+      t.dispatchEvent(click);
+      expect(click.defaultPrevented).toBe(true); // and its compatibility click
+      expect(comments()).toHaveLength(0);
+    } finally {
+      document.removeEventListener('pointerdown', hostDown, true);
+      document.removeEventListener('pointerup', hostUp, true);
+    }
+  });
+
+  it('the Escape shield retires on a same-pointer re-press — a lost release cannot poison later clicks (ce #2/#5)', async () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+    );
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    // The release is LOST outside the window. Later, the same pointer clicks normally:
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 1, clientX: 200, clientY: 200, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 1, clientX: 200, clientY: 200, pointerType: 'mouse' }),
+    );
+    await new Promise((r) => setTimeout(r, 0));
+    const click = new MouseEvent('click', { bubbles: true, cancelable: true });
+    t.dispatchEvent(click);
+    expect(click.defaultPrevented).toBe(false); // host click passes — shield retired
+  });
+
+  it('accepted armed pointer phases never reach host handlers; touch and own-UI stay native (ce #3)', () => {
+    const hostDown = vi.fn();
+    const hostUp = vi.fn();
+    document.addEventListener('pointerdown', hostDown, true); // host doc-capture, registered first
+    document.addEventListener('pointerup', hostUp, true);
+    try {
+      annotator = makeAnnotator();
+      arm();
+      const t = hostParagraph();
+      hostDown.mockClear();
+      hostUp.mockClear();
+      // Accepted mouse press: both phases suppressed before the host.
+      t.dispatchEvent(
+        ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+      );
+      t.dispatchEvent(
+        ptr('pointerup', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+      );
+      expect(hostDown).not.toHaveBeenCalled();
+      expect(hostUp).not.toHaveBeenCalled();
+      // The trailing click still places the point pin (armed owns it end-to-end).
+      t.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+      expect(comments()).toHaveLength(1);
+      // Touch stays native — the host sees its phases (scroll must work).
+      t.dispatchEvent(
+        ptr('pointerdown', { pointerId: 7, clientX: 10, clientY: 10, pointerType: 'touch' }),
+      );
+      t.dispatchEvent(
+        ptr('pointerup', { pointerId: 7, clientX: 10, clientY: 10, pointerType: 'touch' }),
+      );
+      expect(hostDown).toHaveBeenCalledTimes(1);
+      expect(hostUp).toHaveBeenCalledTimes(1);
+    } finally {
+      document.removeEventListener('pointerdown', hostDown, true);
+      document.removeEventListener('pointerup', hostUp, true);
+    }
+  });
+
+  it('a lost marquee release recovers on the same pointer’s next press — fresh marquee, one comment (ce #5)', async () => {
+    annotator = makeAnnotator();
+    arm();
+    const t = hostParagraph();
+    mockElementFromPoint(t);
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 1, clientX: 100, clientY: 100, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointermove', { pointerId: 1, clientX: 300, clientY: 300, pointerType: 'mouse' }),
+    );
+    // Release lost outside the window. Same pointer starts over:
+    t.dispatchEvent(
+      ptr('pointerdown', { pointerId: 1, clientX: 120, clientY: 120, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointermove', { pointerId: 1, clientX: 320, clientY: 320, pointerType: 'mouse' }),
+    );
+    t.dispatchEvent(
+      ptr('pointerup', { pointerId: 1, clientX: 320, clientY: 320, pointerType: 'mouse' }),
+    );
+    expect(comments()).toHaveLength(1); // the SECOND drag committed — not a phantom abort
+    await new Promise((r) => setTimeout(r, 0));
+    const later = new MouseEvent('click', { bubbles: true, cancelable: true });
+    document.body.dispatchEvent(later);
+    expect(later.defaultPrevented).toBe(false); // no stranded guard
   });
 
   it('marquee styling: backdrop dim via giant box-shadow, no transition lag', () => {

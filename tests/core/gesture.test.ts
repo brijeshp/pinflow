@@ -464,6 +464,16 @@ describe('GestureController', () => {
       expect(activations[0]).toMatchObject({ x: 50, y: 50 });
     });
 
+    it("a LIVE press's lost release does not eat the same pointer's first retry (ce #5)", () => {
+      const { activations, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      // Release lost outside the window; the same pointer retries immediately:
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 50, clientY: 50 });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 50, clientY: 50 });
+      expect(activations).toHaveLength(1); // the retry works on the FIRST attempt
+      expect(activations[0]).toMatchObject({ x: 50, y: 50 });
+    });
+
     it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
       const { controller, cancels, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });

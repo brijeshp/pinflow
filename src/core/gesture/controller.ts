@@ -147,19 +147,18 @@ export class GestureController {
     if (this._opts.suspended?.()) return;
 
     // A second active pointer means this is a multi-touch gesture, not a
-    // press. A DEAD press is exempt: it exists solely to shield its own
-    // release, and an intruding pointer must not evict that ownership
-    // (codex r6 [P2]) — but the SAME pointer pressing again proves the dead
-    // press's release was lost (an outside-window release delivers no
-    // pointerup — documented browser behavior): retire the stale press and
-    // process this down as a fresh gesture (codex r8 [P2]).
+    // press — a DIFFERENT pointer cancels a live press (pinch) and can never
+    // evict a dead press's release shield (codex r6 [P2]). The SAME pointer
+    // pressing again proves the previous release was lost (an outside-window
+    // release delivers no pointerup — documented browser behavior): retire
+    // the stale press — live or dead — and process this down as a fresh
+    // gesture, so the first retry is never eaten (codex r8 / ce #5).
     if (this._press) {
-      if (!this._press.dead) {
-        this._cancelPress();
+      if ((pe.pointerId ?? 0) !== this._press.pointerId) {
+        if (!this._press.dead) this._cancelPress();
         return;
       }
-      if ((pe.pointerId ?? 0) !== this._press.pointerId) return;
-      this._cancelPress(); // stale — its marquee flag is already false, no cancel echo
+      this._cancelPress(); // stale same-pointer press: marquee visuals cancel if latched
     }
 
     // Desktop: a primary-button Alt press opens a pending gesture — the
