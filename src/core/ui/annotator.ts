@@ -1396,11 +1396,23 @@ export class Annotator {
   private _showConfirmation(copied: boolean, cleared = false): void {
     this._closePanel();
     const submitTo = this._deps.config.submitTo;
-    const share = cleared ? 'Comments cleared. Share however you like.' : 'Share however you like.';
-    let body = copied ? `Copied to clipboard too. ${share}` : share;
+    // download() fires a DETACHED a.click() and returns void: no event, no
+    // promise, so a completed save is not observable in general. It frequently
+    // no-ops in iOS in-app webviews — exactly where a reviewer on a phone ends
+    // up — and asserting "Saved to your downloads" there is a lie the reviewer
+    // then acts on. The clipboard write is the only verified channel, so it is
+    // the only one we state, together with the recovery it enables.
+    const cleanup = cleared ? ' Comments cleared.' : '';
+    let body = copied
+      ? `Copied to your clipboard. If no file downloaded, paste it instead.${cleanup}`
+      : `Check your downloads for the file.${cleanup}`;
     const buttons = [this._makeButton('Done', () => this._closePanel())];
     if (submitTo) {
-      if (copied) body = 'Your feedback is copied — paste it into the email.';
+      // Without a clipboard there is nothing to paste, so the mailto hand-off
+      // has to point at the file instead of opening an empty email.
+      body = copied
+        ? `Your feedback is copied — paste it into the email.${cleanup}`
+        : `Attach the downloaded file to the email.${cleanup}`;
       buttons.unshift(
         this._makeButton(
           'Email it to the builder',
@@ -1414,7 +1426,7 @@ export class Annotator {
         ),
       );
     }
-    const panel = this._makePanel('Saved to your downloads', body, buttons);
+    const panel = this._makePanel('Your feedback is ready', body, buttons);
     this._panelEl = panel;
     this._panelKind = 'confirm';
     this._ui.root.appendChild(panel);

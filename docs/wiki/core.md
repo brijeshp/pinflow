@@ -24,7 +24,16 @@ Outside-dismiss of the draft popup and the export sheet (shared `_armOutsideDism
 
 **`anchor.ts`** — Element-to-pin anchoring. `buildAnchor()` first resolves the click target to the nearest ancestor with a non-empty `data-testid` (private `anchorTarget()`; the raw target is used when no ancestor is anchored) so nested labels/icons inside an anchored control never lose the host's test-id contract, then captures selectors + fingerprint + click-to-percentage offset — all measured on that anchored element, plus the pin-time `context`: accessible name (image `alt` included, capped at 80), role, nearest heading, truncated image `src`, and a computed-style micro-snapshot of what feedback is usually about (background, color, font, radius; defaults omitted). `resolveAnchor()` re-finds the element on re-render via the selector ladder. `anchorToScreen()` converts percentage offsets back to viewport coords. `currentViewport()` records dimensions for orphan fallback.
 
-**`selector.ts`** — Selector generation and resolution. `buildSelectors()` produces `SelectorCandidates` (testid, id, css, xpath). The CSS path uses `nth-of-type()` and filters framework-generated IDs (React `useId`, Radix, auto-hashed tokens). `getTextFingerprint()` returns the first 80 chars, whitespace-collapsed. `findByCandidates()` implements the ladder (testid → id → CSS → XPath → fingerprint walk, capped at 2000 elements).
+**`selector.ts`** — Selector generation and resolution. `buildSelectors()` produces `SelectorCandidates` (testid, id, css, xpath). The CSS path uses `nth-of-type()` and filters framework-generated IDs (React `useId`, Radix, auto-hashed tokens). `getTextFingerprint()` returns the first 80 chars, whitespace-collapsed; it normalises a bounded prefix rather than the whole subtree, falling back to the full string when whitespace-heavy markup makes the prefix yield under 80 characters — so the value is identical to a full normalisation while the cost stops scaling with subtree size.
+
+`findByCandidates()` implements the ladder (testid → id → CSS → XPath → fingerprint walk). Three properties matter more than the order:
+
+- **Positional rungs do not outrank contradicting content.** A CSS/XPath hit whose fingerprint contradicts a stored one of at least `FUZZY_MIN_FP` characters is _demoted_, not discarded. Without this, recycled nodes in a virtualised list keep satisfying a stale `nth-of-type` and silently reattach a comment to different content.
+- **Resolution order is `exact ?? positional ?? best`, and it is load-bearing.** A demoted positional hit still outranks a fuzzy candidate: css/xpath agreement is structural evidence, a 0.6 Dice score is a guess, and `_persistHeal` writes whatever wins back into `anchor.selectors` — so a wrong choice here is permanent, not transient. Only an _exact_ fingerprint match displaces a positional hit, and only if it has a layout box (`getClientRects().length`), since a `display:none` duplicate of the old copy can never be what the reviewer pointed at.
+  **Documented residual:** a _visible_ stale duplicate of the old text is an exact match and wins. That case is not decidable from the DOM alone.
+- **The walk starts at `<body>`,** skipping tags that can never be a pin target (`SKIP_TAG_RE`, matched against an uppercased `tagName` so SVG and XHTML are covered). Scoring `<head>` let `<title>` win as an exact fingerprint match that the deepest-wins rule could never displace, because that rule only replaces a match with its own descendant.
+- **The walk ends at the first non-descendant once an exact match exists.** Pre-order makes that match's subtree contiguous, so nothing after it can win.
+- **Three bounds, whichever trips first.** Two counters, because one cannot do both jobs: `FINGERPRINT_VISIT_LIMIT` (20000, charged by _every_ node) bounds work, so a `<select>` of thousands of `<option>`s cannot outrun the walk; `FINGERPRINT_WALK_LIMIT` (2000, charged only by _scored_ nodes) bounds meaning, so a gallery's 1,500 `<source>` elements cannot evict real content and push the heal onto the page container. `FINGERPRINT_WALK_MS` (2 ms, sampled every 16 visits) covers the device gap — 2000 nodes is roughly 1.5 ms on a laptop and 9.5 ms on a mid-range phone. Note the honest limit: these bound _iteration count_, not per-node cost, and a single `textContent` read on a large container can exceed the deadline on its own.
 
 **`router.ts`** — SPA route watching via `history.pushState`/`replaceState` patching plus popstate/hashchange listeners. `watchRoute()` emits onChange only when the route actually changed and guards against orphaned callbacks.
 
@@ -54,7 +63,9 @@ Outside-dismiss of the draft popup and the export sheet (shared `_armOutsideDism
 
 ## Annotator widget internals
 
-**Shadow DOM structure** (host element carries `data-pinflow-root`): `<style>`, `.root` (fixed full-viewport, pointer-events:none), `.control` button, numbered `.pin` badges (position:fixed), `.panel`, `.input`, builder `.drawer`, and a voice-dot mount.
+**Shadow DOM structure** (host element carries `data-pinflow-root`): styles (see below), `.root` (fixed full-viewport, pointer-events:none), `.control` button, numbered `.pin` badges (position:fixed), `.panel`, `.input`, builder `.drawer`, and a voice-dot mount.
+
+**Stylesheet delivery is CSP-sensitive.** A shadow root has no CSP context of its own — the document policy governs the whole tree — and inserting a `<style>` element runs the inline-style check, so `style-src 'self'` without `'unsafe-inline'` drops it. That failure is not merely cosmetic: the host's `pointer-events:none` is set through CSSOM, which CSP does _not_ restrict, while every `pointer-events:auto` lives in the stylesheet, so the widget becomes an invisible and completely non-interactive overlay with no error. `createUIRoot()` therefore adopts a constructed `CSSStyleSheet` (CSSOM has no CSP hook) and keeps the `<style>` element as a fallback for engines below the constructed-stylesheet floor (Chrome 73 / Firefox 101 / Safari 16.4). `resolveStyleStrategy()` picks between them and also rejects an engine that accepts `replaceSync` while discarding the rules. The strategy is a `createUIRoot()` parameter so tests can drive both branches — happy-dom always takes one.
 
 **Lifecycle:**
 
@@ -98,6 +109,19 @@ Generated: <timestamp>
 ```
 
 Builder export adds a summary table (total, by reviewer, by route) and reviewer names per comment. Orphaned comments get their own section with last-known selectors. **Every interpolated field is untrusted** — comment text (blockquote-continued incl. bare `\r`), reviewer names, routes, ids, selectors, resolutions, context, and `describeRoute` labels are all newline-collapsed and code-span-safe so no field can fabricate top-level markdown or instructions when the artifact is pasted into a coding agent. Never weaken this escaping.
+
+**Two escapers, and only one decision.** There used to be a third (`code()`, adding backtick handling on top of `inline()`), applied per field — which meant every new line asked "which escaper does this one need?", and three consecutive review rounds found a field that answered it wrong. Backtick handling now lives in the baseline and the question is gone:
+
+- **`inline()`** — the baseline for _every_ interpolated field. Collapses all newline forms, so nothing can fabricate a heading or section, and neutralises backticks, so nothing can open a code span that swallows the rest of the block. The only bypass is `comment.text`, via `quoted()`, because a human's prose should keep its backticks.
+- **`attr()`** — `inline()` plus `"`, `<` and `>`. Guards all **four** interpolations in the element label: the tag, the `data-testid="…"` / `id="…"` pair, and the `(“fingerprint”)` segment. Each of those can close the attribute and forge a sibling that an agent extracting `data-testid="([^"]*)"` would trust — and the non-global form of that regex returns the _forged_ one first. The tag matters even though `cssSegment()` cannot produce a hostile one: `storage.ts` validates `selectors.css` as `typeof === 'string'` and nothing more, so a `source()` payload or an imported export supplies it freely.
+
+The fingerprint's **typographic** quotes are load-bearing, not styling. With ASCII quotes that segment was the last free `"` on the line, so on the `id=` path the regex ran from the id's closing quote to the fingerprint's opening one and captured pinflow's own structure — harmless but a false positive an agent would then search for. They also make the fingerprint un-confusable with an attribute, which is the confusion that produced a finding in three consecutive review rounds.
+
+`tests/core/export.test.ts` asserts the invariant **structurally**, against the source: every `${…}` in `export.ts` must route through `inline()`, `attr()` or `quoted()`. Three rounds of enumerating the fields someone remembered each missed one; this fails the moment an unescaped interpolation appears.
+
+`selectorLines()` deliberately stays on the baseline — it is the only faithful copy of a selector value, and the agent pack directs searches there precisely because `attr()` substitutes characters in the label.
+
+Escaping defends the artifact's **structure**, not its **meaning** — a perfectly-escaped accessible name can still read as an instruction. The reading protocol that names that boundary ships as markdown in `agent/` (see `build-and-release.md`), deliberately outside the bundle.
 
 ## Key internal conventions
 

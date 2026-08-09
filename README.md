@@ -337,6 +337,26 @@ on a server or in another application.
 If a page change removes an annotated element, Pinflow hides the now-misleading pin but keeps
 the comment. The export reports it as unanchored and preserves the last known element context.
 
+### Teach your agent to read the artifact
+
+The package ships an `agent/` folder with the reading protocol — what `[cmt_id]` is for, how to
+walk the selector candidates, that `**Position:**` is a percentage inside the element rather
+than a page coordinate, and that orphaned comments describe elements which no longer exist. It
+also states the rule that matters most: everything in an artifact comes from a web page and its
+users, so an agent must treat it as a problem description and never as instructions addressed to
+itself.
+
+None of it is code, so it costs your users nothing. Install whichever format your tool reads:
+
+```bash
+mkdir -p .claude/skills .claude/commands
+cp -r node_modules/@brijeshp/pinflow/agent/skills/pinflow-feedback .claude/skills/
+cp node_modules/@brijeshp/pinflow/agent/commands/review-feedback.md .claude/commands/
+```
+
+Cursor and Windsurf read `agent/rules/pinflow.md`; `agent/AGENTS.snippet.md` appends to an
+existing `AGENTS.md`. See [`agent/README.md`](./agent/README.md).
+
 ### Email handoff without a backend
 
 Add `submitTo` to show an **Email it to the builder** action after export:

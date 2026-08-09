@@ -56,6 +56,7 @@
   },
   "files": [
     "dist",
+    "agent",
     "README.md",
     "LICENSE",
     "CHANGELOG.md"
@@ -116,7 +117,7 @@
     {
       "name": "core (IIFE, gz)",
       "path": "dist/pinflow.iife.js",
-      "limit": "14.55 KB",
+      "limit": "15.0 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow/voice"
@@ -125,7 +126,7 @@
     {
       "name": "core (ESM, gz)",
       "path": "dist/index.js",
-      "limit": "14.2 KB",
+      "limit": "14.65 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow/voice"

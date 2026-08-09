@@ -16,19 +16,20 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 | Entry         | Budget (gz) |
 | ------------- | ----------- |
-| core IIFE     | 14.3 KB     |
-| core ESM      | 13.95 KB    |
+| core IIFE     | 15.0 KB     |
+| core ESM      | 14.65 KB    |
 | voice ESM     | 4.45 KB     |
 | react wrapper | 0.47 KB     |
 | vue wrapper   | 0.61 KB     |
 
-`pnpm size` gates CI (`verify` job) and publishing (`prepublishOnly` runs build + test + size). Policy: budgets only ratchet **down** between features — kept razor-thin over actuals so regressions surface immediately. (The core budgets were raised one notch as a deliberate, changeset-documented trade for the v3 lifecycle features, then re-ratcheted to actuals.) Check budget impact after any core change.
+`pnpm size` gates CI (`verify` job) and publishing (`prepublishOnly` runs build + test + size). Policy: budgets only ratchet **down** between features — kept razor-thin over actuals so regressions surface immediately. Raises happen only as deliberate, changeset-documented trades, and are re-ratcheted to actuals afterwards: once for the v3 lifecycle features, and again for the 0.4.1 reliability fixes (CSP-safe stylesheet adoption, heal-ladder correctness). Ceilings are set from **linux CI actuals**, which run a few bytes above a local macOS measurement. Check budget impact after any core change.
 
 ## Release flow
 
 - `pnpm changeset` for every user-facing change (`.changeset/config.json`: public access, baseBranch `main`).
 - `release.yml` uses `changesets/action@v1` to open a version PR / publish to npm on push to `main` (requires `NPM_TOKEN`).
-- npm publish protections are belt-and-braces: `files` allowlist (`dist`, `README.md`, `LICENSE`, `CHANGELOG.md`) **and** a whitelist-style `.npmignore` (`*` then `!` negations). Provenance enabled (`publishConfig.provenance: true`).
+- npm publish protections are belt-and-braces: `files` allowlist (`dist`, `agent`, `README.md`, `LICENSE`, `CHANGELOG.md`) **and** a whitelist-style `.npmignore` (`*` then `!` negations). Both must be updated together when adding a shipped directory — `files` alone happens to work with `npm pack`, but the two disagreeing defeats the point of having both. Provenance enabled (`publishConfig.provenance: true`).
+- **`agent/`** ships the artifact reading protocol (Claude Code skill + slash command, Cursor/Windsurf rule, `AGENTS.md` snippet). Markdown only — it is not part of any bundle and costs consumers zero bytes, but it is published, so it is part of the package's public surface.
 
 ## CI (`.github/workflows/`)
 
