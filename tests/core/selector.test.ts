@@ -626,6 +626,10 @@ describe('bounded healing work (0.4.1 independent review #7/#8)', () => {
   // fixture forces multi-chunk accumulation: the meaningful text sits past a
   // run of indentation far longer than one 2 KB chunk.
   it('incremental extraction matches pin-time fingerprints across chunk boundaries', () => {
+    // Multi-chunk extraction consults the real clock between chunks — pin it
+    // so a loaded CI machine cannot expire the 2 ms budget mid-extraction and
+    // fail this test for an unrelated reason.
+    vi.spyOn(performance, 'now').mockReturnValue(0);
     const el = document.createElement('div');
     el.textContent = `${' '.repeat(5000)}the actual content arrives well past several chunk boundaries in this fixture`;
     document.body.appendChild(el);
@@ -637,4 +641,23 @@ describe('bounded healing work (0.4.1 independent review #7/#8)', () => {
     );
     expect(found).toBe(el);
   });
+});
+
+// CI regression: healFingerprint consulted the clock on EVERY text-node
+// chunk, so one janky scheduler tick expired the 2 ms budget mid-walk on a
+// three-element DOM — the wrapper won over the deepest exact match, but only
+// on a loaded machine. Cheap extractions (single-chunk nodes, short node
+// runs) must never consult the clock at all; only multi-chunk nodes and
+// every-16th node pay the check, mirroring the walk's own sampling.
+it('a cheap heal survives a deadline that expires immediately (scheduler jank)', () => {
+  document.body.innerHTML =
+    '<section><p class="lead">This survey is anonymous and only asks about broad groups.</p></section>';
+  let n = 0;
+  vi.spyOn(performance, 'now').mockImplementation(() => (n++ === 0 ? 0 : 1e6));
+  const found = findByCandidates(
+    document,
+    { testid: null, id: null, css: '#nope', xpath: '/nope' },
+    'This survey is anonymous and only asks about broad groups.',
+  );
+  expect(found).toBe(document.querySelector('p'));
 });
