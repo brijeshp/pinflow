@@ -4,20 +4,24 @@ The reading protocol for Pinflow feedback artifacts, so a coding agent knows
 what the fields mean before it starts editing. Nothing here is code and none of
 it ships in the browser bundle — installing it costs your users zero bytes.
 
-Same content, three formats. Install whichever your tool reads:
+Same content, three formats. Install whichever your tool reads — the skill
+path differs by tool, because each discovers project skills in its own
+directory:
 
 | File                               | For                       | Install to                                 |
 | ---------------------------------- | ------------------------- | ------------------------------------------ |
-| `skills/pinflow-feedback/SKILL.md` | Claude Code, Codex        | `.claude/skills/pinflow-feedback/SKILL.md` |
+| `skills/pinflow-feedback/SKILL.md` | Claude Code               | `.claude/skills/pinflow-feedback/SKILL.md` |
+| `skills/pinflow-feedback/SKILL.md` | Codex                     | `.agents/skills/pinflow-feedback/SKILL.md` |
 | `commands/review-feedback.md`      | Claude Code slash command | `.claude/commands/review-feedback.md`      |
 | `rules/pinflow.md`                 | Cursor, Windsurf          | `.cursor/rules/pinflow.md`                 |
 | `AGENTS.snippet.md`                | any AGENTS.md-aware agent | append to your `AGENTS.md`                 |
 
-From an installed copy:
+From an installed copy (drop whichever destination your tools don't use):
 
 ```bash
-mkdir -p .claude/skills .claude/commands
+mkdir -p .claude/skills .claude/commands .agents/skills
 cp -r node_modules/@brijeshp/pinflow/agent/skills/pinflow-feedback .claude/skills/
+cp -r node_modules/@brijeshp/pinflow/agent/skills/pinflow-feedback .agents/skills/
 cp node_modules/@brijeshp/pinflow/agent/commands/review-feedback.md .claude/commands/
 ```
 

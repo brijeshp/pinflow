@@ -40,7 +40,14 @@ const FINGERPRINT_WALK_MS = 2;
 const SKIP_TAG_RE =
   /^(HTML|BODY|HEAD|SCRIPT|STYLE|LINK|META|TITLE|DESC|METADATA|NOSCRIPT|TEMPLATE|BR|WBR|OPTION|TRACK|SOURCE)$/;
 
-// Enough raw characters to yield 80 normalised ones in any realistic markup.
+// The fingerprint's documented representation: at most this many normalised
+// characters. Also the defensive cap on HYDRATED fingerprints — legit values
+// are ≤ FP_MAX by construction, so anything longer is hostile or corrupt and
+// gets truncated before any O(length) matching work (0.4.1 review #8).
+export const FP_MAX = 80;
+
+// Enough raw characters to yield FP_MAX normalised ones in any realistic
+// markup. Doubles as the incremental extractor's chunk size.
 const FP_SCAN_LIMIT = 2048;
 
 // Fuzzy re-anchor acceptance floor. Conservatism beats recall here: a wrong
@@ -148,11 +155,10 @@ export function getXPath(el: Element): string {
 
 export function getTextFingerprint(el: Element): string {
   const raw = el.textContent ?? '';
-  // Normalising an entire subtree to keep 80 characters is O(total text), and
-  // this runs per candidate during a heal walk. Bounding the scan takes 200
-  // calls over a 100 kB subtree from 98.6 ms to 35.6 ms — but note the floor:
-  // el.textContent alone is 29.5 ms of that, so this is ~2.8x end to end and
-  // within 20% of irreducible. Per-candidate cost is still O(subtree text).
+  // PIN-CREATION extraction: full fidelity, one call per pin, cost immaterial.
+  // Healing uses healFingerprint below instead — this function's textContent
+  // read materialises the whole subtree, which review #7 barred from the
+  // per-candidate heal path.
   //
   // A bare slice would be WRONG, though. Pretty-printed markup is mostly
   // indentation, so a fixed prefix can normalise to far fewer than 80 chars —
@@ -161,19 +167,55 @@ export function getTextFingerprint(el: Element): string {
   // did not yield enough. When it did, the first 80 characters are provably
   // identical to the full computation's, because normalisation is
   // left-to-right and the truncation boundary lies beyond character 80.
-  if (raw.length <= FP_SCAN_LIMIT) return raw.replace(/\s+/g, ' ').trim().slice(0, 80);
+  if (raw.length <= FP_SCAN_LIMIT) return raw.replace(/\s+/g, ' ').trim().slice(0, FP_MAX);
   const head = raw.slice(0, FP_SCAN_LIMIT).replace(/\s+/g, ' ').trim();
-  return (head.length >= 80 ? head : raw.replace(/\s+/g, ' ').trim()).slice(0, 80);
+  return (head.length >= FP_MAX ? head : raw.replace(/\s+/g, ' ').trim()).slice(0, FP_MAX);
+}
+
+// Healing-only extraction. `textContent` materialises the COMPLETE descendant
+// text before any deadline can be consulted — one 86 kB container costs ~6 ms
+// against the 2 ms heal budget, per candidate (0.4.1 review #7). This streams
+// text nodes in FP_SCAN_LIMIT chunks instead, collapsing whitespace as it
+// goes, and stops once enough characters exist to decide the fingerprint.
+// Whitespace collapse is left-to-right, and chunk-collapse plus the boundary
+// merge below equals a global collapse — so the first FP_MAX characters are
+// provably identical to pin-time getTextFingerprint's, and stored pins keep
+// matching. Returns null when the shared deadline expires mid-read; the
+// candidate is then simply not judged. Full-fidelity extraction stays where
+// it belongs: pin creation.
+function healFingerprint(el: Element, deadline: number): string | null {
+  // 4 === NodeFilter.SHOW_TEXT (the enum reference costs bundle bytes).
+  const walker = el.ownerDocument.createTreeWalker(el, 4);
+  let out = '';
+  for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    const data = node.nodeValue ?? '';
+    for (let off = 0; off < data.length; off += FP_SCAN_LIMIT) {
+      if (performance.now() > deadline) return null;
+      const piece = data.slice(off, off + FP_SCAN_LIMIT).replace(/\s+/g, ' ');
+      // A whitespace run split across a chunk or node boundary collapses to
+      // ' ' on both sides — drop the duplicate.
+      out += out.endsWith(' ') && piece.startsWith(' ') ? piece.slice(1) : piece;
+      // +2 covers the at-most-one leading and trailing space trim removes, so
+      // the first FP_MAX post-trim characters are already final.
+      if (out.length >= FP_MAX + 2) return out.trim().slice(0, FP_MAX);
+    }
+  }
+  return out.trim().slice(0, FP_MAX);
 }
 
 // A positional rung (css/xpath) proves only that something still sits at that
 // path — not that it is the same thing. Recycled rows in a virtualised list
 // keep satisfying a stale :nth-of-type, so the stored fingerprint gets a veto
 // whenever it is long enough to be trustworthy.
-function corroborates(el: Element, fingerprint: string): boolean {
+function corroborates(el: Element, fingerprint: string, deadline: number): boolean {
   if (fingerprint.length < FUZZY_MIN_FP) return true;
-  const fp = getTextFingerprint(el);
-  if (!fp) return true;
+  const fp = healFingerprint(el, deadline);
+  // The pinned element provably carried ≥ FUZZY_MIN_FP chars of text when the
+  // fingerprint was stored — an EMPTY node at that path is a recycled or
+  // still-loading stranger, never confirmation (0.4.1 review #2). A deadline
+  // expiry mid-read (fp === null) is equally unverified. Both demote the hit
+  // to the last-resort fallback rather than confirming it.
+  if (!fp) return false;
   return (
     fp === fingerprint ||
     dice(bigrams(fingerprint.toLowerCase()), bigrams(fp.toLowerCase())) >= FUZZY_THRESHOLD
@@ -194,6 +236,13 @@ export function findByCandidates(
   selectors: SelectorCandidates,
   fingerprint: string,
 ): Element | null {
+  // Hydrated fingerprints are untrusted input — cap to the documented
+  // representation before ANY O(length) work (0.4.1 review #8).
+  if (fingerprint.length > FP_MAX) fingerprint = fingerprint.slice(0, FP_MAX);
+  // One deadline covers the WHOLE heal: positional corroboration reads text
+  // at the same per-candidate cost as the walk, so it spends from the same
+  // budget (0.4.1 review #7).
+  const deadline = performance.now() + FINGERPRINT_WALK_MS;
   if (selectors.testid) {
     const hit = root.querySelector(`[data-testid="${CSS.escape(selectors.testid)}"]`);
     if (hit) return hit;
@@ -210,13 +259,13 @@ export function findByCandidates(
   // stale duplicate of the old text survives elsewhere (responsive blocks,
   // i18n, cached SSR shells) and the pinned element was legitimately rewritten,
   // the duplicate is an exact match and wins. That case is not decidable from
-  // the DOM alone — the zero-box guard below catches the common hidden variant,
-  // and nothing catches a visible one.
+  // the DOM alone — the layout-eligibility gate in the walk catches the common
+  // hidden variant, and nothing catches a visible one.
   let positional: Element | null = null;
   try {
     const hit = root.querySelector(selectors.css);
     if (hit) {
-      if (corroborates(hit, fingerprint)) return hit;
+      if (corroborates(hit, fingerprint, deadline)) return hit;
       positional = hit;
     }
   } catch {
@@ -234,7 +283,7 @@ export function findByCandidates(
     const node = result.singleNodeValue;
     if (node && node.nodeType === 1) {
       const hit = node as Element;
-      if (corroborates(hit, fingerprint)) return hit;
+      if (corroborates(hit, fingerprint, deadline)) return hit;
       positional ??= hit;
     }
   } catch {
@@ -249,7 +298,6 @@ export function findByCandidates(
     // the walk into the wrong subtree.
     const from = root.nodeType === 9 ? ((root as Document).body ?? root) : root;
     const walker = doc.createTreeWalker(from, NodeFilter.SHOW_ELEMENT);
-    const deadline = performance.now() + FINGERPRINT_WALK_MS;
     let count = 0;
     let visited = 0;
     let node = walker.nextNode();
@@ -277,11 +325,10 @@ export function findByCandidates(
       // means a long skip run cannot escape the deadline.
       if (++visited >= FINGERPRINT_VISIT_LIMIT) break;
       // performance.now() is not free, so sample it. Every 16 rather than 64
-      // because a body-seeded walk meets the largest containers first. Note the
-      // honest limit: this bounds ITERATION COUNT, not per-node cost — one
-      // textContent read on an 86 kB container is ~6 ms on its own, so a
-      // three-node walk can still overshoot. Fixing that needs early-exit text
-      // extraction, which is real work and deliberately deferred.
+      // because a body-seeded walk meets the largest containers first. Per-node
+      // cost is bounded separately: healFingerprint streams chunks against
+      // this same deadline, so a huge container can no longer smuggle a
+      // multi-millisecond text read past the budget (0.4.1 review #7).
       if ((visited & 15) === 0 && performance.now() > deadline) break;
       if (SKIP_TAG_RE.test(el.tagName.toUpperCase())) {
         node = walker.nextNode();
@@ -289,9 +336,23 @@ export function findByCandidates(
       }
       // Only nodes we actually score spend the semantic budget.
       if (count++ >= FINGERPRINT_WALK_LIMIT) break;
-      const fp = getTextFingerprint(el);
+      const fp = healFingerprint(el, deadline);
       if (fp === fingerprint) {
-        if (!exact || exact.contains(el)) exact = el;
+        // Layout eligibility gates ACCEPTANCE: a zero-box element can never be
+        // what the reviewer pointed at, and accepting one here would display
+        // the pin at a zero rect and persist the hidden stranger's selectors
+        // as a heal (0.4.1 review #3). Skip it and keep walking — a later
+        // visible duplicate must still win. One layout read per exact match,
+        // which is rare by construction.
+        if (el.getClientRects().length > 0) {
+          if (!exact || exact.contains(el)) exact = el;
+        } else if (exact && exact.contains(el)) {
+          // textContent flows UP, so the current exact may be a visible
+          // wrapper mirroring THIS hidden descendant — the chain's true text
+          // carrier. Anchoring to the wrapper pins invisible text; drop it
+          // and let a later visible duplicate (or an honest orphan) win.
+          exact = null;
+        }
       } else if (!exact && fp && fingerprint.length >= FUZZY_MIN_FP) {
         // The floor gates RAW similarity — the tag bias must never smuggle a
         // sub-threshold match through (0.3.0 review #3). Fuzzy is a lightly-
@@ -317,10 +378,8 @@ export function findByCandidates(
     // next load corroborates the stranger trivially and the original anchor is
     // gone for good.
     //
-    // Only an EXACT fingerprint match displaces a positional hit, and only if
-    // it could actually be what the reviewer pointed at: a zero-box element
-    // never is. One layout read, and only in the rare case where both exist.
-    if (exact && positional && exact.getClientRects().length === 0) return positional;
+    // Only an EXACT fingerprint match displaces a positional hit — and exact
+    // is laid-out by construction (acceptance above requires a client rect).
     return exact ?? positional ?? best;
   }
   return positional;

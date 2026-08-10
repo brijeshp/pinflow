@@ -26,7 +26,11 @@ By route:
 
 ## Route: /
 
-### [cmt_1] Comment 1 — Sarah, 2026-04-15T14:24:00Z
+### Comment 1
+**Comment ID:** \`cmt_1\`
+**Status:** open
+**Reviewer:** Sarah
+**Created:** 2026-04-15T14:24:00Z
 **Element:** \`<button data-testid="primary-cta">\` (“Get started for free”)
 **Selector candidates:**
 - testid: \`primary-cta\`
@@ -39,7 +43,11 @@ By route:
 
 ---
 
-### [cmt_2] Comment 2 — Sarah, 2026-04-15T14:31:00Z
+### Comment 2
+**Comment ID:** \`cmt_2\`
+**Status:** open
+**Reviewer:** Sarah
+**Created:** 2026-04-15T14:31:00Z
 **Element:** \`<h1>\` (“Welcome to Sensavera”)
 **Selector candidates:**
 - testid: (none)
@@ -54,7 +62,11 @@ By route:
 
 ## Route: /pricing
 
-### [cmt_3] Comment 1 — Sarah, 2026-04-15T14:24:00Z
+### Comment 1
+**Comment ID:** \`cmt_3\`
+**Status:** open
+**Reviewer:** Sarah
+**Created:** 2026-04-15T14:24:00Z
 **Element:** \`<button data-testid="primary-cta">\` (“Get started for free”)
 **Selector candidates:**
 - testid: \`primary-cta\`
@@ -69,7 +81,11 @@ By route:
 
 ## Route: /signup
 
-### [cmt_m1] Comment 1 — Mike, 2026-04-15T14:24:00Z
+### Comment 1
+**Comment ID:** \`cmt_m1\`
+**Status:** open
+**Reviewer:** Mike
+**Created:** 2026-04-15T14:24:00Z
 **Element:** \`<button data-testid="primary-cta">\` (“Get started for free”)
 **Selector candidates:**
 - testid: \`primary-cta\`
@@ -94,7 +110,10 @@ Routes covered: /, /pricing
 
 ## Route: /
 
-### [cmt_1] Comment 1 — 2026-04-15T14:24:00Z
+### Comment 1
+**Comment ID:** \`cmt_1\`
+**Status:** open
+**Created:** 2026-04-15T14:24:00Z
 **Element:** \`<button data-testid="primary-cta">\` (“Get started for free”)
 **Selector candidates:**
 - testid: \`primary-cta\`
@@ -107,7 +126,10 @@ Routes covered: /, /pricing
 
 ---
 
-### [cmt_2] Comment 2 — 2026-04-15T14:31:00Z
+### Comment 2
+**Comment ID:** \`cmt_2\`
+**Status:** open
+**Created:** 2026-04-15T14:31:00Z
 **Element:** \`<h1>\` (“Welcome to Sensavera”)
 **Selector candidates:**
 - testid: (none)
@@ -122,7 +144,10 @@ Routes covered: /, /pricing
 
 ## Route: /pricing
 
-### [cmt_3] Comment 1 — 2026-04-15T14:24:00Z
+### Comment 1
+**Comment ID:** \`cmt_3\`
+**Status:** open
+**Created:** 2026-04-15T14:24:00Z
 **Element:** \`<button data-testid="primary-cta">\` (“Get started for free”)
 **Selector candidates:**
 - testid: \`primary-cta\`

@@ -34,12 +34,12 @@ Outside-dismiss of the draft popup and the export sheet (shared `_armOutsideDism
 
 `findByCandidates()` implements the ladder (testid → id → CSS → XPath → fingerprint walk). Three properties matter more than the order:
 
-- **Positional rungs do not outrank contradicting content.** A CSS/XPath hit whose fingerprint contradicts a stored one of at least `FUZZY_MIN_FP` characters is _demoted_, not discarded. Without this, recycled nodes in a virtualised list keep satisfying a stale `nth-of-type` and silently reattach a comment to different content.
-- **Resolution order is `exact ?? positional ?? best`, and it is load-bearing.** A demoted positional hit still outranks a fuzzy candidate: css/xpath agreement is structural evidence, a 0.6 Dice score is a guess, and `_persistHeal` writes whatever wins back into `anchor.selectors` — so a wrong choice here is permanent, not transient. Only an _exact_ fingerprint match displaces a positional hit, and only if it has a layout box (`getClientRects().length`), since a `display:none` duplicate of the old copy can never be what the reviewer pointed at.
+- **Positional rungs do not outrank contradicting content.** A CSS/XPath hit whose fingerprint contradicts a stored one of at least `FUZZY_MIN_FP` characters is _demoted_, not discarded — and an EMPTY candidate fingerprint counts as contradiction, not confirmation (0.4.1 review #2): the pinned element provably had text, so a blank node at that path is a recycled or still-loading stranger. Without this, recycled nodes in a virtualised list keep satisfying a stale `nth-of-type` and silently reattach a comment to different content.
+- **Resolution order is `exact ?? positional ?? best`, and it is load-bearing.** A demoted positional hit still outranks a fuzzy candidate: css/xpath agreement is structural evidence, a 0.6 Dice score is a guess, and `_persistHeal` writes whatever wins back into `anchor.selectors` — so a wrong choice here is permanent, not transient. Only an _exact_ fingerprint match displaces a positional hit — and layout eligibility gates exact-match ACCEPTANCE itself (0.4.1 review #3): zero-box elements are skipped in the walk, a visible wrapper that merely mirrors a hidden carrier's text is dropped, and a later visible duplicate (or an honest orphan) wins, so a hidden stranger's selectors can never be persisted as a heal.
   **Documented residual:** a _visible_ stale duplicate of the old text is an exact match and wins. That case is not decidable from the DOM alone.
 - **The walk starts at `<body>`,** skipping tags that can never be a pin target (`SKIP_TAG_RE`, matched against an uppercased `tagName` so SVG and XHTML are covered). Scoring `<head>` let `<title>` win as an exact fingerprint match that the deepest-wins rule could never displace, because that rule only replaces a match with its own descendant.
 - **The walk ends at the first non-descendant once an exact match exists.** Pre-order makes that match's subtree contiguous, so nothing after it can win.
-- **Three bounds, whichever trips first.** Two counters, because one cannot do both jobs: `FINGERPRINT_VISIT_LIMIT` (20000, charged by _every_ node) bounds work, so a `<select>` of thousands of `<option>`s cannot outrun the walk; `FINGERPRINT_WALK_LIMIT` (2000, charged only by _scored_ nodes) bounds meaning, so a gallery's 1,500 `<source>` elements cannot evict real content and push the heal onto the page container. `FINGERPRINT_WALK_MS` (2 ms, sampled every 16 visits) covers the device gap — 2000 nodes is roughly 1.5 ms on a laptop and 9.5 ms on a mid-range phone. Note the honest limit: these bound _iteration count_, not per-node cost, and a single `textContent` read on a large container can exceed the deadline on its own.
+- **Three bounds, whichever trips first.** Two counters, because one cannot do both jobs: `FINGERPRINT_VISIT_LIMIT` (20000, charged by _every_ node) bounds work, so a `<select>` of thousands of `<option>`s cannot outrun the walk; `FINGERPRINT_WALK_LIMIT` (2000, charged only by _scored_ nodes) bounds meaning, so a gallery's 1,500 `<source>` elements cannot evict real content and push the heal onto the page container. `FINGERPRINT_WALK_MS` (2 ms, sampled every 16 visits) covers the device gap — 2000 nodes is roughly 1.5 ms on a laptop and 9.5 ms on a mid-range phone. Per-node cost is bounded too (0.4.1 review #7): heal-time text extraction streams text nodes in 2 KB chunks via `healFingerprint()` against the same shared deadline (created before the positional rungs, so corroboration spends from the same budget) instead of materialising subtrees via `textContent` — which stays pin-creation-only. Hydrated fingerprints are capped to the 80-char representation (`FP_MAX`) at both the hydration (`normalizeComments`) and matcher (`findByCandidates`) boundaries before any O(length) work (review #8).
 
 **`router.ts`** — SPA route watching via `history.pushState`/`replaceState` patching plus popstate/hashchange listeners. `watchRoute()` emits onChange only when the route actually changed and guards against orphaned callbacks.
 
@@ -102,7 +102,11 @@ Generated: <timestamp>
 [comment count, routes covered]
 ---
 ## <describeRoute label (stable key in backticks beneath), or `Route: /path`>
-### [<comment id>] Comment 1 — <reviewer>, <createdAt> — done|declined (suffix only when dispositioned)
+### Comment 1
+**Comment ID:** `<comment id>`
+**Status:** open|done|declined (always present; derived ONLY from the validated status value — 0.4.1 review #1)
+**Reviewer:** <reviewer> (builder export only)
+**Created:** <createdAt>
 **Element:** <button data-testid="..."> ("fingerprint")
 **Context:** the 'Continue' button under 'Next section'
 **Computed:** background rgb(…), text rgb(…), font 17px DM Sans, radius 14px

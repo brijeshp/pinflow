@@ -24,6 +24,9 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Commit-log provenance guard: file contents are reviewed, but commit
+      # messages are immutable once pushed — fail here, not after (F1/F6).
+      - run: node scripts/provenance-check.mjs
       - run: pnpm format:check
       - run: pnpm typecheck
       # Build BEFORE tests: the bundle-isolation suites hard-fail in CI when

@@ -16,8 +16,8 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 | Entry         | Budget (gz) |
 | ------------- | ----------- |
-| core IIFE     | 17.2 KB     |
-| core ESM      | 16.85 KB    |
+| core IIFE     | 17.36 KB    |
+| core ESM      | 17 KB       |
 | voice ESM     | 4.45 KB     |
 | react wrapper | 0.47 KB     |
 | vue wrapper   | 0.61 KB     |
@@ -33,9 +33,9 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 ## CI (`.github/workflows/`)
 
-- **`ci.yml`** — `verify` job: `format:check`, `typecheck`, `build` (BEFORE tests so bundle-isolation hard-fails rather than skips), `test:coverage` (the 80/75 thresholds are enforced in CI), `size`, `wiki:check`. `e2e` job: build + Playwright across chromium / mobile-chrome / mobile-safari. pnpm caching in both.
+- **`ci.yml`** — `verify` job: `scripts/provenance-check.mjs` (no AI-agent attribution in commit messages since 2026-08-10 — the AGENTS.md invariant, enforced on the log itself), `format:check`, `typecheck`, `build` (BEFORE tests so bundle-isolation hard-fails rather than skips), `test:coverage` (the 80/75 thresholds are enforced in CI), `size`, `wiki:check`. `e2e` job: build + Playwright across chromium / mobile-chrome / mobile-safari. pnpm caching in both.
 - **`release.yml`** — changesets publish on push to `main`, gated by re-running the full battery (format/typecheck/build/coverage/size/E2E/wiki-check) on the exact SHA before publishing; `prepublishOnly` independently runs build + coverage + size.
-- ⚠️ The repo currently has **no git remote**; both workflows are dormant until pinflow is pushed to GitHub. `AGENTS.md` documents the local-only workflow.
+- The remote is `origin` (public GitHub) and both workflows are **live**: pushing `main` triggers the release chain — `release.yml` runs the full battery on that SHA, then changesets opens a "Version Packages" PR, and npm publish fires only when that PR is merged. Treat every push to `main` as a release act.
 
 ## Command reference (`package.json` scripts)
 

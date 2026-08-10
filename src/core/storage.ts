@@ -1,3 +1,4 @@
+import { FP_MAX } from './selector';
 import { now } from './time';
 import type { Comment, ReviewerStore } from './types';
 
@@ -150,6 +151,15 @@ export function normalizeComments(input: unknown): Comment[] {
         createdAt: typeof c['createdAt'] === 'string' ? c['createdAt'] : '',
         modality: c['modality'] === 'voice' ? 'voice' : 'text',
       };
+      // Fingerprints beyond the documented representation are hostile or
+      // corrupt — cap at the hydration boundary so no matcher's O(length)
+      // work ever sees an oversized value (0.4.1 review #8).
+      if (out.anchor.textFingerprint.length > FP_MAX) {
+        out.anchor = {
+          ...out.anchor,
+          textFingerprint: out.anchor.textFingerprint.slice(0, FP_MAX),
+        };
+      }
       const s = c['status'];
       if (s === 'open' || s === 'done' || s === 'declined') out.status = s;
       else delete out.status;

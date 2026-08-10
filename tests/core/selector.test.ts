@@ -476,3 +476,165 @@ describe('heal correctness under stress (0.4.1 P2)', () => {
     expect(findByCandidates(document, sels, 'the pinned paragraph text')).toBeNull();
   });
 });
+
+describe('healing hardening (0.4.1 independent review #2/#3)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  // Review #2 P1. An EMPTY candidate fingerprint corroborated a meaningful
+  // stored one, so a recycled/still-loading row won through its stale
+  // :nth-of-type position while the real text sat mounted one element over.
+  // The pinned element provably had ≥12 chars of text at pin time — a blank
+  // node at that path is never confirmation.
+  it('an empty positional hit cannot corroborate a meaningful stored fingerprint', () => {
+    document.body.innerHTML =
+      '<main><div class="row" id="recycled"></div>' +
+      '<p id="mounted">Start your free 30-day trial today, no credit card required</p></main>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#recycled', xpath: '/html/body/main[1]/div[1]' },
+      'Start your free 30-day trial today, no credit card required',
+    );
+    expect(found?.id).toBe('mounted');
+  });
+
+  // The empty hit is demoted, not discarded: with no better candidate anywhere
+  // it must still win as the fallback (same conservatism as the non-empty
+  // uncorroborated case above).
+  it('an empty positional hit still survives as the last-resort fallback', () => {
+    document.body.innerHTML = '<main><div class="row" id="recycled"></div></main>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#recycled', xpath: '/html/body/main[1]/div[1]' },
+      'Start your free 30-day trial today, no credit card required',
+    );
+    expect(found?.id).toBe('recycled');
+  });
+
+  // Review #3 P1 (pre-existing). With NO positional hit, the zero-box guard
+  // never ran: a hidden responsive duplicate met first in the walk was
+  // accepted as the exact match, displayed at a zero rect, and eligible to be
+  // PERSISTED as a heal. Layout eligibility must gate acceptance itself, and
+  // the walk must continue past hidden matches to a later visible one.
+  it('a hidden exact match loses to a later visible exact match when no positional hit exists', () => {
+    document.body.innerHTML =
+      '<main>' +
+      '<p id="stale" hidden>Start your free 30-day trial today, no credit card required</p>' +
+      '<p id="real">Start your free 30-day trial today, no credit card required</p>' +
+      '</main>';
+    vi.spyOn(document.getElementById('stale')!, 'getClientRects').mockReturnValue(
+      [] as unknown as DOMRectList,
+    );
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'Start your free 30-day trial today, no credit card required',
+    );
+    expect(found?.id).toBe('real');
+  });
+
+  // Hidden-only: an honest orphan beats anchoring to an element the reviewer
+  // cannot see (and beats persisting its selectors as a heal).
+  it('returns null when the only exact match has no layout box', () => {
+    document.body.innerHTML =
+      '<main><p id="stale" hidden>Start your free 30-day trial today, no credit card required</p></main>';
+    vi.spyOn(document.getElementById('stale')!, 'getClientRects').mockReturnValue(
+      [] as unknown as DOMRectList,
+    );
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'Start your free 30-day trial today, no credit card required',
+    );
+    expect(found).toBeNull();
+  });
+});
+
+describe('bounded healing work (0.4.1 independent review #7/#8)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  // Review #8 P2. Stored fingerprints are untrusted (localStorage, source
+  // hydration) and every downstream pass — lowercase, equality, bigrams — is
+  // O(length). A multi-megabyte value must be capped to the documented 80-char
+  // representation BEFORE any matching work, and matching must still succeed
+  // against the capped prefix.
+  it('a multi-megabyte stored fingerprint is capped to 80 chars before matching', () => {
+    const text = 'The quick brown fox jumps over the lazy dog while the band plays on tonight ok!?';
+    document.body.innerHTML = `<main><p id="target">${text}</p></main>`;
+    const hostile = text.slice(0, 80) + 'x'.repeat(2_000_000);
+    // Outcome alone cannot prove boundedness (the fuzzy pass can rescue the
+    // result SLOWLY) — so record the longest string any matching pass
+    // lowercases. Capped input means nothing downstream ever sees >80 chars.
+    let maxLowered = 0;
+    const original = String.prototype.toLowerCase;
+    vi.spyOn(String.prototype, 'toLowerCase').mockImplementation(function (this: string) {
+      maxLowered = Math.max(maxLowered, this.length);
+      return original.call(this);
+    });
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      hostile,
+    );
+    expect(found?.id).toBe('target');
+    expect(maxLowered).toBeLessThanOrEqual(80);
+  });
+
+  // Review #7 P2. `textContent` materialises the COMPLETE descendant text of a
+  // candidate before the deadline can be consulted — one 86 KB container costs
+  // ~6 ms against a 2 ms budget. Healing must extract text incrementally
+  // (stop at the fingerprint length, deadline-checked between chunks) and
+  // never touch textContent. Full-fidelity extraction stays where it belongs:
+  // pin creation.
+  it('healing never materialises a subtree via textContent', () => {
+    document.body.innerHTML =
+      '<main><div><p>alpha beta gamma</p></div>' +
+      '<p id="target">Start your free 30-day trial today, no credit card required</p></main>';
+    // happy-dom defines textContent on BOTH Element.prototype and
+    // Node.prototype (Element's shadows Node's) — the spy must sit on Element
+    // or every read slips past it and the assertion is vacuous.
+    const spy = vi.fn();
+    const original = Object.getOwnPropertyDescriptor(Element.prototype, 'textContent')!;
+    Object.defineProperty(Element.prototype, 'textContent', {
+      configurable: true,
+      set: original.set!,
+      get(this: Element) {
+        spy();
+        return original.get!.call(this);
+      },
+    });
+    try {
+      const found = findByCandidates(
+        document,
+        { testid: null, id: null, css: 'main > div', xpath: '/html/body/main[1]/div[1]' },
+        'Start your free 30-day trial today, no credit card required',
+      );
+      expect(found?.id).toBe('target');
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      Object.defineProperty(Element.prototype, 'textContent', original);
+    }
+  });
+
+  // The incremental extractor must agree with pin-time getTextFingerprint on
+  // whitespace-heavy markup — a divergence orphans every stored pin. The
+  // fixture forces multi-chunk accumulation: the meaningful text sits past a
+  // run of indentation far longer than one 2 KB chunk.
+  it('incremental extraction matches pin-time fingerprints across chunk boundaries', () => {
+    const el = document.createElement('div');
+    el.textContent = `${' '.repeat(5000)}the actual content arrives well past several chunk boundaries in this fixture`;
+    document.body.appendChild(el);
+    const pinTime = getTextFingerprint(el);
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      pinTime,
+    );
+    expect(found).toBe(el);
+  });
+});

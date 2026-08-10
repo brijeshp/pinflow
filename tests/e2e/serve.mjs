@@ -13,12 +13,22 @@ const MIME = {
   '.map': 'application/json',
 };
 
+// The strict policy the 0.4.1 CSP work exists to survive. `style-src 'self'`
+// with no 'unsafe-inline' drops injected <style> nodes; constructed sheets and
+// CSSOM writes are unaffected. Served only on /csp so the SPA fixture keeps
+// its inline router.
+const STRICT_CSP = "default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'none'";
+
 const server = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
   let filePath;
+  const headers = {};
 
   if (url.pathname.startsWith('/dist/')) {
     filePath = join(ROOT, url.pathname);
+  } else if (url.pathname === '/csp') {
+    filePath = join(FIXTURE, 'csp.html');
+    headers['Content-Security-Policy'] = STRICT_CSP;
   } else {
     filePath = join(FIXTURE, 'index.html');
   }
@@ -26,7 +36,10 @@ const server = createServer(async (req, res) => {
   try {
     const data = await readFile(filePath);
     const ext = extname(filePath);
-    res.writeHead(200, { 'Content-Type': MIME[ext] || 'application/octet-stream' });
+    res.writeHead(200, {
+      'Content-Type': MIME[ext] || 'application/octet-stream',
+      ...headers,
+    });
     res.end(data);
   } catch {
     res.writeHead(404);
