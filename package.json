@@ -1,7 +1,7 @@
 {
   "name": "@brijeshp/pinflow",
   "version": "0.4.1",
-  "description": "Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero backend, one-line install, AI-agent-ready markdown export.",
+  "description": "Your reviewer clicks the thing that's wrong. Your coding agent gets a selector, the surrounding context, and the comment — as Markdown it can act on. 17 kB, no backend, no install for the reviewer.",
   "keywords": [
     "annotation",
     "feedback",

@@ -1,0 +1,72 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="880" height="380" viewBox="0 0 880 380" role="img" aria-label="A reviewer pins a comment on a button; Pinflow exports Markdown carrying the selector, context and computed styles for a coding agent.">
+  <style>
+    .t { font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+    .m { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace; }
+  </style>
+  <rect width="880" height="380" fill="#0d1117"/>
+
+  <!-- ─────────── left: the page under review ─────────── -->
+  <g>
+    <rect x="24" y="34" width="352" height="288" rx="12" fill="#161b22" stroke="#30363d"/>
+    <circle cx="44" cy="54" r="4" fill="#30363d"/><circle cx="58" cy="54" r="4" fill="#30363d"/><circle cx="72" cy="54" r="4" fill="#30363d"/>
+    <line x1="24" y1="72" x2="376" y2="72" stroke="#30363d"/>
+
+    <text x="48" y="110" class="t" font-size="17" font-weight="600" fill="#e6edf3">Choose a plan</text>
+    <rect x="48" y="126" width="212" height="7" rx="3.5" fill="#30363d"/>
+    <rect x="48" y="141" width="150" height="7" rx="3.5" fill="#30363d"/>
+
+    <!-- the pinned element -->
+    <rect x="47" y="183" width="150" height="38" rx="9" fill="#2563eb"/>
+    <text x="122" y="207" class="t" font-size="13" font-weight="600" fill="#ffffff" text-anchor="middle">Upgrade</text>
+    <rect x="43.5" y="179.5" width="157" height="45" rx="12" fill="none" stroke="#2563eb" stroke-opacity=".45" stroke-width="2" stroke-dasharray="5 4"/>
+
+    <rect x="213" y="183" width="120" height="38" rx="9" fill="none" stroke="#30363d"/>
+    <text x="273" y="207" class="t" font-size="13" fill="#8b949e" text-anchor="middle">Start free</text>
+
+    <rect x="48" y="253" width="280" height="7" rx="3.5" fill="#21262d"/>
+    <rect x="48" y="268" width="230" height="7" rx="3.5" fill="#21262d"/>
+
+    <!-- the pin -->
+    <circle cx="197" cy="181" r="13" fill="#2563eb" stroke="#0d1117" stroke-width="2.5"/>
+    <text x="197" y="186" class="t" font-size="11" font-weight="700" fill="#ffffff" text-anchor="middle">1</text>
+
+    <!-- the reviewer's note -->
+    <rect x="150" y="206" width="215" height="60" rx="10" fill="#161b22" stroke="#30363d"/>
+    <text x="164" y="228" class="t" font-size="11.5" fill="#e6edf3">“Upgrade is losing to Start free —</text>
+    <text x="164" y="245" class="t" font-size="11.5" fill="#e6edf3">make it the primary action.”</text>
+    <text x="164" y="259" class="t" font-size="9.5" fill="#8b949e">Sam · no account, no install</text>
+  </g>
+
+  <!-- ─────────── arrow ─────────── -->
+  <g>
+    <line x1="396" y1="178" x2="452" y2="178" stroke="#30363d" stroke-width="2" stroke-linecap="round"/>
+    <path d="M452 172 L461 178 L452 184 Z" fill="#30363d"/>
+    <text x="424" y="164" class="t" font-size="10" fill="#8b949e" text-anchor="middle">export</text>
+  </g>
+
+  <!-- ─────────── right: what the agent receives ─────────── -->
+  <g>
+    <rect x="480" y="34" width="376" height="288" rx="12" fill="#010409" stroke="#30363d"/>
+    <text x="502" y="60" class="m" font-size="10.5" fill="#64748b">pinflow-feedback.md</text>
+    <line x1="480" y1="74" x2="856" y2="74" stroke="#1e293b"/>
+
+    <text x="502" y="99"  class="m" font-size="11" fill="#e2e8f0">### Comment 1</text>
+    <text x="502" y="120" class="m" font-size="11" fill="#38bdf8">**Element:**</text>
+    <text x="592" y="120" class="m" font-size="11" fill="#e2e8f0">&lt;button data-testid=</text>
+    <text x="502" y="136" class="m" font-size="11" fill="#e2e8f0">  "upgrade-cta"&gt; (“Upgrade”)</text>
+    <text x="502" y="157" class="m" font-size="11" fill="#38bdf8">**Context:**</text>
+    <text x="592" y="157" class="m" font-size="11" fill="#e2e8f0">the ‘Upgrade’ button</text>
+    <text x="502" y="173" class="m" font-size="11" fill="#e2e8f0">  under ‘Choose a plan’</text>
+    <text x="502" y="194" class="m" font-size="11" fill="#38bdf8">**Computed:**</text>
+    <text x="600" y="194" class="m" font-size="11" fill="#e2e8f0">background rgb(37,99,</text>
+    <text x="502" y="210" class="m" font-size="11" fill="#e2e8f0">  235), font 13px Inter</text>
+    <text x="502" y="231" class="m" font-size="11" fill="#38bdf8">**Selector candidates:**</text>
+    <text x="502" y="247" class="m" font-size="11" fill="#e2e8f0">- testid: `upgrade-cta`</text>
+    <text x="502" y="263" class="m" font-size="11" fill="#e2e8f0">- css: `.pricing &gt; button`</text>
+    <text x="502" y="292" class="m" font-size="11" fill="#94a3b8">&gt; Upgrade is losing to Start</text>
+    <text x="502" y="308" class="m" font-size="11" fill="#94a3b8">&gt; free — make it primary.</text>
+  </g>
+
+  <!-- ─────────── caption ─────────── -->
+  <text x="440" y="356" class="t" font-size="12" fill="#8b949e" text-anchor="middle">One script tag · 17 kB gzipped · your reviewer installs nothing</text>
+</svg>
