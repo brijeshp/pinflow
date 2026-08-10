@@ -50,17 +50,23 @@ try {
 //     Scripts, size-limit, exports and files all still trigger the check.
 //
 // Both are narrow on purpose: the guard exists because these paths really do
-// govern documented behaviour, and the fix must not blunt that.
-const changed = git(
-  'diff',
-  '--name-only',
-  '--diff-filter=d', // exclude deletions — see .changeset/ note above
-  `${lastSync}..HEAD`,
-  '--',
-  ...WATCHED,
-)
+// govern documented behaviour, and the fix must not blunt that. The deletion
+// exemption in particular is scoped to .changeset/ ONLY — a blanket
+// `--diff-filter=d` here once let a deletion-only source or workflow commit
+// pass, so a release could publish while the wiki documented removed
+// behaviour (0.4.1 review #6). Deleting code changes documented behaviour as
+// surely as adding it.
+const changed = git('diff', '--name-status', `${lastSync}..HEAD`, '--', ...WATCHED)
   .split('\n')
   .filter(Boolean)
+  .map((line) => {
+    const parts = line.split('\t');
+    // Renames/copies (`R100\told\tnew`) carry two paths; the last is the one
+    // that exists at HEAD.
+    return { status: parts[0][0], path: parts[parts.length - 1] };
+  })
+  .filter(({ status, path }) => !(status === 'D' && path.startsWith('.changeset/')))
+  .map(({ path }) => path)
   .filter((f) => f !== 'package.json' || packageJsonChangedBeyondVersion(lastSync));
 
 function packageJsonChangedBeyondVersion(base) {
