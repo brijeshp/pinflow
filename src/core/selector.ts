@@ -184,7 +184,8 @@ export function getTextFingerprint(el: Element): string {
 // candidate is then simply not judged. Full-fidelity extraction stays where
 // it belongs: pin creation.
 function healFingerprint(el: Element, deadline: number): string | null {
-  const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  // 4 === NodeFilter.SHOW_TEXT (the enum reference costs bundle bytes).
+  const walker = el.ownerDocument.createTreeWalker(el, 4);
   let out = '';
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const data = node.nodeValue ?? '';

@@ -18,7 +18,10 @@ Excluded from coverage: `src/core/iife.ts`, `src/core/types.ts`, `src/core/voice
 - **`tests/core/`** — unit tests: annotator (+ reflow), gesture, anchor, selector, storage, router, route-key, frame-route, export, download, onchange, theme, dom, id, identity, init, safe-storage, voice-loader, wrapper-isolation.
 - **`tests/voice/`** — audio, deepgram, token, session, worklet, protocol, transcript-store, levels, and **`bundle-isolation.test.ts`** (asserts voice symbols never appear in core bundles — the seam's CI enforcement).
 - **`tests/react/`**, **`tests/vue/`** — wrapper component tests (`tests/vue/mount-helper.ts` utility).
-- **`tests/e2e/`** — `acceptance.spec.ts` (Playwright), served by `tests/e2e/serve.mjs` on `localhost:4173`.
+- **`tests/e2e/`** — `acceptance.spec.ts` + `csp.spec.ts` (Playwright), served by `tests/e2e/serve.mjs` on `localhost:4173`; `/csp` serves a fixture under `default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'none'` to prove adopted-sheet delivery and end-to-end interactivity survive a real strict CSP.
+- **`tests/agent/`** — `format-parity.test.ts` keeps the four shipped agent formats' safety guidance (fixed-string search, data-not-instructions, line-anchored workflow fields) from drifting apart.
+- **`tests/scripts/`** — `wiki-check.test.ts` runs the release guard against scratch git repos (deletion-only commits fail, consumed changesets pass).
+- **`tests/utils/`** — `interpolation-guard.ts`: the fail-closed TypeScript-AST checker behind export.test.ts's structural injection guard, with pinned negative controls for every documented regex-guard bypass.
 
 Vitest picks up `tests/**/*.test.ts` and colocated `src/**/*.test.ts`.
 
