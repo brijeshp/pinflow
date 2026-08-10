@@ -318,7 +318,7 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
   // Two-step contract (first-user feedback): the control button ARMS
   // annotate mode by itself — no separate "Add comment" press.
   function enterAnnotateMode(): void {
-    shadow().querySelector<HTMLButtonElement>('.control')?.click();
+    shadow().querySelector<HTMLButtonElement>('.arm')?.click();
   }
 
   it('restores the host page cursor it found, not a hardcoded empty string', () => {
@@ -330,7 +330,7 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     expect(document.body.style.cursor).toBe('pointer');
   });
 
-  it('control click arms annotate immediately: button then page = pin (3 steps → 2)', () => {
+  it('arm click arms annotate immediately: button then page = pin (3 steps → 2)', () => {
     annotator = makeAnnotator();
     enterAnnotateMode();
     expect(document.body.style.cursor).toBe('crosshair');
@@ -341,18 +341,17 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     expect(shadow().querySelector('textarea')).not.toBeNull();
   });
 
-  it('the opened panel offers Stop (not Add comment) while armed', () => {
+  it('arming opens NO panel — the arm segment is a pure toggle', () => {
     annotator = makeAnnotator();
     enterAnnotateMode();
-    const labels = Array.from(shadow().querySelectorAll('button')).map((b) => b.textContent);
-    expect(labels).toContain('Stop');
-    expect(labels).not.toContain('Add comment');
+    expect(document.body.style.cursor).toBe('crosshair');
+    expect(shadow().querySelector('.panel')).toBeNull();
   });
 
-  it('second control click disarms and closes the panel', () => {
+  it('second arm click disarms', () => {
     annotator = makeAnnotator();
     enterAnnotateMode();
-    shadow().querySelector<HTMLButtonElement>('.control')?.click();
+    shadow().querySelector<HTMLButtonElement>('.arm')?.click();
     expect(document.body.style.cursor).toBe('');
     const target = document.createElement('p');
     document.body.appendChild(target);
@@ -360,19 +359,19 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     expect(shadow().querySelector('textarea')).toBeNull();
   });
 
-  it('placing a pin closes the menu — focus moves to the draft popup', () => {
+  it('arming closes an open sheet — pinning intent replaces the export surface', () => {
+    seedStore(makeComment('existing'));
     annotator = makeAnnotator();
+    shadow().querySelector<HTMLButtonElement>('.chip')?.click();
+    expect(shadow().querySelector('.panel')).not.toBeNull(); // sheet open
     enterAnnotateMode();
-    const target = document.createElement('p');
-    document.body.appendChild(target);
-    target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    expect(shadow().querySelector('textarea')).not.toBeNull();
-    expect(shadow().querySelector('.panel h3')).toBeNull();
+    expect(shadow().querySelector('.panel')).toBeNull();
+    expect(document.body.style.cursor).toBe('crosshair');
   });
 
-  it('builder mode control click keeps its drawer-only behavior (no crosshair)', () => {
+  it('builder mode chip click keeps its drawer-only behavior (no crosshair)', () => {
     annotator = makeAnnotator({ mode: 'builder' });
-    shadow().querySelector<HTMLButtonElement>('.control')?.click();
+    shadow().querySelector<HTMLButtonElement>('.chip')?.click();
     expect(document.body.style.cursor).toBe('');
   });
 
@@ -395,17 +394,6 @@ describe('Annotator body-cursor save/restore (P4.6)', () => {
     document.body.appendChild(target);
     target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(1);
-  });
-
-  it('clicking an existing pin while armed closes the menu — focus moves to the edit popup', () => {
-    seedStore(makeComment('existing'));
-    annotator = makeAnnotator();
-    enterAnnotateMode();
-    expect(shadow().querySelector('.panel h3')).not.toBeNull(); // menu open while armed
-
-    shadow().querySelector<HTMLElement>('.pin')?.click();
-    expect(shadow().querySelector('textarea')).not.toBeNull();
-    expect(shadow().querySelector('.panel h3')).toBeNull();
   });
 });
 
@@ -524,7 +512,7 @@ describe('Annotator export API (L1.5)', () => {
       return 'blob:mock';
     });
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    shadow().querySelector<HTMLButtonElement>('button.chip')!.click();
     const jsonBtn = [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'JSON');
     expect(jsonBtn).toBeTruthy();
     jsonBtn!.click();
@@ -555,7 +543,8 @@ describe('Annotator submission moment (L1.6)', () => {
     });
   }
 
-  async function exportViaPanel(submitTo?: { email: string; subject?: string }): Promise<void> {
+  // The reviewer menu panel is gone (0.5.0): export rides the chip → sheet.
+  async function exportViaSheet(submitTo?: { email: string; subject?: string }): Promise<void> {
     seedStore(makeComment('hello'));
     annotator = new Annotator({
       config: { project: PROJECT, ...(submitTo ? { submitTo } : {}) },
@@ -563,7 +552,7 @@ describe('Annotator submission moment (L1.6)', () => {
       mode: 'reviewer',
       storage: localStorage,
     });
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
+    shadow().querySelector<HTMLButtonElement>('button.chip')!.click();
     const exportBtn = [...shadow().querySelectorAll('button')].find(
       (b) => b.textContent === 'Export & share',
     );
@@ -580,7 +569,7 @@ describe('Annotator submission moment (L1.6)', () => {
   it('confirmation gains a primary mailto button when submitTo is set', async () => {
     mockDownloadPlumbing();
     mockClipboard(true);
-    await exportViaPanel({ email: 'dev@x.io', subject: 'Prototype feedback' });
+    await exportViaSheet({ email: 'dev@x.io', subject: 'Prototype feedback' });
     const btn = findEmailButton();
     expect(btn).toBeTruthy();
     expect(btn!.className).toContain('primary');
@@ -594,7 +583,7 @@ describe('Annotator submission moment (L1.6)', () => {
   it('subject defaults to "Feedback: <project>"; without a clipboard the hand-off points at the file', async () => {
     mockDownloadPlumbing();
     mockClipboard(false);
-    await exportViaPanel({ email: 'dev@x.io' });
+    await exportViaSheet({ email: 'dev@x.io' });
     // Previously this said "Share however you like", so the primary action
     // opened an empty email with nothing to paste and nothing to attach.
     expect(shadow().querySelector('.panel p')?.textContent).toBe(
@@ -609,7 +598,7 @@ describe('Annotator submission moment (L1.6)', () => {
   it('no email button without submitTo', async () => {
     mockDownloadPlumbing();
     mockClipboard(true);
-    await exportViaPanel();
+    await exportViaSheet();
     expect(findEmailButton()).toBeUndefined();
   });
 
@@ -1119,7 +1108,7 @@ describe('builder mode is functional (review #14)', () => {
     annotator = makeBuilder();
     expect(shadow().querySelectorAll('.pin')).toHaveLength(2);
 
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click(); // open drawer
+    shadow().querySelector<HTMLButtonElement>('button.chip')!.click(); // open drawer
     const alice = shadow().querySelector<HTMLInputElement>('input[data-reviewer="Alice"]')!;
     alice.checked = false;
     alice.dispatchEvent(new Event('change'));

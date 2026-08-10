@@ -14,6 +14,7 @@ function dispatch(target: EventTarget, type: string, props: Record<string, unkno
     clientX: 10,
     clientY: 20,
     altKey: false,
+    button: 0,
     ...props,
   });
   target.dispatchEvent(e);
@@ -94,9 +95,13 @@ describe('GestureController', () => {
     expect(activations).toHaveLength(0);
   });
 
-  it('activates immediately on desktop Alt+click', () => {
+  // Release-time activation (0.5.0): the press must stay open so movement can
+  // become an Alt+drag marquee instead.
+  it('activates a desktop Alt+click on RELEASE at the press coordinates', () => {
     const { activations, el } = setup();
     dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 5, clientY: 6 });
+    expect(activations).toHaveLength(0); // not yet — a drag may follow
+    dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 5, clientY: 6 });
     expect(activations).toHaveLength(1);
     expect(activations[0]).toMatchObject({ x: 5, y: 6 });
   });
@@ -104,17 +109,378 @@ describe('GestureController', () => {
   it('ignores a plain desktop click with no modifier', () => {
     const { activations, el } = setup();
     dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: false });
+    dispatch(el, 'pointerup', { pointerType: 'mouse' });
     vi.advanceTimersByTime(600);
+    expect(activations).toHaveLength(0);
+  });
+
+  it('ignores Alt with a non-primary mouse button (right-click stays the host’s)', () => {
+    const { activations, el } = setup();
+    dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, button: 2 });
+    dispatch(el, 'pointerup', { pointerType: 'mouse', button: 2 });
     expect(activations).toHaveLength(0);
   });
 
   it('swallows exactly the next click after activation, then lets clicks through', () => {
     const { el } = setup();
     dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true });
+    dispatch(el, 'pointerup', { pointerType: 'mouse' });
     const swallowed = dispatch(el, 'click', { pointerType: 'mouse' });
     expect(swallowed.defaultPrevented).toBe(true);
     const next = dispatch(el, 'click', { pointerType: 'mouse' });
     expect(next.defaultPrevented).toBe(false);
+  });
+
+  describe('Alt+drag area (0.5.0)', () => {
+    function areaSetup(): ReturnType<typeof setup> & {
+      changes: number[][];
+      commits: number[][];
+      cancels: number[];
+    } {
+      const changes: number[][] = [];
+      const commits: number[][] = [];
+      const cancels: number[] = [];
+      const base = setup({
+        onAreaChange: (x0, y0, x1, y1) => changes.push([x0, y0, x1, y1]),
+        onAreaCommit: (x0, y0, x1, y1) => commits.push([x0, y0, x1, y1]),
+        onAreaCancel: () => cancels.push(1),
+      });
+      return { ...base, changes, commits, cancels };
+    }
+
+    it('an Alt+press that travels past the threshold streams area changes and commits on release', () => {
+      const { activations, changes, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      expect(changes).toEqual([[10, 10, 60, 80]]);
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      expect(commits).toEqual([[10, 10, 60, 80]]);
+      expect(activations).toHaveLength(0); // an area is not a point pin
+    });
+
+    it('the trailing click after an area commit is swallowed', () => {
+      const { el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      const swallowed = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(swallowed.defaultPrevented).toBe(true);
+    });
+
+    it('sub-threshold Alt movement stays a point activation, never an area', () => {
+      const { activations, changes, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 13, clientY: 12 });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 13, clientY: 12 });
+      expect(changes).toHaveLength(0);
+      expect(commits).toHaveLength(0);
+      expect(activations).toHaveLength(1);
+    });
+
+    it('pointercancel mid-drag cancels the area without committing', () => {
+      const { cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(el, 'pointercancel', { pointerType: 'mouse' });
+      expect(cancels).toHaveLength(1);
+      expect(commits).toHaveLength(0);
+    });
+
+    it('a second pointer joining mid-drag cancels the area', () => {
+      const { cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(el, 'pointerdown', { pointerId: 2 });
+      expect(cancels).toHaveLength(1);
+      expect(commits).toHaveLength(0);
+    });
+
+    it('touch movement past the threshold still cancels the long-press (scroll intent, no area)', () => {
+      const { activations, changes, el } = areaSetup();
+      dispatch(el, 'pointerdown', { clientX: 10, clientY: 20 });
+      dispatch(el, 'pointermove', { clientX: 10, clientY: 45 });
+      vi.advanceTimersByTime(600);
+      expect(activations).toHaveLength(0);
+      expect(changes).toHaveLength(0);
+    });
+
+    it('Escape mid-drag cancels the area; the release neither commits nor clicks the host', () => {
+      const { activations, cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(document, 'keydown', { key: 'Escape' });
+      expect(cancels).toHaveLength(1);
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      expect(commits).toHaveLength(0);
+      expect(activations).toHaveLength(0);
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // aborted gesture still shields the host
+    });
+
+    it('returning inside the threshold de-latches: cancel fires, release is a point again', () => {
+      const { activations, cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 12, clientY: 11 }); // back home
+      expect(cancels).toHaveLength(1); // marquee visuals told to clear
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 12, clientY: 11 });
+      expect(commits).toHaveLength(0); // never a 0x0 area
+      expect(activations).toHaveLength(1); // reverts to a point pin
+    });
+
+    it('suspended() gates the whole controller: no press, no activation, no swallow', () => {
+      const { activations, el } = setup({ suspended: () => true });
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true });
+      dispatch(el, 'pointerup', { pointerType: 'mouse' });
+      expect(activations).toHaveLength(0);
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(false); // no stray swallow armed
+    });
+
+    it('text selection and native drag are suppressed while a mouse press is in flight', () => {
+      const { el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      const sel = dispatch(el, 'selectstart');
+      const drag = dispatch(el, 'dragstart');
+      expect(sel.defaultPrevented).toBe(true);
+      expect(drag.defaultPrevented).toBe(true);
+      dispatch(el, 'pointerup', { pointerType: 'mouse' });
+      const selAfter = dispatch(el, 'selectstart');
+      expect(selAfter.defaultPrevented).toBe(false); // press-scoped, not standing
+    });
+
+    it('the swallow intercepts BEFORE host document-capture listeners (window capture)', () => {
+      const hostSeen = vi.fn();
+      document.addEventListener('click', hostSeen, true); // host registered first
+      try {
+        const { el } = areaSetup();
+        dispatch(el, 'pointerdown', {
+          pointerType: 'mouse',
+          altKey: true,
+          clientX: 10,
+          clientY: 10,
+        });
+        dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+        dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+        dispatch(el, 'click', { pointerType: 'mouse' });
+        expect(hostSeen).not.toHaveBeenCalled();
+      } finally {
+        document.removeEventListener('click', hostSeen, true);
+      }
+    });
+
+    it('a coalesced release at the origin (no final move) reverts to a point — never a 0×0 area', () => {
+      const { activations, cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // latched
+      // Event coalescing: the return-to-origin move never arrives; only the release does.
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 11, clientY: 11 });
+      expect(commits).toHaveLength(0);
+      expect(cancels).toHaveLength(1); // marquee visuals told to clear
+      expect(activations).toHaveLength(1); // point pin at the press coords
+    });
+
+    it('suspended() flipping mid-press kills the in-flight gesture (move and release do nothing)', () => {
+      let suspended = false;
+      const commits: number[][] = [];
+      const cancels: number[] = [];
+      const { activations, el } = setup({
+        suspended: () => suspended,
+        onAreaChange: () => {},
+        onAreaCommit: (x0, y0, x1, y1) => commits.push([x0, y0, x1, y1]),
+        onAreaCancel: () => cancels.push(1),
+      });
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      suspended = true; // armed mode took over mid-press
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 90, clientY: 90 });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 90, clientY: 90 });
+      expect(commits).toHaveLength(0);
+      expect(activations).toHaveLength(0);
+      expect(cancels).toHaveLength(1); // in-flight marquee visuals cleaned up
+    });
+
+    it('a touch long-press started before arming never fires after suspension', () => {
+      let suspended = false;
+      const { activations, el } = setup({ suspended: () => suspended });
+      dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 }); // touch press, unarmed
+      suspended = true; // armed mid-press
+      vi.advanceTimersByTime(600); // the long-press timer fires into suspension
+      expect(activations).toHaveLength(0);
+    });
+
+    it('suspension mid-press also shields the release: the trailing click is swallowed', () => {
+      let suspended = false;
+      const { activations, el } = setup({
+        suspended: () => suspended,
+        onAreaChange: () => {},
+        onAreaCommit: () => {},
+        onAreaCancel: () => {},
+      });
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      suspended = true;
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 10, clientY: 10 });
+      expect(activations).toHaveLength(0);
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // the dead gesture's click never reaches anyone
+    });
+
+    it('a de-latched press whose far release was coalesced still commits an AREA (release is authoritative both ways)', () => {
+      const { activations, cancels, commits, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // latched
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 11, clientY: 11 }); // de-latched
+      expect(cancels).toHaveLength(1);
+      // Coalescing swallowed the outbound move; only the far release arrives.
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 90, clientY: 120 });
+      expect(commits).toEqual([[10, 10, 90, 120]]);
+      expect(activations).toHaveLength(0);
+    });
+
+    it('suspension holds pointer ownership to the RELEASE: a >700ms hold still shields the click', () => {
+      let suspended = false;
+      const { activations, el } = setup({
+        suspended: () => suspended,
+        onAreaChange: () => {},
+        onAreaCommit: () => {},
+        onAreaCancel: () => {},
+      });
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      suspended = true;
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // takeover detected
+      vi.advanceTimersByTime(800); // longer than any fixed swallow window
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // swallow armed at RELEASE, not at cancel
+      expect(activations).toHaveLength(0);
+    });
+
+    it('a suspended touch release is shielded too — the compatibility click never becomes a pin', () => {
+      let suspended = false;
+      const { activations, el } = setup({ suspended: () => suspended });
+      dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 }); // touch, unarmed
+      suspended = true;
+      vi.advanceTimersByTime(600); // guarded timer expires into suspension
+      dispatch(el, 'pointerup', { clientX: 30, clientY: 40 });
+      const click = dispatch(el, 'click');
+      expect(click.defaultPrevented).toBe(true);
+      expect(activations).toHaveLength(0);
+    });
+
+    it('Escape retains ownership: a >700ms hold after Escape still shields the release click', () => {
+      const { activations, cancels, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      dispatch(document, 'keydown', { key: 'Escape' });
+      expect(cancels).toHaveLength(1); // visuals die immediately
+      vi.advanceTimersByTime(800); // longer than any fixed swallow window
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // swallow armed at RELEASE
+      expect(activations).toHaveLength(0);
+    });
+
+    it('Escape on a SUSPENDED press also holds ownership through a long hold (review r5)', () => {
+      let suspended = false;
+      const cancels: number[] = [];
+      const { activations, el } = setup({
+        suspended: () => suspended,
+        onAreaChange: () => {},
+        onAreaCommit: () => {},
+        onAreaCancel: () => cancels.push(1),
+      });
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      suspended = true;
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // marks dead
+      dispatch(document, 'keydown', { key: 'Escape' }); // must not start a decaying window
+      vi.advanceTimersByTime(750);
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true);
+      expect(activations).toHaveLength(0);
+    });
+
+    it('a second pointer joining a DEAD press cannot steal its release shielding (review r6)', () => {
+      const { activations, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(document, 'keydown', { key: 'Escape' }); // press goes dead, ownership retained
+      dispatch(el, 'pointerdown', { pointerId: 2 }); // a second pointer joins
+      vi.advanceTimersByTime(750);
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 10, clientY: 10 });
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // shield survives the intruder
+      expect(activations).toHaveLength(0);
+    });
+
+    it("an unrelated pointer's cancel does not kill a live press (review r6)", () => {
+      const { activations, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 5, clientY: 6 });
+      dispatch(el, 'pointercancel', { pointerId: 9 }); // someone else's cancel
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 5, clientY: 6 });
+      expect(activations).toHaveLength(1); // the press survived to activate
+    });
+
+    it('suspendPress() kills an in-flight press NOW but keeps its release shielded (review r7)', () => {
+      const { activations, cancels, commits, controller, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // latched
+      controller.suspendPress(); // armed mode takes over synchronously
+      expect(cancels).toHaveLength(1); // marquee visuals die immediately
+      // A transient arm→disarm means suspended() is false again by release time.
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      expect(commits).toHaveLength(0); // the dead press must NOT resume and commit
+      expect(activations).toHaveLength(0);
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(true); // release still shielded
+    });
+
+    it("a LOST release cannot poison the same pointer's next press (review r8)", () => {
+      const { activations, controller, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      controller.suspendPress(); // armed takeover; press goes dead
+      // The release happens OUTSIDE the window — no pointerup ever arrives
+      // (documented browser behavior). Later, the same pointer presses again:
+      dispatch(el, 'pointerdown', {
+        pointerType: 'mouse',
+        altKey: false,
+        clientX: 200,
+        clientY: 200,
+      });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 200, clientY: 200 });
+      const click = dispatch(el, 'click', { pointerType: 'mouse' });
+      expect(click.defaultPrevented).toBe(false); // an ordinary host click passes
+      expect(activations).toHaveLength(0);
+    });
+
+    it('after a lost release, the same pointer can start a FRESH Alt gesture (review r8)', () => {
+      const { activations, controller, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      controller.suspendPress();
+      // Lost release; the same pointer begins a new Alt+click:
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 50, clientY: 50 });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 50, clientY: 50 });
+      expect(activations).toHaveLength(1); // the fresh press works normally
+      expect(activations[0]).toMatchObject({ x: 50, y: 50 });
+    });
+
+    it("a LIVE press's lost release does not eat the same pointer's first retry (ce #5)", () => {
+      const { activations, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      // Release lost outside the window; the same pointer retries immediately:
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 50, clientY: 50 });
+      dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 50, clientY: 50 });
+      expect(activations).toHaveLength(1); // the retry works on the FIRST attempt
+      expect(activations[0]).toMatchObject({ x: 50, y: 50 });
+    });
+
+    it('stop() mid-drag cancels the area (no orphaned marquee visuals)', () => {
+      const { controller, cancels, el } = areaSetup();
+      dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+      dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
+      controller.stop();
+      expect(cancels).toHaveLength(1);
+    });
   });
 
   it('attaches the document pointermove listener only while a press is in flight (P2.4)', () => {

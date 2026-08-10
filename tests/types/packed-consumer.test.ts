@@ -16,8 +16,10 @@ describe('packed package type surface', () => {
   it.runIf(existsSync(DTS))('a consumer can import and use the public types', () => {
     const consumer = `
       import { init, routeOf, exportReviewer, version } from './dist/index';
-      import type { PinflowTheme, PinflowConfig, Comment, Handle } from './dist/index';
+      import type { PinflowTheme, PinflowConfig, Comment, Handle, AreaPercent } from './dist/index';
       const theme: PinflowTheme = { accent: '#123456', radius: '8px' };
+      const area: AreaPercent = { x: 10, y: 20, w: 30, h: 40 };
+      export { area };
       const config: PinflowConfig = {
         project: 'p',
         theme,

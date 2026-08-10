@@ -8,6 +8,7 @@ import { Annotator } from './ui/annotator';
 export type {
   ActivationConfig,
   Anchor,
+  AreaPercent,
   Comment,
   GrantTokenResponse,
   Mode,

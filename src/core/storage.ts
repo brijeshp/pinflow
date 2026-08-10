@@ -67,6 +67,17 @@ function validContext(v: unknown): boolean {
   return isObject(styles) && Object.values(styles).every((s) => typeof s === 'string');
 }
 
+// Area comments (marquee picker): all four leaves are Math.round()ed on
+// export, so NaN/out-of-range must drop the record like any anchor corruption.
+function validArea(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!isObject(v)) return false;
+  return (['x', 'y', 'w', 'h'] as const).every((k) => {
+    const n = v[k];
+    return finite(n) && n >= 0 && n <= 100;
+  });
+}
+
 function validVoice(v: unknown): boolean {
   if (v === undefined) return true;
   if (!isObject(v)) return false;
@@ -112,6 +123,7 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     // the anchor, not the comment): reject records whose context, fingerprint,
     // or voice metadata would corrupt export or render.
     optStr(anchor['textFingerprint']) &&
+    validArea(anchor['areaPercent']) &&
     validContext(anchor['context']) &&
     validVoice(c['voice'])
   );

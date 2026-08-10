@@ -41,6 +41,7 @@ function makeAnnotator(extra?: {
   mode?: 'reviewer' | 'builder';
   activation?: { mode: 'toggle' | 'stealth' | 'both' };
   onChange?: (store: unknown, delta: { type: string; comment: Comment }) => void;
+  onSubmit?: () => void;
 }): Annotator {
   return new Annotator({
     config: {
@@ -49,6 +50,7 @@ function makeAnnotator(extra?: {
       ...(extra?.source ? { source: extra.source } : {}),
       ...(extra?.activation ? { activation: extra.activation } : {}),
       ...(extra?.onChange ? { onChange: extra.onChange as never } : {}),
+      ...(extra?.onSubmit ? { onSubmit: extra.onSubmit } : {}),
     },
     reviewer: REVIEWER,
     mode: extra?.mode ?? 'reviewer',
@@ -110,10 +112,12 @@ describe('export UI — count chip gating (exportUi config)', () => {
     expect(chip()).not.toBeNull();
   });
 
-  it('builder mode never shows the chip (the drawer already exports anytime)', () => {
+  it("builder mode's chip summons the drawer, never the export sheet", () => {
     seedStore([makeComment('c1', 'hello')]);
     annotator = makeAnnotator({ mode: 'builder', exportUi: 'always' });
-    expect(chip()).toBeNull();
+    chip()!.click();
+    expect(shadow().querySelector('.drawer')).not.toBeNull();
+    expect(shadow().querySelector('.panel')).toBeNull(); // no sheet in builder
   });
 });
 
@@ -141,6 +145,9 @@ describe('export UI — chip lifecycle', () => {
     };
     Object.assign(down, { pointerType: 'mouse', altKey: true, clientX: 20, clientY: 20 });
     document.body.dispatchEvent(down);
+    const up = new Event('pointerup', { bubbles: true, composed: true });
+    Object.assign(up, { pointerType: 'mouse', clientX: 20, clientY: 20 });
+    document.body.dispatchEvent(up);
     // A real Alt+click's own trailing click consumes the gesture's one-click
     // swallow; synthetic pointerdown leaves it armed, so feed it one.
     document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
@@ -523,6 +530,9 @@ describe('export UI — review hardening (surface states, real pointer ordering)
     };
     Object.assign(down, { pointerType: 'mouse', altKey: true, clientX: 20, clientY: 20 });
     document.body.dispatchEvent(down);
+    const up = new Event('pointerup', { bubbles: true, composed: true });
+    Object.assign(up, { pointerType: 'mouse', clientX: 20, clientY: 20 });
+    document.body.dispatchEvent(up);
     document.body.dispatchEvent(new MouseEvent('click', { bubbles: true, composed: true }));
     const link = shadow().querySelector<HTMLButtonElement>('.input .exportall');
     expect(link?.textContent).toBe('Export all · 1'); // the empty draft itself
@@ -600,59 +610,41 @@ describe('reviewer batch controls — Clear all / Export & clear (first-user fee
     return buttons().find((b) => b.textContent === label);
   }
 
-  it('menu offers Clear all (danger) once comments exist', () => {
-    seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
-    annotator = makeAnnotator();
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
-    const clear = byLabel('Clear all');
-    expect(clear).toBeTruthy();
-    expect(clear!.className).toContain('danger');
-  });
-
-  it('menu hides Clear all at zero comments — no destructive affordance on empty state', () => {
-    annotator = makeAnnotator();
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
-    expect(byLabel('Clear all')).toBeUndefined();
-  });
-
-  it('Clear all asks first; Cancel keeps everything', () => {
-    seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
-    annotator = makeAnnotator();
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
-    byLabel('Clear all')!.click();
-    expect(shadow().querySelector('.panel h3')?.textContent).toBe('Delete 2 comments?');
-    byLabel('Cancel')!.click();
-    const store = loadStore(localStorage, PROJECT, REVIEWER);
-    expect(store?.comments).toHaveLength(2);
-  });
-
-  it('confirming Clear all empties the store, removes pins, and emits a delete per comment', () => {
+  it('sheet offers Export & clear: exports, empties the store, removes pins, and emits a delete per comment', async () => {
     seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
     const deltas: string[] = [];
-    annotator = makeAnnotator({
-      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
-    });
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
-    byLabel('Clear all')!.click();
-    byLabel('Delete all')!.click();
-    const store = loadStore(localStorage, PROJECT, REVIEWER);
-    expect(store?.comments ?? []).toHaveLength(0);
-    expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
-    expect(deltas.sort()).toEqual(['delete:c1', 'delete:c2']);
-  });
-
-  it('sheet offers Export & clear: exports, then empties the store with a cleared confirmation', async () => {
-    seedStore([makeComment('c1', 'a')]);
     const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
     chip()!.click();
     byLabel('Export & clear')!.click();
     await new Promise((r) => setTimeout(r, 0));
     expect(createUrl).toHaveBeenCalled();
     const store = loadStore(localStorage, PROJECT, REVIEWER);
     expect(store?.comments ?? []).toHaveLength(0);
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
+    expect(deltas.sort()).toEqual(['delete:c1', 'delete:c2']);
     expect(shadow().querySelector('.panel p')?.textContent).toContain('cleared');
+  });
+
+  it('the sheet offers Send to builder when onSubmit is configured; clicking it calls the handler', async () => {
+    seedStore([makeComment('c1', 'x')]);
+    const onSubmit = vi.fn();
+    annotator = makeAnnotator({ activation: { mode: 'stealth' }, onSubmit });
+    chip()!.click();
+    byLabel('Send to builder')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(onSubmit).toHaveBeenCalled();
+  });
+
+  it('no Send to builder row without onSubmit', () => {
+    seedStore([makeComment('c1', 'x')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    expect(byLabel('Send to builder')).toBeUndefined();
   });
 });
 
@@ -681,49 +673,6 @@ describe('sheet surfaces unanchored comments (0.3.0 orphan tray-row)', () => {
     expect(shadow().querySelector('.panel h3')?.textContent).toBe(
       '2 comments · 1 screen · 1 unanchored',
     );
-  });
-});
-
-describe('secondary panel actions disarm annotate mode (0.3.0 review #4)', () => {
-  let annotator: Annotator | null = null;
-
-  afterEach(() => {
-    annotator?.destroy();
-    annotator = null;
-    localStorage.clear();
-    document.body.innerHTML = '';
-    document.body.style.cursor = '';
-    vi.restoreAllMocks();
-  });
-
-  function pageClickOpensDraft(): boolean {
-    const t = document.createElement('p');
-    t.textContent = 'host target paragraph';
-    document.body.appendChild(t);
-    t.dispatchEvent(new MouseEvent('click', { bubbles: true }));
-    return shadow().querySelector('textarea') !== null;
-  }
-
-  it('Export & share exits armed mode — a later host click is the host’s again', async () => {
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    seedStore([makeComment('c1', 'x')]);
-    annotator = makeAnnotator();
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
-    [...shadow().querySelectorAll('button')]
-      .find((b) => b.textContent === 'Export & share')!
-      .click();
-    await new Promise((r) => setTimeout(r, 0));
-    expect(pageClickOpensDraft()).toBe(false);
-  });
-
-  it('Clear all → Cancel exits armed mode', () => {
-    seedStore([makeComment('c1', 'x')]);
-    annotator = makeAnnotator();
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
-    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Clear all')!.click();
-    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Cancel')!.click();
-    expect(pageClickOpensDraft()).toBe(false);
   });
 });
 
@@ -806,9 +755,9 @@ describe('hydration races (0.3.0 review P1 + heal overlay)', () => {
       source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
       onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
     });
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
-    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Clear all')!.click();
-    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Delete all')!.click();
+    // Delete through the pin popup (the panel's Clear all is gone in 0.5.0).
+    shadow().querySelector<HTMLDivElement>('.pin')!.click();
+    shadow().querySelector<HTMLButtonElement>('button.delete')!.click();
     expect(deltas).toEqual(['delete:c1']);
 
     // The server snapshot was taken BEFORE the delete — it still has c1.
@@ -833,9 +782,8 @@ describe('hydration races (0.3.0 review P1 + heal overlay)', () => {
     annotator = makeAnnotator({
       source: () => new Promise<Comment[]>((_r, rej) => (rejectSource = rej)),
     });
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
-    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Clear all')!.click();
-    [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'Delete all')!.click();
+    shadow().querySelector<HTMLDivElement>('.pin')!.click();
+    shadow().querySelector<HTMLButtonElement>('button.delete')!.click();
     rejectSource(new Error('offline'));
     await new Promise((r) => setTimeout(r, 0));
     const store = loadStore(localStorage, PROJECT, REVIEWER);
@@ -888,7 +836,7 @@ describe('sheet summon disarms annotate mode (verification round finding)', () =
   it('chip-summon while armed disarms — the next outside click cannot plant a comment', () => {
     seedStore([makeComment('c1', 'existing')]);
     annotator = makeAnnotator({ exportUi: 'always' });
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click(); // arms
+    shadow().querySelector<HTMLButtonElement>('button.arm')!.click(); // arms
     expect(document.body.style.cursor).toBe('crosshair');
     chip()!.click(); // summons the sheet over the armed menu
     expect(document.body.style.cursor).toBe('');
@@ -898,24 +846,6 @@ describe('sheet summon disarms annotate mode (verification round finding)', () =
     t.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     const store = loadStore(localStorage, PROJECT, REVIEWER);
     expect(store?.comments).toHaveLength(1); // no spurious pin
-  });
-
-  it('Send to builder disarms annotate mode (coverage for the mirrored fix)', async () => {
-    seedStore([makeComment('c1', 'x')]);
-    const onSubmit = vi.fn();
-    annotator = new Annotator({
-      config: { project: PROJECT, onSubmit },
-      reviewer: REVIEWER,
-      mode: 'reviewer',
-      storage: localStorage,
-    });
-    shadow().querySelector<HTMLButtonElement>('button.control')!.click();
-    [...shadow().querySelectorAll('button')]
-      .find((b) => b.textContent === 'Send to builder')!
-      .click();
-    await new Promise((r) => setTimeout(r, 0));
-    expect(document.body.style.cursor).toBe('');
-    expect(onSubmit).toHaveBeenCalled();
   });
 
   it("an OPEN sheet's title also refreshes in the HEAL direction", () => {

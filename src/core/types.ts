@@ -17,11 +17,26 @@ export interface PositionPercent {
   y: number;
 }
 
+/** Marquee-drawn region as percentages of the anchored element's box (0–100). */
+export interface AreaPercent {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
 export interface Anchor {
   selectors: SelectorCandidates;
   textFingerprint: string;
   positionPercent: PositionPercent;
   viewport: Viewport;
+  /**
+   * Present on area comments (drag-to-marquee): the drawn rect relative to
+   * the anchored element. The marquee is a PICKER — the comment still anchors
+   * to a single element (pin at the rect's center), so persistence, healing,
+   * and rendering are identical to point comments. Additive in 0.5.0.
+   */
+  areaPercent?: AreaPercent;
   /**
    * Best-effort human context captured at pin time: accessible name, role,
    * and the nearest preceding/ancestor heading text (≤80 chars each) — lets
