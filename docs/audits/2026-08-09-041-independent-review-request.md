@@ -96,7 +96,7 @@ find out why before believing it.
 
 ```bash
 git clone https://github.com/brijeshp/pinflow && cd pinflow
-git checkout 9a2fc21
+git checkout 4c788a6
 pnpm install                 # pnpm only, Node >= 18
 pnpm test                    # 392 unit, 2 CI-only skips
 pnpm test:coverage           # gate: 80% lines/functions/statements, 75% branches
@@ -117,7 +117,7 @@ things that look wrong are deliberate and documented (bundle-size ceilings, the
 Deliberately not a code review. You are auditing the _verification_.
 
 1. **The test suite as an instrument.** For each test added or changed in
-   `3044d1c..9a2fc21` — the bulk are in `tests/core/export.test.ts` (+252),
+   `3044d1c..4c788a6` — the bulk are in `tests/core/export.test.ts` (+252),
    `selector.test.ts` (+224), `dom.test.ts` (+85), `export-ui.test.ts` (+59) —
    **break the code it claims to protect and confirm the test goes red.** This is
    hand-run mutation testing and it is the single highest-value thing in this
