@@ -105,13 +105,23 @@ function viewportLabel(comment: Comment): string {
   return `${width}×${height} (${kind})`;
 }
 
-// Leads with the stable comment id (the tracker/sync handle) and trails with
-// the team's disposition — only when one exists, so backendless exports stay
-// noise-free.
+// Neutral heading plus line-anchored fields. Workflow semantics live ONLY in
+// the Status line, derived from the VALIDATED status value — the old composite
+// heading trailed "— done" after untrusted id/createdAt strings, so a
+// source-hydrated createdAt shaped like a disposition made the shipped agent
+// skill silently skip open work (0.4.1 review #1). inline() collapses
+// newlines in every untrusted value, so no field can start a line — the
+// line-anchored Status and Comment ID fields are therefore unforgeable, and
+// the agent formats are told to trust nothing else.
 function commentHeading(comment: Comment, index: number, reviewer?: string): string {
   const s = comment.status;
-  const disp = s === 'done' || s === 'declined' ? ` — ${s}` : '';
-  return `### [${inline(comment.id)}] Comment ${index} — ${reviewer ? `${inline(reviewer)}, ` : ''}${inline(comment.createdAt)}${disp}`;
+  return [
+    `### Comment ${index}`,
+    `**Comment ID:** \`${inline(comment.id)}\``,
+    `**Status:** ${s === 'done' || s === 'declined' ? s : 'open'}`,
+    ...(reviewer ? [`**Reviewer:** ${inline(reviewer)}`] : []),
+    `**Created:** ${inline(comment.createdAt)}`,
+  ].join('\n');
 }
 
 // "the ‘Continue’ button under ‘Next section’" — the human twin of the CSS
@@ -167,8 +177,8 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
     `**Position:** ${Math.round(pos.x)}% from left, ${Math.round(pos.y)}% from top of element`,
     ...(comment.anchor.areaPercent ? [areaLine(comment.anchor.areaPercent)] : []),
     `**Viewport at time of comment:** ${viewportLabel(comment)}`,
-    // The team's "why" — the disposition heading suffix says WHAT happened,
-    // this line says the reason. Together they close the loop in the artifact.
+    // The team's "why" — the Status field says WHAT happened, this line says
+    // the reason. Together they close the loop in the artifact.
     ...(comment.resolution ? [`**Resolution:** ${inline(comment.resolution)}`] : []),
     '',
     quoted(comment.text),

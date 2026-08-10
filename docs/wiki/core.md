@@ -102,7 +102,11 @@ Generated: <timestamp>
 [comment count, routes covered]
 ---
 ## <describeRoute label (stable key in backticks beneath), or `Route: /path`>
-### [<comment id>] Comment 1 — <reviewer>, <createdAt> — done|declined (suffix only when dispositioned)
+### Comment 1
+**Comment ID:** `<comment id>`
+**Status:** open|done|declined (always present; derived ONLY from the validated status value — 0.4.1 review #1)
+**Reviewer:** <reviewer> (builder export only)
+**Created:** <createdAt>
 **Element:** <button data-testid="..."> ("fingerprint")
 **Context:** the 'Continue' button under 'Next section'
 **Computed:** background rgb(…), text rgb(…), font 17px DM Sans, radius 14px
