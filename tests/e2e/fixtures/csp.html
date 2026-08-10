@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Pinflow Strict-CSP Fixture</title>
+    <!-- Deliberately NO inline <style> or <script>: this page is served with
+         `default-src 'self'; script-src 'self'; style-src 'self';
+         style-src-attr 'none'`, which would block them. Everything pinflow
+         needs must survive that policy. -->
+  </head>
+  <body>
+    <main>
+      <h1>Strict CSP page</h1>
+      <p data-testid="copy">A paragraph of pinnable content on a locked-down page.</p>
+      <button data-testid="primary-cta">Get started</button>
+    </main>
+    <script src="/dist/pinflow.iife.js" data-project="e2e-csp"></script>
+  </body>
+</html>

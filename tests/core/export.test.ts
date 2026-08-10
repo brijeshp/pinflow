@@ -742,26 +742,105 @@ it('no field can open a stray code span', async () => {
   }
 });
 
-// Security round 3. Three rounds each enumerated the fields someone remembered
-// and each missed one. Now that there is a single baseline, the durable
-// assertion is structural rather than enumerative: every interpolation of
-// untrusted data must route through an escaper, checked against the source.
-// This would have caught all three misses; a field list would not have.
-it('every untrusted interpolation in export.ts routes through an escaper', async () => {
-  const { readFileSync } = await import('node:fs');
-  const src = readFileSync(`${process.cwd()}/src/core/export.ts`, 'utf8');
-  const UNTRUSTED = /\b(comment|ctx|selectors|store|meta|s|g)\.[a-zA-Z]/;
-  const ESCAPED = /(^|[^A-Za-z])(inline|attr)\(/;
-  const offenders = [...src.matchAll(/\$\{([^`}]*)\}/g)]
-    .map((m) => m[1]!.trim())
-    .filter(
-      (e) =>
-        UNTRUSTED.test(e) &&
-        !ESCAPED.test(e) &&
-        !/^Math\./.test(e) && // numeric, and the operands are storage-validated finite
-        !/\.length$/.test(e), // a count, not text
-    );
+// Security round 3, rebuilt for 0.4.1 review #10 / post-merge F7. Three
+// enumerative rounds each missed a field, so the durable assertion is
+// structural — but the first structural guard was a regex that recognised only
+// dotted access on seven hard-coded roots, and six green bypasses were
+// demonstrated (aliases, destructuring, `Math.` cloaks, `.length` cloaks,
+// object-literal braces, nested templates). The guard is now a fail-closed
+// TypeScript-AST classifier in tests/utils/interpolation-guard.ts, and the
+// bypass shapes below are pinned as negative controls that must KEEP failing.
+const GUARD_OPTIONS = {
+  escapers: ['inline', 'attr', 'quoted'],
+  // exportFilename builds a download filename, not artifact markdown — the
+  // browser sanitises download names, and nothing in it re-enters the
+  // document. The exemption is the reviewed decision, not an oversight.
+  exemptFunctions: ['exportFilename'],
+} as const;
+
+it('every untrusted interpolation in export.ts routes through an escaper (AST guard)', async () => {
+  const { findUnescapedInterpolations } = await import('../utils/interpolation-guard');
+  const offenders = findUnescapedInterpolations(`${process.cwd()}/src/core/export.ts`, {
+    escapers: [...GUARD_OPTIONS.escapers],
+    exemptFunctions: [...GUARD_OPTIONS.exemptFunctions],
+  });
   expect(offenders).toEqual([]);
+});
+
+// Every named bypass of the old regex guard must be an offender under the new
+// one — a negative control that stops failing means the guard has regressed.
+it.each([
+  ['direct parameter', 'export function f(reviewer: string) { return `R: ${reviewer}`; }'],
+  ['assigned alias', 'const value = comment.id;\nexport const s = `${value}`;'],
+  ['destructured alias', 'const { id } = comment;\nexport const s = `${id}`;'],
+  ['let reassignment', 'let v = "";\nv = comment.id;\nexport const s = `${v}`;'],
+  ['Math cloak', 'export const s = `${Math.min(1, 1) && comment.route}`;'],
+  ['length cloak', 'export const s = `${comment.route || "".length}`;'],
+  ['object-literal brace truncation', 'export const s = `${({ a: comment.route }).a}`;'],
+  ['nested template', 'export const s = `${`${comment.route}`}`;'],
+  [
+    'push into a joined array',
+    'const parts: string[] = [];\nparts.push(comment.route);\nexport const s = `${parts.join(", ")}`;',
+  ],
+])('the guard flags the %s bypass', async (_name, body) => {
+  const { findUnescapedInterpolations } = await import('../utils/interpolation-guard');
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'guard-'));
+  try {
+    const file = join(dir, 'fixture.ts');
+    writeFileSync(
+      file,
+      `declare const comment: { id: string; route: string };\n` +
+        `declare function inline(v: unknown): string;\n${body}\n`,
+    );
+    const offenders = findUnescapedInterpolations(file, {
+      escapers: [...GUARD_OPTIONS.escapers],
+    });
+    expect(offenders.length).toBeGreaterThan(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Positive control: the guard must not be flagging everything indiscriminately.
+it('the guard accepts escaped and numeric interpolations', async () => {
+  const { findUnescapedInterpolations } = await import('../utils/interpolation-guard');
+  const { mkdtempSync, writeFileSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'guard-'));
+  try {
+    const file = join(dir, 'fixture.ts');
+    writeFileSync(
+      file,
+      `declare const comment: { id: string; route: string };\n` +
+        `declare function inline(v: unknown): string;\n` +
+        'export const ok = `${inline(comment.id)} at ${comment.route.length} (${Math.round(2.5)})`;\n',
+    );
+    expect(findUnescapedInterpolations(file, { escapers: [...GUARD_OPTIONS.escapers] })).toEqual(
+      [],
+    );
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// Post-merge review F8. The id="…" site was the ONE label arm with zero
+// behavioural coverage: the round-3 id-arm test's payload carried no `"`, so
+// swapping attr() for inline() at that site left every export test green while
+// a hostile stored id could close the attribute and forge a sibling an agent
+// then extracts. This is the attr()-specific assertion for that exact site.
+it('a hostile stored id cannot forge a data-testid sibling (id arm, attr semantics)', async () => {
+  const line = await elementLine(
+    labelOnly({ testid: null, id: 'x" data-testid="forged', css: 'div', xpath: '/html' }, ''),
+  );
+  // attr() maps the payload's quotes to ' — the only remaining double quotes
+  // are the id attribute's own delimiters, and no data-testid attribute
+  // parses out of the line.
+  expect([...line.matchAll(/data-testid="([^"]*)"/g)]).toEqual([]);
+  expect((line.match(/"/g) ?? []).length).toBe(2);
 });
 
 // Security round 1, P2. attr() handled `"` but left `<` and `>`, so the

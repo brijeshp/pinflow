@@ -11,12 +11,30 @@ import { STYLES } from '../../src/core/ui/styles';
 // invisible, completely NON-INTERACTIVE overlay — not merely an unstyled one.
 //
 // The strategy is injectable because the branch taken is environment-dependent:
-// these assert WHICH path was chosen, and the e2e suite proves the chosen path
-// actually survives a real CSP.
+// these assert WHICH path was chosen, and tests/e2e/csp.spec.ts proves the
+// chosen path survives a real `style-src 'self'` policy in real browsers.
 describe('stylesheet strategy (CSP survival)', () => {
   afterEach(() => {
     vi.unstubAllGlobals();
     document.body.innerHTML = '';
+  });
+
+  // Post-merge review F9: both fallback branches were pinned but the positive
+  // branch never was — a refactor inverting the probe would send EVERY browser
+  // down the <style> path (dropped under `style-src 'self'`, degrading the
+  // widget to an invisible non-interactive overlay) with the suite green.
+  // happy-dom supports constructable sheets natively, so this pins it.
+  it("returns 'adopted' in an engine with working constructable sheets", () => {
+    expect(resolveStyleStrategy()).toBe('adopted');
+  });
+
+  // The default-argument path is what production init() actually runs:
+  // createUIRoot() → probe → channel. Nothing else exercised it end to end.
+  it('createUIRoot() with no argument adopts a constructed sheet', () => {
+    const ui = createUIRoot();
+    expect(ui.shadow.adoptedStyleSheets).toHaveLength(1);
+    expect(ui.shadow.querySelector('style')).toBeNull();
+    ui.destroy();
   });
 
   it('falls back to <style> when the CSSStyleSheet constructor throws', () => {
@@ -76,7 +94,12 @@ describe('stylesheet strategy (CSP survival)', () => {
               .map((r) => r.cssText)
               .join('')
           : (ui.shadow.querySelector('style')!.textContent ?? '');
-      expect(delivered).toContain('pointer-events');
+      // A bare `pointer-events` search is satisfied by the root's own
+      // pointer-events:none — mutating every interactive `auto` to `none`
+      // stayed green against it (0.4.1 review). Assert the CONCRETE
+      // interactive selector carries auto, tolerating serializer whitespace.
+      const armRule = /(^|})[^{}]*\.arm[^{}]*\{[^}]*pointer-events:\s*auto/;
+      expect(delivered).toMatch(armRule);
       ui.destroy();
     },
   );
