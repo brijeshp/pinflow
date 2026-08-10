@@ -257,7 +257,7 @@ describe('area footprint (marching ants)', () => {
     expect(shadow().querySelector('.area')).not.toBeNull(); // the drawn region settled in place
   });
 
-  it('a stored compound-overflow rect renders CLAMPED to the anchor bounds (codex fr1 P2)', () => {
+  it('a stored compound-overflow rect renders CLAMPED to the anchor bounds (review fr1 P2)', () => {
     mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
     // Each leaf passes 0–100 validation, but x+w = 190% — untrusted data must
     // not paint over unrelated host content beyond the anchor.
@@ -269,7 +269,7 @@ describe('area footprint (marching ants)', () => {
     expect(area.style.height).toBe('50px'); // min(h, 100 - y) → 10% of 500
   });
 
-  it('an axis-aligned (zero-height) area still renders a visible footprint (codex fr1 P3)', () => {
+  it('an axis-aligned (zero-height) area still renders a visible footprint (review fr1 P3)', () => {
     mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
     seed([makeComment('a1', { area: { x: 10, y: 20, w: 30, h: 0 } })]);
     annotator = makeAnnotator();
@@ -278,7 +278,7 @@ describe('area footprint (marching ants)', () => {
     expect(area.style.width).toBe('300px');
   });
 
-  it('the 2px floor shifts INWARD at clamped edges — never past the anchor (codex fr2 P2)', () => {
+  it('the 2px floor shifts INWARD at clamped edges — never past the anchor (review fr2 P2)', () => {
     mockBodyRect({ left: 0, top: 0, width: 1000, height: 500 });
     // Fully edge-clamped rect: position at 100%, extent clamps to 0, floor
     // kicks in — the floored box must sit INSIDE the anchor's far corner.
@@ -364,7 +364,7 @@ describe('area footprint (marching ants)', () => {
     const reduced = /@media \(prefers-reduced-motion:reduce\)\{[^@]*\}/.exec(STYLES)?.[0] ?? '';
     expect(reduced).toContain('.area{animation:none}');
     // Paint order: footprints sit BELOW every pin and the dock — negative
-    // z-index inside .root's stacking context (codex fr1 P3).
+    // z-index inside .root's stacking context (review fr1 P3).
     expect(/\.area\{[^}]*\}/.exec(STYLES)?.[0] ?? '').toContain('z-index:-1');
   });
 });

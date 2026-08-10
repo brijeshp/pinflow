@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import ts from 'typescript';
 
 // The packed surface is what consumers actually get: compile a consumer
-// program against dist/index.d.ts and require zero diagnostics (codex #24).
+// program against dist/index.d.ts and require zero diagnostics (review #24).
 // Gated like bundle-isolation: CI builds first and must not skip.
 const DTS = resolve('dist/index.d.ts');
 

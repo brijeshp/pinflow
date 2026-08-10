@@ -5,7 +5,7 @@
  * back to a non-persistent in-memory Storage shim: the widget still works for
  * the session, it just forgets on reload.
  */
-// A SINGLETON backing map (codex audit #8): every degraded acquisition in
+// A SINGLETON backing map (review #8): every degraded acquisition in
 // this page shares one corpus, so re-init after a failed probe does not
 // silently discard the session's comments. Still non-persistent by nature.
 const memoryBacking = new Map<string, string>();
@@ -35,7 +35,7 @@ export function acquireStorage(): Storage {
     // A WRITE probe, not just a read: Safari private mode and some embed
     // policies expose a readable store whose setItem throws — a session
     // there must run on the memory shim from the start or every comment is
-    // silently lost on re-init (codex audit #8). The probe key is removed
+    // silently lost on re-init (review #8). The probe key is removed
     // immediately; quota exhaustion later still degrades via saveStore's
     // single warning.
     if (s) {

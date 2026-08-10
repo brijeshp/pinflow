@@ -27,10 +27,10 @@ jobs:
       - run: pnpm format:check
       - run: pnpm typecheck
       # Build BEFORE tests: the bundle-isolation suites hard-fail in CI when
-      # dist/ is absent instead of silently skipping (codex audit #12).
+      # dist/ is absent instead of silently skipping (review #12).
       - run: pnpm build
       # Coverage-gated suite — the 80/75 thresholds are enforced here, not
-      # just locally (codex audit #11).
+      # just locally (review #11).
       - run: pnpm test:coverage
       - run: pnpm size
       - run: pnpm wiki:check

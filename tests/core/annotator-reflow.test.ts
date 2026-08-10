@@ -104,7 +104,7 @@ describe('Annotator reflow caching', () => {
   it('reposition performs zero re-resolutions inside the orphan-retry window (P2.2 + #22)', () => {
     seed([bodyAnchored('c1'), orphaned('c2')]);
     annotator = makeAnnotator('reviewer');
-    // First reposition may spend ONE bounded orphan retry (codex #22); pin the
+    // First reposition may spend ONE bounded orphan retry (review #22); pin the
     // clock so every subsequent frame is inside the 500ms window and must be
     // pure cache hits — the P2.2 scroll-cost guarantee.
     const nowSpy = vi.spyOn(performance, 'now').mockReturnValue(1_000);
@@ -140,7 +140,7 @@ describe('Annotator reflow caching', () => {
   });
 });
 
-describe('bounded orphan recovery (codex audit #22)', () => {
+describe('bounded orphan recovery (review #22)', () => {
   afterEach(() => {
     localStorage.clear();
     document.body.innerHTML = '';
@@ -243,7 +243,7 @@ describe('orphan presentation + heal persistence (0.3.0 first-user feedback)', (
     const stored = JSON.parse(localStorage.getItem(`pinflow:c:${PROJECT}:${REVIEWER}`)!);
     expect(stored.comments[0].anchor.selectors.css).not.toBe('#long-gone');
     // Identity, not just difference: the persisted selector must resolve to
-    // the exact pinned element (codex 0.3.0 #2 — an empty or ancestor
+    // the exact pinned element (0.3.0 review #2 — an empty or ancestor
     // selector must not pass).
     expect(stored.comments[0].anchor.selectors.css).not.toBe('');
     expect(document.querySelector(stored.comments[0].anchor.selectors.css)).toBe(target);
@@ -255,7 +255,7 @@ describe('orphan presentation + heal persistence (0.3.0 first-user feedback)', (
   });
 });
 
-describe('heal invalidates the visible cache (codex 0.3.0 #6)', () => {
+describe('heal invalidates the visible cache (0.3.0 review #6)', () => {
   afterEach(() => {
     localStorage.clear();
     document.body.innerHTML = '';

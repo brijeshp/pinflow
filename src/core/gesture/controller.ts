@@ -16,7 +16,7 @@ export interface GestureControllerOptions {
   onAreaCommit?: (x0: number, y0: number, x1: number, y1: number) => void;
   onAreaCancel?: () => void;
   /** While true, the controller ignores new presses entirely — the armed-mode
-   *  handlers own all input (codex r1 [P2]: no parallel activation paths). */
+   *  handlers own all input (review r1 [P2]: no parallel activation paths). */
   suspended?: () => boolean;
 }
 
@@ -29,7 +29,7 @@ interface Press {
   marquee: boolean;
   /** Armed mode took over mid-press: the press survives so the RELEASE can be
    *  shielded (a fixed swallow window would expire under a long hold), but it
-   *  can no longer activate or draw (codex r4 [P2]). */
+   *  can no longer activate or draw (review r4 [P2]). */
   dead: boolean;
 }
 
@@ -70,7 +70,7 @@ export class GestureController {
     document.addEventListener('pointercancel', this._onPointerCancel, true);
     // WINDOW capture, not document: window is the first stop on the
     // propagation path, so the swallow runs before any host document-capture
-    // listener regardless of registration order (codex r1 [P1]).
+    // listener regardless of registration order (review r1 [P1]).
     window.addEventListener('click', this._onClick, true);
     document.addEventListener('contextmenu', this._onContextMenu, true);
   }
@@ -78,7 +78,7 @@ export class GestureController {
   /** Armed mode is taking over NOW: kill any in-flight press synchronously.
    *  It goes dead — visuals cancel, the timer stops — but ownership is
    *  retained so its eventual release stays shielded even if armed mode has
-   *  already toggled off again by then (codex r7 [P2]). Unprefixed: crosses
+   *  already toggled off again by then (review r7 [P2]). Unprefixed: crosses
    *  the module boundary at runtime (mangling contract). */
   suspendPress(): void {
     if (this._press) this._killPress(this._press);
@@ -112,7 +112,7 @@ export class GestureController {
 
   // Escape aborts the press (marquee visuals included) but RETAINS ownership:
   // the press goes dead and the matching release arms the click-swallow — a
-  // window started here would expire under a >700ms hold (codex r1/r5 [P2]).
+  // window started here would expire under a >700ms hold (review r1/r5 [P2]).
   private _onKeyDown = (e: Event): void => {
     if ((e as KeyboardEvent).key !== 'Escape') return;
     if (this._press) this._killPress(this._press);
@@ -120,7 +120,7 @@ export class GestureController {
 
   // Mouse presses suppress text selection and native drag-and-drop for the
   // press duration — a marquee must never fight the browser's drag ghost or
-  // leave a selection trail (codex r1 [P2]). Press-scoped: never at rest.
+  // leave a selection trail (review r1 [P2]). Press-scoped: never at rest.
   private _onKillDefault = (e: Event): void => {
     e.preventDefault();
   };
@@ -148,11 +148,11 @@ export class GestureController {
 
     // A second active pointer means this is a multi-touch gesture, not a
     // press — a DIFFERENT pointer cancels a live press (pinch) and can never
-    // evict a dead press's release shield (codex r6 [P2]). The SAME pointer
+    // evict a dead press's release shield (review r6 [P2]). The SAME pointer
     // pressing again proves the previous release was lost (an outside-window
     // release delivers no pointerup — documented browser behavior): retire
     // the stale press — live or dead — and process this down as a fresh
-    // gesture, so the first retry is never eaten (codex r8 / ce #5).
+    // gesture, so the first retry is never eaten (review r8 / ce #5).
     if (this._press) {
       if ((pe.pointerId ?? 0) !== this._press.pointerId) {
         if (!this._press.dead) this._cancelPress();
@@ -202,7 +202,7 @@ export class GestureController {
       const pr = this._press;
       if (!pr) return;
       // A press that started before arming must not fire into suspension —
-      // it dies in place and its release is shielded (codex r3/r4 [P2]).
+      // it dies in place and its release is shielded (review r3/r4 [P2]).
       if (this._opts.suspended?.()) {
         this._killPress(pr);
         return;
@@ -214,7 +214,7 @@ export class GestureController {
   // Armed mode can take over MID-press (keyboard-activated arm segment): the
   // press goes DEAD — visuals cancel and the timer stops — but ownership is
   // retained so the matching release arms the click-swallow AT release time; a
-  // window started at cancellation would expire under a long hold (codex r4).
+  // window started at cancellation would expire under a long hold (review r4).
   private _killPress(p: Press): void {
     if (p.dead) return;
     p.dead = true;
@@ -242,7 +242,7 @@ export class GestureController {
       return;
     }
     // Live threshold, both directions: returning inside it DE-LATCHES the
-    // marquee (release reverts to a point pin — never a 0×0 area, codex r1 [P2]).
+    // marquee (release reverts to a point pin — never a 0×0 area, review r1 [P2]).
     if (Math.hypot(pe.clientX - p.x, pe.clientY - p.y) <= this._opts.moveThresholdPx) {
       if (p.marquee) {
         p.marquee = false;
@@ -263,7 +263,7 @@ export class GestureController {
     const p = this._press;
     if (!p || (pe.pointerId ?? 0) !== p.pointerId) return;
     // Dead-press finalization comes BEFORE the touch branch: a suspended
-    // touch release must shield its compatibility click too (codex r4 [P2]).
+    // touch release must shield its compatibility click too (review r4 [P2]).
     if (p.dead || this._opts.suspended?.()) {
       this._killPress(p); // marquee flag drops first — no cancel echo below
       this._cancelPress();
@@ -274,7 +274,7 @@ export class GestureController {
       this._cancelPress(); // a tap; the long-press timer owns touch activation
       return;
     }
-    // The RELEASE coordinates are authoritative in BOTH directions (codex
+    // The RELEASE coordinates are authoritative in BOTH directions (review
     // r2/r3 [P2]): a coalesced return-to-origin must not commit a degenerate
     // area, and a coalesced far release must not degrade to a point — the
     // latched flag only tracks whether marquee VISUALS need cancelling.
@@ -295,7 +295,7 @@ export class GestureController {
   private _onPointerCancel = (e: Event): void => {
     // Only the press's OWN pointer cancels it — an unrelated pointer's
     // cancel must not kill a live press or a dead press's release shield
-    // (codex r6 [P2]). No compatibility click follows a cancel, so no swallow.
+    // (review r6 [P2]). No compatibility click follows a cancel, so no swallow.
     const p = this._press;
     if (!p || ((e as PointerEvent).pointerId ?? 0) !== p.pointerId) return;
     this._cancelPress();

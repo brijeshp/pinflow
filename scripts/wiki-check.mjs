@@ -15,7 +15,7 @@ const WATCHED = [
   'playwright.config.ts',
   'package.json',
   'tsconfig.json',
-  // Governed by build-and-release.md / testing.md too (codex audit #33):
+  // Governed by build-and-release.md / testing.md too (review #33):
   '.github/workflows',
   '.changeset',
   'tests',
@@ -38,9 +38,53 @@ try {
   process.exit(1);
 }
 
-const changed = git('diff', '--name-only', `${lastSync}..HEAD`, '--', ...WATCHED)
+// A release is bookkeeping, not new behaviour, and its commit necessarily
+// touches two WATCHED paths — changesets/action consumes every .changeset/*.md
+// and bumps package.json's version. Counting those made EVERY release fail this
+// check on the merge commit, which blocks the publish job behind it: 0.4.1 sat
+// merged-but-unpublished on a red main until this was found. So:
+//
+//   - .changeset/ DELETIONS don't count. Adding a changeset can mean new
+//     user-facing behaviour; consuming one is the release doing its job.
+//   - package.json counts only if something other than `version` changed.
+//     Scripts, size-limit, exports and files all still trigger the check.
+//
+// Both are narrow on purpose: the guard exists because these paths really do
+// govern documented behaviour, and the fix must not blunt that.
+const changed = git(
+  'diff',
+  '--name-only',
+  '--diff-filter=d', // exclude deletions — see .changeset/ note above
+  `${lastSync}..HEAD`,
+  '--',
+  ...WATCHED,
+)
   .split('\n')
-  .filter(Boolean);
+  .filter(Boolean)
+  .filter((f) => f !== 'package.json' || packageJsonChangedBeyondVersion(lastSync));
+
+function packageJsonChangedBeyondVersion(base) {
+  const strip = (src) => {
+    try {
+      const { version, ...rest } = JSON.parse(src);
+      return JSON.stringify(rest);
+    } catch {
+      return src; // unparseable — fall back to treating it as changed
+    }
+  };
+  // Both sides read from COMMITS, matching the `${base}..HEAD` diff above.
+  // Reading the working tree here instead would make the result depend on
+  // uncommitted edits while the file list did not — the two halves of one
+  // check disagreeing about what they are comparing.
+  let before, after;
+  try {
+    before = git('show', `${base}:package.json`);
+    after = git('show', 'HEAD:package.json');
+  } catch {
+    return true; // absent on either side — can't compare, so assume material
+  }
+  return strip(before) !== strip(after);
+}
 
 if (changed.length === 0) {
   console.log(`wiki-check: OK — docs/wiki is in sync with ${lastSync.slice(0, 7)}.`);

@@ -49,7 +49,7 @@ export function createAudioCapture(): AudioCapture {
 
   // Ask the worklet to emit its partial buffer, then tear down. The 100ms
   // guard covers a dead worklet; PCM ordering is preserved because the flush
-  // reply and the last frames ride the same message port (codex audit #21).
+  // reply and the last frames ride the same message port (review #21).
   const stop = (): Promise<void> => {
     if (raf) cancelAnimationFrame(raf);
     raf = 0;

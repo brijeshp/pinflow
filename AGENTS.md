@@ -17,6 +17,7 @@ Pinflow: Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero 
 - **TDD-first; 80% coverage gate on `src/core/**`** (`vitest.config.ts`). Write the failing test before the fix/feature.
 - **Changeset required** for user-facing changes (`pnpm changeset`).
 - **No telemetry. Ever.**
+- **No AI-agent attribution, anywhere in the repo's own voice.** Commits are authored by the human maintainer only — no `Co-Authored-By`, no "Generated with", no assistant name in a commit message, changeset, or `CHANGELOG`. Code comments cite review provenance as `(review #N)` / `(<version> review #N)`, never by tool name. This is about who the work is _published by_; naming a tool the product **integrates with** is different and stays (`agent/` exists to be installed into those tools, and `README.md` has to say which file goes where).
 - Exported markdown is pasted into coding agents by end users — treat annotation content as **untrusted input**; escaping in `src/core/export.ts` guards prompt injection. Never weaken it.
 
 ## Source-of-truth precedence (when documents disagree)
@@ -32,7 +33,7 @@ Pinflow: Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero 
 
 `docs/wiki/README.md` is the index. Pages: `architecture.md`, `core.md`, `voice.md`, `api.md`, `build-and-release.md`, `testing.md`. It exists so you don't re-derive the architecture every session — read the relevant page before grepping.
 
-**Keeping it fresh:** `docs/wiki/.last-sync` records the last commit the wiki reflects. Run `pnpm wiki:check` to detect drift. Before merging a feature branch to `main` (or when wiki:check fails), follow the update procedure in `.claude/skills/wiki-update/SKILL.md` — it is a plain-markdown playbook any agent (Claude Code, Codex) can execute. Do not hand-wave updates: the playbook diffs `.last-sync..HEAD` and updates only affected pages.
+**Keeping it fresh:** `docs/wiki/.last-sync` records the last commit the wiki reflects. Run `pnpm wiki:check` to detect drift. Before merging a feature branch to `main` (or when wiki:check fails), follow the update procedure in `.claude/skills/wiki-update/SKILL.md` — it is a plain-markdown playbook any coding agent can execute. Do not hand-wave updates: the playbook diffs `.last-sync..HEAD` and updates only affected pages.
 
 ## Commands
 
@@ -54,5 +55,7 @@ Pinflow: Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero 
 
 - Commits: conventional format (`feat:`, `fix:`, `docs:`, `chore:`, …); breaking changes as `feat(scope)!:`.
 - Plans live in `docs/plans/YYYY-MM-DD-NNN-<type>-<slug>-plan.md`.
-- Repo currently has **no git remote** — no PRs; work lands as commits on feature branches merged locally to `main`. CI workflows in `.github/workflows/` are dormant until the repo is pushed to GitHub.
+- Remote is `origin` (public GitHub). Work lands on feature branches merged to `main`; **pushing `main` triggers the release chain** (`release.yml` runs the full battery on that SHA, then changesets opens a "Version Packages" PR — npm publish happens only when that PR is merged).
+- **Run the full battery on the exact SHA you are pushing, not before your last commit.** `wiki:check` in particular goes stale the moment you touch a code path, so a gate run earlier in the session proves nothing about the tree you push.
+- **Moving `docs/wiki/.last-sync` is always its own final commit**, never bundled with the code it certifies — the marker can only name a SHA that already exists, so a bundled move always lags by one and `wiki:check` fails. A wiki-only commit stays green because the checker inspects code paths only.
 - Prettier formats the whole repo (`format:check` gates CI); run `pnpm format` before committing markdown or code.

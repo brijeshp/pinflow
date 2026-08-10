@@ -48,7 +48,7 @@ export async function resolveToken(
     // "Illegal invocation" when it is called. The arrow keeps the call
     // receiver-correct (a bare `fetch(...)` call resolves the global binding).
     const fetchFn = deps.fetchFn ?? ((input: string, init?: RequestInit) => fetch(input, init));
-    // Teardown mid-mint cancels the request itself (codex audit #4).
+    // Teardown mid-mint cancels the request itself (review #4).
     const res = await fetchFn(config.tokenEndpoint, {
       method: 'POST',
       ...(deps.signal ? { signal: deps.signal } : {}),

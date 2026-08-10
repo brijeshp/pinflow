@@ -29,7 +29,7 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 - `pnpm changeset` for every user-facing change (`.changeset/config.json`: public access, baseBranch `main`).
 - `release.yml` uses `changesets/action@v1` to open a version PR / publish to npm on push to `main` (requires `NPM_TOKEN`).
 - npm publish protections are belt-and-braces: `files` allowlist (`dist`, `agent`, `README.md`, `LICENSE`, `CHANGELOG.md`) **and** a whitelist-style `.npmignore` (`*` then `!` negations). Both must be updated together when adding a shipped directory — `files` alone happens to work with `npm pack`, but the two disagreeing defeats the point of having both. Provenance enabled (`publishConfig.provenance: true`).
-- **`agent/`** ships the artifact reading protocol (Claude Code skill + slash command, Cursor/Windsurf rule, `AGENTS.md` snippet). Markdown only — it is not part of any bundle and costs consumers zero bytes, but it is published, so it is part of the package's public surface.
+- **`agent/`** ships the artifact reading protocol in four formats (skill, slash command, editor rule, `AGENTS.md` snippet); `agent/README.md` maps each to the tools that read it. Markdown only — it is not part of any bundle and costs consumers zero bytes, but it is published, so it is part of the package's public surface.
 
 ## CI (`.github/workflows/`)
 

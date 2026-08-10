@@ -11,7 +11,7 @@ describe('bundle isolation', () => {
   const built = CORE_BUNDLES.filter((f) => existsSync(f));
 
   it.runIf(Boolean(process.env['CI']))(
-    'CI must run against a build — a skip here is a broken pipeline (codex #12)',
+    'CI must run against a build — a skip here is a broken pipeline (review #12)',
     () => {
       expect(built, 'dist/ missing in CI: build before testing').toEqual(CORE_BUNDLES);
     },

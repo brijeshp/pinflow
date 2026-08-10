@@ -250,7 +250,7 @@ describe('stealth Alt+drag marquee (gesture grammar: Alt+click = point, Alt+drag
     expect(shadow().querySelector('.hl')).toBeNull(); // visual cleaned up after commit
   });
 
-  it('arming MID-gesture-drag clears the gesture-owned marquee — no stranded abort guard (codex r6)', async () => {
+  it('arming MID-gesture-drag clears the gesture-owned marquee — no stranded abort guard (review r6)', async () => {
     annotator = makeAnnotator();
     const t = document.createElement('p');
     t.textContent = 'host paragraph';
@@ -294,7 +294,7 @@ describe('stealth Alt+drag marquee (gesture grammar: Alt+click = point, Alt+drag
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(1);
   });
 
-  it('transient arm→disarm mid-Alt-drag: the original release commits nothing (codex r7)', async () => {
+  it('transient arm→disarm mid-Alt-drag: the original release commits nothing (review r7)', async () => {
     annotator = makeAnnotator();
     const t = document.createElement('p');
     t.textContent = 'host paragraph';

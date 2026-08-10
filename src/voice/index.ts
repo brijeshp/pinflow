@@ -6,7 +6,7 @@ import { noopSession, startSession } from './session';
 import { createDot } from './ui/dot';
 
 async function start(host: VoiceHost): Promise<VoiceSession> {
-  // Abort gates at EVERY stage boundary (codex audit #4): before any side
+  // Abort gates at EVERY stage boundary (review #4): before any side
   // effect, after the (abortable) token mint, and inside startSession before
   // socket and mic acquisition.
   if (host.signal?.aborted) return noopSession;

@@ -23,7 +23,7 @@ export function Annotator(props: AnnotatorProps): null {
     const p = propsRef.current;
     // Function props DELEGATE through propsRef: a rerender's fresh closures
     // (new state captured by onChange etc.) take effect without re-init
-    // (codex audit #9). Object props (theme/activation/voice/submitTo) are
+    // (review #9). Object props (theme/activation/voice/submitTo) are
     // snapshotted at init — change those via a keyed remount.
     handleRef.current = init({
       ...p,
@@ -43,7 +43,7 @@ export function Annotator(props: AnnotatorProps): null {
     // prop: identity changes flow through the delegates above without
     // re-init, but adding or removing a function changes core behavior
     // (e.g. `source` presence drives exportUi 'auto') and so re-initializes
-    // (codex audit #9). Inline `activation`/`voice` objects are new
+    // (review #9). Inline `activation`/`voice` objects are new
     // references each render — memoize those props.
   }, [
     props.project,

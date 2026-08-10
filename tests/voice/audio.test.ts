@@ -31,7 +31,7 @@ function install(opts: { addModuleError?: Error } = {}): Fakes {
   }
   class FakeWorkletNode {
     // Echoes the stop/flush handshake: posting 'flush' immediately answers
-    // 'flushed' through onmessage, like the real worklet (codex audit #21).
+    // 'flushed' through onmessage, like the real worklet (review #21).
     port = {
       onmessage: null as null | ((e: { data: unknown }) => void),
       postMessage: (msg: unknown): void => {

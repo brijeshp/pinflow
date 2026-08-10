@@ -703,7 +703,7 @@ describe('Annotator source hydration (L2.1)', () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it('reconciles a stale server copy: local newer updatedAt re-announces as update (codex r16 P1)', async () => {
+  it('reconciles a stale server copy: local newer updatedAt re-announces as update (review r16 P1)', async () => {
     seedStore({
       ...makeComment('locally saved newer text'),
       updatedAt: '2026-06-01T00:00:00.000Z',
@@ -753,7 +753,7 @@ describe('Annotator source hydration (L2.1)', () => {
     expect(document.querySelector('[data-pinflow-root]')).toBeNull();
   });
 
-  it('a late resolution SURVIVES refreshRoute() — SPA navigation must not drop the corpus (codex audit #3)', async () => {
+  it('a late resolution SURVIVES refreshRoute() — SPA navigation must not drop the corpus (review #3)', async () => {
     seedStore(makeComment('mine'));
     let resolve!: (v: Comment[]) => void;
     annotator = makeWithSource(() => new Promise<Comment[]>((r) => (resolve = r)));
@@ -1007,7 +1007,7 @@ describe('pin accessibility (production audit)', () => {
   });
 });
 
-describe('source hydration boundary (codex audit #18)', () => {
+describe('source hydration boundary (review #18)', () => {
   let annotator: Annotator | null = null;
 
   afterEach(() => {
@@ -1073,7 +1073,7 @@ describe('source hydration boundary (codex audit #18)', () => {
   });
 });
 
-describe('builder mode is functional (codex audit #14)', () => {
+describe('builder mode is functional (review #14)', () => {
   let annotator: Annotator | null = null;
 
   afterEach(() => {
@@ -1137,7 +1137,7 @@ describe('builder mode is functional (codex audit #14)', () => {
   });
 });
 
-describe('voice transcript survives destroy during in-flight stop (codex audit #5)', () => {
+describe('voice transcript survives destroy during in-flight stop (review #5)', () => {
   afterEach(() => {
     localStorage.clear();
     document.body.innerHTML = '';

@@ -380,7 +380,7 @@ describe('GestureController', () => {
       expect(activations).toHaveLength(0);
     });
 
-    it('Escape on a SUSPENDED press also holds ownership through a long hold (codex r5)', () => {
+    it('Escape on a SUSPENDED press also holds ownership through a long hold (review r5)', () => {
       let suspended = false;
       const cancels: number[] = [];
       const { activations, el } = setup({
@@ -400,7 +400,7 @@ describe('GestureController', () => {
       expect(activations).toHaveLength(0);
     });
 
-    it('a second pointer joining a DEAD press cannot steal its release shielding (codex r6)', () => {
+    it('a second pointer joining a DEAD press cannot steal its release shielding (review r6)', () => {
       const { activations, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
       dispatch(document, 'keydown', { key: 'Escape' }); // press goes dead, ownership retained
@@ -412,7 +412,7 @@ describe('GestureController', () => {
       expect(activations).toHaveLength(0);
     });
 
-    it("an unrelated pointer's cancel does not kill a live press (codex r6)", () => {
+    it("an unrelated pointer's cancel does not kill a live press (review r6)", () => {
       const { activations, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 5, clientY: 6 });
       dispatch(el, 'pointercancel', { pointerId: 9 }); // someone else's cancel
@@ -420,7 +420,7 @@ describe('GestureController', () => {
       expect(activations).toHaveLength(1); // the press survived to activate
     });
 
-    it('suspendPress() kills an in-flight press NOW but keeps its release shielded (codex r7)', () => {
+    it('suspendPress() kills an in-flight press NOW but keeps its release shielded (review r7)', () => {
       const { activations, cancels, commits, controller, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
       dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 }); // latched
@@ -434,7 +434,7 @@ describe('GestureController', () => {
       expect(click.defaultPrevented).toBe(true); // release still shielded
     });
 
-    it("a LOST release cannot poison the same pointer's next press (codex r8)", () => {
+    it("a LOST release cannot poison the same pointer's next press (review r8)", () => {
       const { activations, controller, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
       dispatch(el, 'pointermove', { pointerType: 'mouse', clientX: 60, clientY: 80 });
@@ -453,7 +453,7 @@ describe('GestureController', () => {
       expect(activations).toHaveLength(0);
     });
 
-    it('after a lost release, the same pointer can start a FRESH Alt gesture (codex r8)', () => {
+    it('after a lost release, the same pointer can start a FRESH Alt gesture (review r8)', () => {
       const { activations, controller, el } = areaSetup();
       dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
       controller.suspendPress();

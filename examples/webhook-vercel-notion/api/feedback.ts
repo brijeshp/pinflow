@@ -120,7 +120,7 @@ export default async function handler(
   }
 
   // Upstream failures surface instead of vanishing into a blanket 200
-  // (codex audit #16): the client can tell the reviewer their feedback did
+  // (review #16): the client can tell the reviewer their feedback did
   // not all land.
   const failed = results.filter((r) => r.status >= 400).length;
   if (failed > 0) {

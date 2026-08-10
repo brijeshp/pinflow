@@ -435,7 +435,7 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(comments()).toHaveLength(0); // nor from the initiator's
   });
 
-  it("a PRE-EXISTING ignored pointer's cancel cannot skew the abort accounting (codex r5)", () => {
+  it("a PRE-EXISTING ignored pointer's cancel cannot skew the abort accounting (review r5)", () => {
     annotator = makeAnnotator();
     arm();
     const t = hostParagraph();
@@ -467,7 +467,7 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(initiatorClick.defaultPrevented).toBe(true);
   });
 
-  it('mid-abort stray clicks are intercepted at WINDOW capture — before pre-pinflow host listeners (codex r5)', () => {
+  it('mid-abort stray clicks are intercepted at WINDOW capture — before pre-pinflow host listeners (review r5)', () => {
     const hostSeen = vi.fn();
     document.addEventListener('click', hostSeen, true); // registered BEFORE pinflow exists
     try {
