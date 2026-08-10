@@ -1,5 +1,86 @@
 # Changelog
 
+## 0.4.1
+
+### Patch Changes
+
+- 7b09200: Comment textarea placeholder is now "What should change?" (was "What's on your
+  mind?"). A UX review found the old wording invited open-ended musing, while the
+  new prompt primes reviewers to leave actionable input a coding agent can act on
+  straight from the exported markdown. Copy-only — no behavior or API change.
+- 48c7437: Adds an `agent/` folder to the package: the reading protocol for a Pinflow
+  artifact, in the four formats coding agents actually load — a skill, a slash
+  command, an editor rule, and an `AGENTS.md` snippet. None of it is code, so it
+  adds nothing to the browser bundle, and it improves every artifact already
+  exported. `agent/README.md` maps each file to the tools that read it.
+
+  The artifact has always been descriptive rather than instructional, and several
+  fields are easy to misread: `**Position:**` is a percentage inside the element
+  rather than a page coordinate, `Comment N` is a file position while `[cmt_id]`
+  is the durable handle, and comments under `## Orphaned comments` describe
+  elements that no longer exist — so running their selectors finds whatever
+  happens to occupy that path now.
+
+  It also states the boundary the escaping cannot express. Everything interpolated
+  into an artifact originates from a web page and the people using it. Pinflow
+  escapes all of it so it cannot forge markdown structure, but that defends
+  structure, not meaning: an agent must read the content as a problem to solve and
+  never as instructions addressed to itself.
+
+- 112ae5d: Pinflow now survives a strict Content Security Policy. Under `style-src 'self'`
+  with no `'unsafe-inline'`, the shadow-root `<style>` element was silently
+  dropped — and because the host's `pointer-events: none` is set through CSSOM
+  (which CSP does not restrict) while every `pointer-events: auto` lived in that
+  blocked stylesheet, the widget degraded to an invisible, completely
+  **non-interactive** overlay: pins and buttons present, all dead, no error. A
+  shadow root has no CSP context of its own, so the document policy governs it.
+
+  Styles now load through a constructed `CSSStyleSheet` adopted into the shadow
+  root. CSP defines no hook for CSSOM, so this survives where a `<style>` element
+  does not. Engines without constructed stylesheets (Safari below 16.4) keep the
+  `<style>` path unchanged, chosen by a feature probe that also rejects engines
+  which accept `replaceSync` and silently discard the rules.
+
+  No API change. Hosts serving pinflow under a strict CSP no longer need
+  `'unsafe-inline'` in `style-src`.
+
+- 8f44d23: The export confirmation no longer claims a file was saved when it may not have
+  been. Downloading fires a detached anchor click and returns nothing — there is
+  no event and no promise, so a completed save is not observable. In iOS in-app
+  webviews (Instagram, LinkedIn, Slack) it frequently does nothing at all, which
+  is exactly where a reviewer following a shared link ends up, and the panel
+  announced "Saved to your downloads" regardless.
+
+  The panel now states only what was verified. When the clipboard write succeeded
+  it says so and offers pasting as the recovery if no file appeared; when it did
+  not, it points the reviewer at their downloads without asserting the file is
+  there. With `submitTo` configured and no clipboard, the hand-off now tells the
+  reviewer to attach the downloaded file — previously it opened an empty email
+  with nothing to paste and nothing to attach.
+
+- 2c1390f: Comments no longer silently re-anchor to the wrong element. The selector ladder
+  tried the CSS path before the text fingerprint, so on a virtualised list or an
+  infinite scroll — where the DOM recycles nodes — a stale `li:nth-of-type(1)`
+  kept resolving confidently onto whatever content had scrolled into that slot. A
+  pin on "Order #1042" could reattach to "Order #7781" with no sign anything was
+  wrong. A positional match that contradicts a strong stored fingerprint is now
+  demoted: the text pass gets first refusal, and the positional hit is still used
+  if nothing corroborates, so no comment that resolved before stops resolving.
+
+  Two related fixes on the same path. The fingerprint walk started at the document
+  root, which meant `<head>` was scored — a page titled "Checkout" would heal a
+  pin on a "Checkout" heading to `<title>`, an exact match found first and never
+  displaced. The walk now starts at `<body>` and skips tags that can never be a
+  pin target, and skipped elements no longer consume the walk budget.
+
+  The walk is also faster and bounded by time as well as count. Fingerprinting
+  normalised an element's entire subtree to keep 80 characters, which measured
+  97 µs on a 33 kB anchor and 640 µs under 6x CPU throttling; it now scans a
+  bounded prefix and falls back to the full string only when whitespace-heavy
+  markup makes the prefix insufficient, so fingerprints are unchanged. A 2 ms
+  budget complements the 2,000-node cap, which alone was device-dependent —
+  roughly 1.5 ms on a laptop but 9.5 ms on a mid-range phone.
+
 ## 0.4.0
 
 ### Minor Changes
