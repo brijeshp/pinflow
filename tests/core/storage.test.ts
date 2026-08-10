@@ -542,3 +542,30 @@ describe('areaPercent validation (marquee picker)', () => {
     expect(kept[1]!.anchor.areaPercent).toBeUndefined();
   });
 });
+
+// 0.4.1 review #8: the fingerprint's documented representation is ≤80 chars,
+// but hydration accepted any string — and the matcher's lowercase/bigram work
+// is O(length), so a multi-megabyte value became a host-thread stall. The cap
+// belongs at normalization so no oversized value ever reaches a matcher.
+it('caps an oversized hydrated textFingerprint to the 80-char representation', async () => {
+  const { normalizeComments } = await import('../../src/core/storage');
+  const oversized = {
+    id: 'big',
+    createdAt: 'x',
+    updatedAt: 'x',
+    route: '/',
+    fullUrl: 'u',
+    text: 't',
+    modality: 'text',
+    anchor: {
+      selectors: { testid: null, id: null, css: 'body', xpath: '/x' },
+      textFingerprint: 'a'.repeat(2_000_000),
+      positionPercent: { x: 1, y: 2 },
+      viewport: { width: 3, height: 4 },
+    },
+  };
+  const kept = normalizeComments([oversized]);
+  expect(kept).toHaveLength(1);
+  expect(kept[0]!.id).toBe('big');
+  expect(kept[0]!.anchor.textFingerprint).toBe('a'.repeat(80));
+});
