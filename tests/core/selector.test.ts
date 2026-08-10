@@ -476,3 +476,78 @@ describe('heal correctness under stress (0.4.1 P2)', () => {
     expect(findByCandidates(document, sels, 'the pinned paragraph text')).toBeNull();
   });
 });
+
+describe('healing hardening (0.4.1 independent review #2/#3)', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    document.body.innerHTML = '';
+  });
+
+  // Review #2 P1. An EMPTY candidate fingerprint corroborated a meaningful
+  // stored one, so a recycled/still-loading row won through its stale
+  // :nth-of-type position while the real text sat mounted one element over.
+  // The pinned element provably had ≥12 chars of text at pin time — a blank
+  // node at that path is never confirmation.
+  it('an empty positional hit cannot corroborate a meaningful stored fingerprint', () => {
+    document.body.innerHTML =
+      '<main><div class="row" id="recycled"></div>' +
+      '<p id="mounted">Start your free 30-day trial today, no credit card required</p></main>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#recycled', xpath: '/html/body/main[1]/div[1]' },
+      'Start your free 30-day trial today, no credit card required',
+    );
+    expect(found?.id).toBe('mounted');
+  });
+
+  // The empty hit is demoted, not discarded: with no better candidate anywhere
+  // it must still win as the fallback (same conservatism as the non-empty
+  // uncorroborated case above).
+  it('an empty positional hit still survives as the last-resort fallback', () => {
+    document.body.innerHTML = '<main><div class="row" id="recycled"></div></main>';
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#recycled', xpath: '/html/body/main[1]/div[1]' },
+      'Start your free 30-day trial today, no credit card required',
+    );
+    expect(found?.id).toBe('recycled');
+  });
+
+  // Review #3 P1 (pre-existing). With NO positional hit, the zero-box guard
+  // never ran: a hidden responsive duplicate met first in the walk was
+  // accepted as the exact match, displayed at a zero rect, and eligible to be
+  // PERSISTED as a heal. Layout eligibility must gate acceptance itself, and
+  // the walk must continue past hidden matches to a later visible one.
+  it('a hidden exact match loses to a later visible exact match when no positional hit exists', () => {
+    document.body.innerHTML =
+      '<main>' +
+      '<p id="stale" hidden>Start your free 30-day trial today, no credit card required</p>' +
+      '<p id="real">Start your free 30-day trial today, no credit card required</p>' +
+      '</main>';
+    vi.spyOn(document.getElementById('stale')!, 'getClientRects').mockReturnValue(
+      [] as unknown as DOMRectList,
+    );
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'Start your free 30-day trial today, no credit card required',
+    );
+    expect(found?.id).toBe('real');
+  });
+
+  // Hidden-only: an honest orphan beats anchoring to an element the reviewer
+  // cannot see (and beats persisting its selectors as a heal).
+  it('returns null when the only exact match has no layout box', () => {
+    document.body.innerHTML =
+      '<main><p id="stale" hidden>Start your free 30-day trial today, no credit card required</p></main>';
+    vi.spyOn(document.getElementById('stale')!, 'getClientRects').mockReturnValue(
+      [] as unknown as DOMRectList,
+    );
+    const found = findByCandidates(
+      document,
+      { testid: null, id: null, css: '#nope', xpath: '/nope' },
+      'Start your free 30-day trial today, no credit card required',
+    );
+    expect(found).toBeNull();
+  });
+});

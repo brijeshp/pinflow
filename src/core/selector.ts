@@ -173,7 +173,11 @@ export function getTextFingerprint(el: Element): string {
 function corroborates(el: Element, fingerprint: string): boolean {
   if (fingerprint.length < FUZZY_MIN_FP) return true;
   const fp = getTextFingerprint(el);
-  if (!fp) return true;
+  // The pinned element provably carried ≥ FUZZY_MIN_FP chars of text when the
+  // fingerprint was stored — an EMPTY node at that path is a recycled or
+  // still-loading stranger, never confirmation (0.4.1 review #2). It survives
+  // only as the demoted last-resort fallback.
+  if (!fp) return false;
   return (
     fp === fingerprint ||
     dice(bigrams(fingerprint.toLowerCase()), bigrams(fp.toLowerCase())) >= FUZZY_THRESHOLD
@@ -210,8 +214,8 @@ export function findByCandidates(
   // stale duplicate of the old text survives elsewhere (responsive blocks,
   // i18n, cached SSR shells) and the pinned element was legitimately rewritten,
   // the duplicate is an exact match and wins. That case is not decidable from
-  // the DOM alone — the zero-box guard below catches the common hidden variant,
-  // and nothing catches a visible one.
+  // the DOM alone — the layout-eligibility gate in the walk catches the common
+  // hidden variant, and nothing catches a visible one.
   let positional: Element | null = null;
   try {
     const hit = root.querySelector(selectors.css);
@@ -291,7 +295,21 @@ export function findByCandidates(
       if (count++ >= FINGERPRINT_WALK_LIMIT) break;
       const fp = getTextFingerprint(el);
       if (fp === fingerprint) {
-        if (!exact || exact.contains(el)) exact = el;
+        // Layout eligibility gates ACCEPTANCE: a zero-box element can never be
+        // what the reviewer pointed at, and accepting one here would display
+        // the pin at a zero rect and persist the hidden stranger's selectors
+        // as a heal (0.4.1 review #3). Skip it and keep walking — a later
+        // visible duplicate must still win. One layout read per exact match,
+        // which is rare by construction.
+        if (el.getClientRects().length > 0) {
+          if (!exact || exact.contains(el)) exact = el;
+        } else if (exact && exact.contains(el)) {
+          // textContent flows UP, so the current exact may be a visible
+          // wrapper mirroring THIS hidden descendant — the chain's true text
+          // carrier. Anchoring to the wrapper pins invisible text; drop it
+          // and let a later visible duplicate (or an honest orphan) win.
+          exact = null;
+        }
       } else if (!exact && fp && fingerprint.length >= FUZZY_MIN_FP) {
         // The floor gates RAW similarity — the tag bias must never smuggle a
         // sub-threshold match through (0.3.0 review #3). Fuzzy is a lightly-
@@ -317,10 +335,8 @@ export function findByCandidates(
     // next load corroborates the stranger trivially and the original anchor is
     // gone for good.
     //
-    // Only an EXACT fingerprint match displaces a positional hit, and only if
-    // it could actually be what the reviewer pointed at: a zero-box element
-    // never is. One layout read, and only in the rare case where both exist.
-    if (exact && positional && exact.getClientRects().length === 0) return positional;
+    // Only an EXACT fingerprint match displaces a positional hit — and exact
+    // is laid-out by construction (acceptance above requires a client rect).
     return exact ?? positional ?? best;
   }
   return positional;
