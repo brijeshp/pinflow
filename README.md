@@ -309,7 +309,7 @@ again:
 **Status:** open
 **Created:** 2026-08-04T14:24:00Z
 **Element:** `<button data-testid="place-order">` (“Place order”)
-**Context:** the 'Place order' button under 'Review your order'
+**Context:** the ‘Place order’ button under ‘Review your order’
 **Selector candidates:**
 
 - testid: `place-order`

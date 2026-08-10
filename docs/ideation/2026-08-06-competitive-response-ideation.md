@@ -45,7 +45,7 @@ fingerprint → fuzzy Dice heal), `storage.ts` (schema v3), `iife.ts` (CDN auto-
    CI gzip runs a few bytes over the macOS measurement. Every core-touching idea needs the sanctioned
    ratchet. "Fits under the budget" is an empty category.
 2. **The armed-mode-leak defect class has recurred 17 times, not 4.** Five on `main` (audit trail in
-   `docs/audits/2026-08-04-030-*`), and **twelve more across four Codex rounds on one unmerged
+   `docs/audits/2026-08-04-030-*`), and **twelve more across four review rounds on one unmerged
    branch** — including r4 explicitly _replacing_ the r2/r3 fixes as wrong.
 3. **An unmerged branch already built two of the candidates.** `claude/peaceful-mclaren-c0d78e` ships
    drag-to-marquee + one-dock chrome at **IIFE 15.9 kB (+1.35 kB ratchet)**, larger than the entire
