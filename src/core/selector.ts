@@ -187,10 +187,19 @@ function healFingerprint(el: Element, deadline: number): string | null {
   // 4 === NodeFilter.SHOW_TEXT (the enum reference costs bundle bytes).
   const walker = el.ownerDocument.createTreeWalker(el, 4);
   let out = '';
+  let seen = 0;
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
     const data = node.nodeValue ?? '';
+    // Clock discipline mirrors the walk's every-16 sampling: a CHEAP
+    // extraction (a handful of single-chunk text nodes) never consults the
+    // clock at all — checking per chunk let one janky scheduler tick expire
+    // the 2 ms budget mid-refinement on a three-element DOM, a CI-only wrong
+    // anchor (wrapper over deepest match). Only every-16th node and chunks
+    // beyond a node's first pay the check; the unchecked worst case is 15
+    // single-chunk nodes ≈ 30 kB of normalisation, well under a millisecond.
+    const check = (++seen & 15) === 0;
     for (let off = 0; off < data.length; off += FP_SCAN_LIMIT) {
-      if (performance.now() > deadline) return null;
+      if ((check || off > 0) && performance.now() > deadline) return null;
       const piece = data.slice(off, off + FP_SCAN_LIMIT).replace(/\s+/g, ' ');
       // A whitespace run split across a chunk or node boundary collapses to
       // ' ' on both sides — drop the duplicate.
