@@ -1,7 +1,7 @@
 {
   "name": "@brijeshp/pinflow",
   "version": "0.4.1",
-  "description": "Your reviewer clicks the thing that's wrong. Your coding agent gets a selector, the surrounding context, and the comment — as Markdown it can act on. 17 kB, no backend, no install for the reviewer.",
+  "description": "Add a comment layer to any web page, then hand the export to your coding agent. One script tag, 17 kB, and reviewers don't install anything.",
   "keywords": [
     "annotation",
     "feedback",
