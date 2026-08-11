@@ -148,3 +148,19 @@ describe('createUIRoot without a body', () => {
     expect(document.querySelector('[data-pinflow-root]')).toBeNull();
   });
 });
+
+// 0.5.0 mobile report: the word "Delete" in pinflow's OWN popup was
+// text-selected by an iOS long-press — only the arm/chip carried
+// user-select:none. The whole shadow UI is chrome except the one place a
+// reviewer actually edits text.
+describe('shadow UI is unselectable chrome (0.5.x touch fix)', () => {
+  it('the root suppresses selection and the touch callout for the whole tree', () => {
+    expect(STYLES).toMatch(
+      /\.root\{[^}]*-webkit-user-select:none;user-select:none;-webkit-touch-callout:none/,
+    );
+  });
+
+  it('the draft textarea re-enables selection — a reviewer edits text there', () => {
+    expect(STYLES).toMatch(/\.input textarea\{[^}]*user-select:text/);
+  });
+});

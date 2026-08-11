@@ -654,9 +654,14 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(rule).toContain('transition:none');
   });
 
-  it('dock glyph buttons carry the -webkit-user-select prefix (iOS Safari long-press)', () => {
-    const rule = /\.arm,\.chip\{[^}]*\}/.exec(STYLES)?.[0] ?? '';
+  it('the dock is unselectable under iOS long-press (root-level, prefixed)', () => {
+    // 0.5.x: the suppression moved from per-element (.arm,.chip) to the shadow
+    // ROOT, covering every piece of chrome — the mobile report showed the
+    // popup's own "Delete" label getting text-selected. user-select
+    // effectively inherits, so the root rule is the single source now.
+    const rule = /\.root\{[^}]*\}/.exec(STYLES)?.[0] ?? '';
     expect(rule).toContain('-webkit-user-select:none');
     expect(rule).toContain('user-select:none');
+    expect(rule).toContain('-webkit-touch-callout:none');
   });
 });

@@ -13,13 +13,13 @@ export const STYLES =
   // The var fallback repeats the static stack (not `inherit`) so .root never
   // depends on :host's font surviving `all:initial` — some Chromium builds
   // drop it (audit 2026-07-23: untokened embeds computed Times).
-  '.root{position:fixed;inset:0;pointer-events:none;z-index:2147483646;font-family:var(--pf-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif)}' +
+  '.root{position:fixed;inset:0;pointer-events:none;z-index:2147483646;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;font-family:var(--pf-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif)}' +
   // Bottom-left dock (0.5.0): the ONE standing affordance. Arm segment (+/×)
   // in neutral chrome; the count chip joins it when there is something to
   // export. Children carry pointer-events — the dock itself stays inert.
   // .arm/.chip share the circle; each keeps only its color/size deltas.
   '.dock{position:fixed;left:16px;bottom:16px;display:flex;align-items:center;gap:8px}' +
-  '.arm,.chip{pointer-events:auto;height:26px;border:0;padding:0;border-radius:999px;font:inherit;font-weight:600;-webkit-user-select:none;user-select:none;box-shadow:0 4px 10px rgba(0,0,0,.28),0 0 0 2px var(--pf-surface,light-dark(#fff,#1e222b));cursor:pointer;display:grid;place-items:center}' +
+  '.arm,.chip{pointer-events:auto;height:26px;border:0;padding:0;border-radius:999px;font:inherit;font-weight:600;box-shadow:0 4px 10px rgba(0,0,0,.28),0 0 0 2px var(--pf-surface,light-dark(#fff,#1e222b));cursor:pointer;display:grid;place-items:center}' +
   '.arm{width:26px;background:#0f172a;color:#f8fafc}' +
   // The glyph is DRAWN, not typeset: two crossing bars centered by grid math.
   // Font ink is never optically centered in its em box (platform-dependent),
@@ -71,7 +71,7 @@ export const STYLES =
   '@media (prefers-reduced-motion:reduce){.pin{animation:none;transform:translate(-50%,-50%)}.chip{animation:none;transform:none}.hl{transition:none}.area{animation:none}.arm::before{transition:none}}' +
   '@media (max-width:640px){.pin,.arm{width:32px;height:32px;font-size:13px}.chip{min-width:32px;height:32px;font-size:13px}}' +
   '.input{position:fixed;pointer-events:auto;min-width:240px;max-width:320px;background:var(--pf-surface,light-dark(#fff,#1e222b));color:var(--pf-text,light-dark(#0f172a,#e7eaf1));border-radius:var(--pf-radius,10px);padding:10px;box-shadow:var(--pf-shadow,0 12px 32px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.08))}' +
-  '.input textarea{width:100%;min-height:64px;max-height:160px;resize:none;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5}' +
+  '.input textarea{-webkit-user-select:text;user-select:text;width:100%;min-height:64px;max-height:160px;resize:none;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5}' +
   // iOS Safari auto-zooms the page when a focused input is under 16px; the
   // reviewer's recovery pinch then eats the draft. 16px on touch kills the
   // zoom trigger at the source.

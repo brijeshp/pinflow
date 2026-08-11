@@ -32,6 +32,7 @@ import type {
   VoiceMeta,
 } from '../types';
 import { GestureController } from '../gesture/controller';
+import { acquireSelectionGuard } from './selection-guard';
 import type { Logger, VoiceHost, VoiceModule, VoiceSession } from '../voice-contract';
 import { loadVoice as defaultLoadVoice } from '../voice-loader';
 import { contrastFor, createUIRoot, el, flipPosition, place, type UIRoot } from './dom';
@@ -131,6 +132,7 @@ export class Annotator {
   private _sheetDismiss: (() => void) | null = null;
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
   private _prevBodyCursor = '';
+  private _selGuard: (() => void) | undefined;
   // Armed-mode hover outline: a non-interactive accent box over the element
   // under the cursor, rendered inside the shadow root — host styles/classes
   // are never touched. The move listener exists ONLY while armed (P2 posture:
@@ -812,6 +814,10 @@ export class Annotator {
     window.addEventListener('pointercancel', this._onArmedPointerCancel, true);
     this._prevBodyCursor = document.body.style.cursor;
     document.body.style.cursor = 'crosshair';
+    // Same category as the crosshair: a modal, reversible host override.
+    // While armed, a long-press must belong to the pin gesture alone — not
+    // also start WebKit text selection and the touch callout (0.5.x).
+    this._selGuard = acquireSelectionGuard();
     // Arming is pinning intent — it replaces whatever surface was up.
     this._closePanel();
   }
@@ -841,6 +847,8 @@ export class Annotator {
     this._clearHover();
     document.body.style.cursor = this._prevBodyCursor;
     this._prevBodyCursor = '';
+    this._selGuard?.();
+    this._selGuard = undefined;
   }
 
   private _onKeyDown = (e: KeyboardEvent): void => {
