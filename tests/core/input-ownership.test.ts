@@ -360,8 +360,12 @@ describe('touch and pen input', () => {
 
   // The OS long-press recognizers fire at ~500ms too, so an equal threshold is
   // a coin flip: lose and the platform takes the gesture (pinflow silently does
-  // nothing); win and the draft opens under iOS's selection handles.
-  it('activates before the ~500ms platform long-press recognizer', () => {
+  // nothing). With hold-then-drag (0.5.x) what must beat the recognizer is the
+  // CLAIM, not the draft: at hold-fire the gesture is pinflow's — the marquee
+  // cue is up and the scroller is locked out — and the draft opens at RELEASE,
+  // which is what lets a drag draw an area instead. Same race, same winner,
+  // different prize.
+  it('claims the gesture before the ~500ms platform long-press recognizer', () => {
     vi.useFakeTimers();
     const el = document.createElement('div');
     document.body.appendChild(el);
@@ -373,6 +377,13 @@ describe('touch and pen input', () => {
     });
     fire(el, 'pointerdown', { pointerId: 1, clientX: 10, clientY: 10, pointerType: 'touch' });
     vi.advanceTimersByTime(450);
+    // Claimed: the scroller is locked out (touchmove is ours) and no draft
+    // yet. The marquee cue itself paints on a rAF, which fake timers don't
+    // drive — the prevented touchmove IS the claim, rendering aside.
+    expect(fire(el, 'touchmove', {}).defaultPrevented).toBe(true);
+    expect(shadow().querySelector('textarea')).toBeNull();
+    // The release without movement is the point pin — the draft opens now.
+    fire(el, 'pointerup', { pointerId: 1, clientX: 10, clientY: 10, pointerType: 'touch' });
     expect(shadow().querySelector('textarea')).toBeTruthy();
   });
 

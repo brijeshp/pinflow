@@ -517,3 +517,137 @@ describe('GestureController', () => {
     expect(activations).toHaveLength(0);
   });
 });
+
+// 0.5.x: hold-then-drag brings the marquee to touch. Immediate drags must
+// stay native scrolls (the platform decides ownership at gesture start), but
+// a finger that HOLDS through the long-press threshold proves no scroll is in
+// flight — from that moment the gesture is claimed: a non-passive touchmove
+// prevents the scroller, the zero-size marquee dim is the "you have it" cue,
+// and the release disambiguates exactly like desktop Alt: near = point pin,
+// far = area commit. Without an area consumer the legacy timer-fire
+// activation is unchanged.
+describe('touch hold-then-drag marquee (0.5.x)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    document.body.innerHTML = '';
+  });
+  afterEach(() => {
+    for (const c of live.splice(0)) c.stop();
+    vi.useRealTimers();
+    document.adoptedStyleSheets = [];
+  });
+
+  function areaSetup(): ReturnType<typeof setup> & {
+    changes: number[][];
+    commits: number[][];
+    cancels: number[];
+  } {
+    const changes: number[][] = [];
+    const commits: number[][] = [];
+    const cancels: number[] = [];
+    const base = setup({
+      onAreaChange: (x0, y0, x1, y1) => changes.push([x0, y0, x1, y1]),
+      onAreaCommit: (x0, y0, x1, y1) => commits.push([x0, y0, x1, y1]),
+      onAreaCancel: () => cancels.push(1),
+    });
+    return { ...base, changes, commits, cancels };
+  }
+
+  it('the hold claims the gesture: zero-size marquee cue, activation deferred to release', () => {
+    const { activations, changes, el } = areaSetup();
+    dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 });
+    vi.advanceTimersByTime(500);
+    expect(activations).toHaveLength(0); // no longer fires at the timer
+    expect(changes).toEqual([[30, 40, 30, 40]]); // the dim IS the held cue
+  });
+
+  it('release without movement drops the cue and places a point pin at the press point', () => {
+    const { activations, cancels, commits, el } = areaSetup();
+    dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 });
+    vi.advanceTimersByTime(500);
+    dispatch(el, 'pointerup', { clientX: 32, clientY: 41 });
+    expect(cancels).toHaveLength(1);
+    expect(commits).toHaveLength(0);
+    expect(activations).toEqual([{ x: 30, y: 40, target: el }]);
+    // The compatibility click that follows a touch activation is swallowed.
+    const click = dispatch(el, 'click');
+    expect(click.defaultPrevented).toBe(true);
+  });
+
+  it('a held drag streams the marquee and commits the area on release', () => {
+    const { activations, changes, commits, el } = areaSetup();
+    dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 });
+    vi.advanceTimersByTime(500);
+    dispatch(el, 'pointermove', { clientX: 90, clientY: 120 });
+    expect(changes).toEqual([
+      [30, 40, 30, 40],
+      [30, 40, 90, 120],
+    ]);
+    dispatch(el, 'pointerup', { clientX: 90, clientY: 120 });
+    expect(commits).toEqual([[30, 40, 90, 120]]);
+    expect(activations).toHaveLength(0);
+  });
+
+  it('touchmove is prevented only while held — never before the hold fires', () => {
+    const { el } = areaSetup();
+    dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 });
+    const before = dispatch(el, 'touchmove');
+    expect(before.defaultPrevented).toBe(false); // pre-hold: scroll stays native
+    vi.advanceTimersByTime(500);
+    const during = dispatch(el, 'touchmove');
+    expect(during.defaultPrevented).toBe(true); // held: the drag is ours
+    dispatch(el, 'pointerup', { clientX: 30, clientY: 40 });
+    const after = dispatch(el, 'touchmove');
+    expect(after.defaultPrevented).toBe(false);
+  });
+
+  it('movement before the hold still cancels — an immediate drag is a scroll', () => {
+    const { activations, changes, el } = areaSetup();
+    dispatch(el, 'pointerdown', { clientX: 10, clientY: 20 });
+    dispatch(el, 'pointermove', { clientX: 10, clientY: 45 });
+    vi.advanceTimersByTime(600);
+    expect(activations).toHaveLength(0);
+    expect(changes).toHaveLength(0);
+  });
+
+  it('without an area consumer the legacy timer-fire activation is unchanged', () => {
+    const { activations, el } = setup();
+    dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 });
+    vi.advanceTimersByTime(500);
+    expect(activations).toHaveLength(1);
+  });
+
+  it('Escape mid-held-drag aborts: visuals cancel, the release commits nothing', () => {
+    const { activations, cancels, commits, el } = areaSetup();
+    dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 });
+    vi.advanceTimersByTime(500);
+    dispatch(el, 'pointermove', { clientX: 90, clientY: 120 });
+    dispatch(document, 'keydown', { key: 'Escape' });
+    expect(cancels).toHaveLength(1);
+    dispatch(el, 'pointerup', { clientX: 90, clientY: 120 });
+    expect(commits).toHaveLength(0);
+    expect(activations).toHaveLength(0);
+  });
+
+  it('the selection guard is held for the touch press and released with it', () => {
+    const guardActive = (): boolean =>
+      document.adoptedStyleSheets.some((s) =>
+        Array.from(s.cssRules).some((r) => r.cssText.includes('user-select')),
+      );
+    const { el } = areaSetup();
+    expect(guardActive()).toBe(false);
+    dispatch(el, 'pointerdown', { clientX: 30, clientY: 40 });
+    // Acquired at press start — it must beat WebKit's own selection timer.
+    expect(guardActive()).toBe(true);
+    vi.advanceTimersByTime(500);
+    dispatch(el, 'pointerup', { clientX: 30, clientY: 40 });
+    expect(guardActive()).toBe(false);
+  });
+
+  it('a mouse Alt press does not touch the document-level guard', () => {
+    const { el } = areaSetup();
+    dispatch(el, 'pointerdown', { pointerType: 'mouse', altKey: true, clientX: 10, clientY: 10 });
+    expect(document.adoptedStyleSheets).toHaveLength(0);
+    dispatch(el, 'pointerup', { pointerType: 'mouse', clientX: 10, clientY: 10 });
+  });
+});
