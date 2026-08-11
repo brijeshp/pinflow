@@ -1,5 +1,56 @@
 # Changelog
 
+## 0.6.0
+
+### Minor Changes
+
+- e13afd5: Export confirmation offers both channels as actions; the email hand-off is removed.
+
+  **The panel now acts instead of apologising.** Exporting still downloads the Markdown and copies it to the clipboard on the way through. The confirmation then offers both again as buttons — **Download Feedback Markdown** (primary) and **Copy to Clipboard** — plus **Done**. This matters because one of those channels cannot be verified: `download()` fires a detached `a.click()` that returns `void`, and it no-ops outright in some in-app webviews, which is exactly where a reviewer on a phone ends up. The old panel could only describe that failure in prose; now the reviewer has a button. The body copy still asserts only the clipboard, the one result the widget can observe, and the retry reports honestly — `Copied to your clipboard.` or `Copy failed — use the download instead.`
+
+  **Breaking: `config.submitTo` is removed.** It existed solely to add an "Email it to the builder" `mailto:` button to that panel. Drafting an email was never a good fit for the moment — Pinflow does not know who the reviewer is beyond a display name, and the recipient was the host's guess, so the action opened an empty draft the reviewer had to finish by hand. Hosts that need a submission channel should use `onSubmit` (host-owned function) or `onChange`/`source` (backend sync); everyone else shares the file or the clipboard however the team already works. The Vue wrapper's `submitTo` prop is removed with it.
+
+  Panel button rows now wrap instead of squeezing. `flex:1` gave every button an equal share of a 320px panel, so the longer primary label collapsed into a three-line stack; buttons now size from content with a floor, and a row that does not fit breaks — the primary takes its own line and the rest share the next. Two-button rows (the export sheet) are unchanged.
+
+  Removing the `mailto:` construction frees more than the two buttons and the wrap rule cost, so this change is size-negative on its own; the net ceiling movement for the release is accounted for in the input-ownership changeset.
+
+### Patch Changes
+
+- e13afd5: Input ownership: thirteen ways an annotation gesture leaked into the host page, or kept hold of input it no longer owned.
+
+  Armed mode and the stealth gesture both promise that a gesture pinflow accepts is pinflow's — the host page sees neither its pointer phases nor its trailing click — and that everything else reaches the host untouched. Seven paths broke that promise. All are now pinned by `tests/core/input-ownership.test.ts`.
+  - **Armed clicks reached host window-capture listeners.** `_onDocumentClick` used `stopPropagation()` at three sites while every neighbouring armed handler used `stopImmediatePropagation()`. The two are not interchangeable here: this handler is on window capture, and so is a host's outside-click dismiss, router, or analytics listener. A sibling on the same node cannot be silenced by `stopPropagation`, so any host listener registered after init saw every armed click.
+  - **A long touch hold leaked its click.** The stealth long-press fires while the finger is still down, but the click-swallow was armed at that moment rather than at release, so the 700 ms window was spent during the hold. Past ~1.2 s the host received the trailing compatibility click — on a prototype, a real navigation or submit under the reviewer's finger. The release now arms it, matching what the suspend and Escape paths already did.
+  - **A retired press could brick the gesture layer.** A killed press stayed in the press slot to keep its release shielded, and only its own release could clear it — but touch and pen mint a fresh pointer id per contact, so a release lost outside the window left the slot occupied for the life of the page, with the page's text selection and context menu suppressed alongside it. The shield is now a bare pointer id with its own bounded lifetime: the multi-touch guard it provided is unchanged, but it can no longer outlive the gesture it belongs to.
+  - **An aborted marquee leaked the accepted pointer's release.** Its `pointerdown` had already been eaten when the press was claimed, so handing the host a `pointerup` with no matching `pointerdown` desynced any drag surface.
+  - **An aborted marquee had no recovery.** Lost-release recovery was gated on the gesture not being aborted, so one lost release stranded the marquee state and left a standing window-capture guard eating every click on the page. Any participant re-pressing now retires it.
+  - **A stranded abort locked the reviewer out of the dock.** The abort guard and the post-drag click swallow are blanket window-capture killers that ran ahead of the own-UI check, so the arm segment's own click was eaten and there was no way to disarm. Pinflow's chrome is now checked first everywhere.
+  - **`destroy()` leaked the dying-press shield.** It adds three window-capture listeners that retire on the shielded pointer's next event — an id that, for touch and pen, never comes back. A destroyed annotator went on swallowing host input and held its shadow tree alive. Shields and the one-shot click swallow are now tracked and drained on teardown.
+
+  Six further touch and pen defects, from the same pass:
+  - **Compatibility `mousedown`/`mouseup` were never suppressed on touch, in either activation path.** Cancelling a `pointerdown` suppresses compatibility mouse events for mouse input only; for touch the spec routes that through `touchstart`, which a passive annotation layer must not claim. So every long-press _and_ every armed tap also reached the host's `mousedown`/`mouseup` handlers — canvas surfaces, drag targets and `:active` widgets all reacted to annotation gestures, even though the click itself was correctly swallowed. Both paths now swallow the whole compatibility burst. The armed half of this was found by the new touch E2E suite, not by review.
+  - **The long-press threshold tied with the platform's.** WebKit and Chromium fire their own long-press recognizers at ~500 ms, so an equal threshold was a per-device coin flip: lose and the platform takes the gesture (pinflow silently does nothing), win and the draft opens under iOS's selection handles. Now 400 ms, which lands first.
+  - **A delayed compatibility click placed a spurious pin.** The annotator's click swallow cleared on the next task, on the reasoning that a click follows its `pointerup` synchronously — true for mouse, false for touch, where iOS still applies a ~350 ms tap delay on pages without a responsive viewport. It is now a bounded 700 ms window, matching the gesture controller's; pinflow's own chrome is exempt, so the draft popup's buttons stay live.
+  - **Pen and stylus could not annotate at all in stealth mode.** Apple Pencil and the Surface pen report `pointerType: 'pen'`, which was routed into the desktop branch and required an Alt key the hand holding a stylus does not have. Pen now uses the long-press path with touch.
+  - **Dismissing a draft by tapping outside also operated the host control underneath.** The tap meant "close this", not "click that" — the trailing click now gets swallowed with the dismissal.
+  - **`Alt+drag` is the window-move binding on GNOME and KDE**, where the window manager takes it before the browser sees it. Documented in `README.md`, with the dock and `activation: 'toggle'` as the answers there.
+
+  **Also fixed: pinflow failed to load at all inside a sandboxed iframe.** A sandboxed iframe without `allow-modals` — Lovable, Bolt, StackBlitz and CodeSandbox previews, which is where these prototypes actually live — makes `window.prompt` **throw** rather than return null. The identity prompt did not guard it, so the exception escaped `init()` and the widget never mounted. A prompt the environment refuses to show is now treated as an unanswered one, degrading to no identity exactly like a cancelled prompt. Found by running the demo, not by reading the code.
+
+  **New: real touch coverage.** `tests/e2e/touch.spec.ts` drives `page.touchscreen` on a mobile profile, so the long-press grammar, the compatibility mouse burst and the trailing click are exercised in a real engine. The existing E2E suite used `page.mouse` and `locator.click()` throughout, which synthesize _mouse_ input — the two "mobile" projects were running the desktop code path, which is why every defect above survived nine review rounds. The suite carries its own negative control, so a filter bug cannot make it pass vacuously.
+
+  **Size ceilings raised, approved by the repo owner:** core IIFE 17.4 → 17.65 KB, ESM 17.05 → 17.3 KB (linux CI actuals 17.60 / 17.24; a local macOS build measures ~20 B under). A deliberate correctness-for-bytes trade under the ratchet policy in `docs/wiki/build-and-release.md`, on top of the release's own +2.43 KB: **+230 B** is what it costs for the input-ownership contract to hold on the devices this release claims to support, and to stop a sandboxed iframe killing the widget outright. Re-ratcheted razor-thin over actuals as the policy requires.
+
+- 85b6c2e: Mobile touch fixes: pin gestures no longer fight iOS text selection, and the marquee reaches touch via hold-then-drag.
+
+  **Selection and callout suppression.** On iOS every browser is WebKit, and a long-press starts text selection plus the Copy/Search callout on the same gesture pinflow uses to place a pin — a pin landed while the selection handles and callout bar came up with it, and the widget's own popup labels were selectable. Two layers fix it: the shadow UI is now unselectable chrome end to end (the draft textarea keeps selection — it is the one editable surface), and a document-level selection guard (constructed sheet, CSP-safe, `<style>` fallback) suppresses host selection and the callout while annotate mode is armed and for the duration of any stealth touch/pen press. The guard is modal and reversible — same category as the armed crosshair cursor — and never crosses into the shadow tree.
+
+  **Hold-then-drag touch marquee.** An immediate touch drag stays a native scroll — the platform decides ownership at gesture start, and pinflow never takes scrolling. But a finger that holds through the long-press threshold proves no scroll is in flight, so the hold now CLAIMS the gesture: the page dims around a zero-size marquee (the "you have it" cue), a non-passive `touchmove` keeps the scroller locked out, and the release disambiguates exactly like desktop Alt — release in place and it is a point pin, drag first and the drawn region commits as an area comment with `anchor.areaPercent`. Escape (hardware keyboards) and `pointercancel` abort cleanly, and every guarantee of the input-ownership pass carries over: the compatibility click and mouse burst after a touch gesture never reach the host.
+
+  One behavioural consequence: with the marquee available, a touch long-press opens the draft at RELEASE rather than at the hold threshold (the claim still beats the ~500 ms platform recognizer — same race, same winner, different prize). Without area callbacks configured, timer-fire activation is unchanged.
+
+  Size: the guard and the touch grammar cost ~290 B gz; core ceilings move to IIFE 17.95 KB / ESM 17.6 KB, razor-thin over linux CI actuals per the budget policy.
+
 ## 0.5.0
 
 ### Minor Changes
