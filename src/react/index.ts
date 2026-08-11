@@ -23,7 +23,7 @@ export function Annotator(props: AnnotatorProps): null {
     const p = propsRef.current;
     // Function props DELEGATE through propsRef: a rerender's fresh closures
     // (new state captured by onChange etc.) take effect without re-init
-    // (review #9). Object props (theme/activation/voice/submitTo) are
+    // (review #9). Object props (theme/activation/voice) are
     // snapshotted at init — change those via a keyed remount.
     handleRef.current = init({
       ...p,

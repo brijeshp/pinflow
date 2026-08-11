@@ -230,13 +230,6 @@ export interface PinflowConfig {
    */
   describeRoute?: (key: string) => string;
   /**
-   * Free-tier guided hand-off: the post-export confirmation gains a primary
-   * "Email it to the builder" button that opens a prefilled `mailto:` — the
-   * exported markdown is already downloaded and on the clipboard. Subject
-   * defaults to `Feedback: <project>`.
-   */
-  submitTo?: { email: string; subject?: string };
-  /**
    * Anytime-export affordance (reviewer mode): a small count chip in the
    * pins' visual vocabulary, shown once the reviewer has a comment; tapping
    * it summons an export sheet wired to the standard export flow. `'auto'`

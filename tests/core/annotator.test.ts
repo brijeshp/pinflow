@@ -544,10 +544,10 @@ describe('Annotator submission moment (L1.6)', () => {
   }
 
   // The reviewer menu panel is gone (0.5.0): export rides the chip → sheet.
-  async function exportViaSheet(submitTo?: { email: string; subject?: string }): Promise<void> {
+  async function exportViaSheet(): Promise<void> {
     seedStore(makeComment('hello'));
     annotator = new Annotator({
-      config: { project: PROJECT, ...(submitTo ? { submitTo } : {}) },
+      config: { project: PROJECT },
       reviewer: REVIEWER,
       mode: 'reviewer',
       storage: localStorage,
@@ -560,46 +560,89 @@ describe('Annotator submission moment (L1.6)', () => {
     await flushMicrotasks();
   }
 
-  function findEmailButton(): HTMLButtonElement | undefined {
-    return [...shadow().querySelectorAll('button')].find(
-      (b) => b.textContent === 'Email it to the builder',
-    ) as HTMLButtonElement | undefined;
+  function findButton(label: string): HTMLButtonElement | undefined {
+    return [...shadow().querySelectorAll('button')].find((b) => b.textContent === label) as
+      | HTMLButtonElement
+      | undefined;
   }
 
-  it('confirmation gains a primary mailto button when submitTo is set', async () => {
-    mockDownloadPlumbing();
-    mockClipboard(true);
-    await exportViaSheet({ email: 'dev@x.io', subject: 'Prototype feedback' });
-    const btn = findEmailButton();
-    expect(btn).toBeTruthy();
-    expect(btn!.className).toContain('primary');
-    expect(shadow().querySelector('.panel p')?.textContent).toBe(
-      'Your feedback is copied — paste it into the email.',
-    );
-    btn!.click();
-    expect(window.location.href).toBe('mailto:dev@x.io?subject=Prototype%20feedback');
-  });
-
-  it('subject defaults to "Feedback: <project>"; without a clipboard the hand-off points at the file', async () => {
-    mockDownloadPlumbing();
-    mockClipboard(false);
-    await exportViaSheet({ email: 'dev@x.io' });
-    // Previously this said "Share however you like", so the primary action
-    // opened an empty email with nothing to paste and nothing to attach.
-    expect(shadow().querySelector('.panel p')?.textContent).toBe(
-      'Attach the downloaded file to the email.',
-    );
-    findEmailButton()!.click();
-    expect(window.location.href).toBe(
-      `mailto:dev@x.io?subject=${encodeURIComponent('Feedback: p')}`,
-    );
-  });
-
-  it('no email button without submitTo', async () => {
+  // The confirmation used to REPORT two things that had already happened, one
+  // of which (the download) is not observable — a detached a.click() returns
+  // void and no-ops outright in some in-app webviews. So the panel now OFFERS
+  // both channels as re-invokable actions: when the silent one fails, the
+  // reviewer has a button rather than a claim.
+  it('confirmation offers download and clipboard as actions, and a way out', async () => {
     mockDownloadPlumbing();
     mockClipboard(true);
     await exportViaSheet();
-    expect(findEmailButton()).toBeUndefined();
+    const dl = findButton('Download Feedback Markdown');
+    expect(dl).toBeTruthy();
+    expect(dl!.className).toContain('primary');
+    expect(findButton('Copy to Clipboard')).toBeTruthy();
+    expect(findButton('Done')).toBeTruthy();
+    // The email hand-off is gone: pinflow never knows the recipient.
+    expect(findButton('Email it to the builder')).toBeUndefined();
+  });
+
+  it('the download action re-fires a real download, and ONLY that', async () => {
+    mockDownloadPlumbing();
+    mockClipboard(true);
+    await exportViaSheet();
+    const create = vi.mocked(URL.createObjectURL);
+    const write = vi.mocked(navigator.clipboard.writeText);
+    const downloads = create.mock.calls.length;
+    const writes = write.mock.calls.length;
+    findButton('Download Feedback Markdown')!.click();
+    expect(create.mock.calls.length).toBe(downloads + 1);
+    // The panel offers two channels separately; downloading must not silently
+    // clobber the clipboard as well (downloadExport() does both, by design —
+    // this button must not be routed through it).
+    expect(write.mock.calls.length).toBe(writes);
+  });
+
+  it('the clipboard action re-copies and confirms only what succeeded', async () => {
+    mockDownloadPlumbing();
+    mockClipboard(true);
+    await exportViaSheet();
+    const write = vi.mocked(navigator.clipboard.writeText);
+    const before = write.mock.calls.length;
+    findButton('Copy to Clipboard')!.click();
+    await flushMicrotasks();
+    expect(write.mock.calls.length).toBe(before + 1);
+    expect(write.mock.calls.at(-1)![0]).toContain(`# Feedback for ${PROJECT}`);
+    expect(shadow().querySelector('.panel p')?.textContent).toBe('Copied to your clipboard.');
+  });
+
+  it('a failed clipboard write says so instead of claiming success', async () => {
+    mockDownloadPlumbing();
+    mockClipboard(false); // no navigator.clipboard at all
+    await exportViaSheet();
+    findButton('Copy to Clipboard')!.click();
+    await flushMicrotasks();
+    expect(shadow().querySelector('.panel p')?.textContent).toBe(
+      'Copy failed — use the download instead.',
+    );
+  });
+
+  // review #23, re-applied to the retry path: a slow clipboard must not write
+  // its result into a panel that has since been closed or replaced.
+  it('a late clipboard result cannot write into a replaced panel', async () => {
+    mockDownloadPlumbing();
+    mockClipboard(true);
+    await exportViaSheet();
+    findButton('Copy to Clipboard')!.click();
+    findButton('Done')!.click(); // panel gone before the write resolves
+    await flushMicrotasks();
+    expect(shadow().querySelector('.panel')).toBeNull();
+  });
+
+  it('Done closes the confirmation', async () => {
+    mockDownloadPlumbing();
+    mockClipboard(true);
+    await exportViaSheet();
+    expect(shadow().querySelector('.panel')).toBeTruthy();
+    findButton('Done')!.click();
+    expect(shadow().querySelector('.panel')).toBeNull();
   });
 
   it('exportMarkdown returns the reviewer artifact; downloadExport skips the confirmation', () => {

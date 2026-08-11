@@ -36,10 +36,25 @@ import type { Logger, VoiceHost, VoiceModule, VoiceSession } from '../voice-cont
 import { loadVoice as defaultLoadVoice } from '../voice-loader';
 import { contrastFor, createUIRoot, el, flipPosition, place, type UIRoot } from './dom';
 
-// Not publicly configurable (P4.4): the 500ms default matched every real use.
-// GestureController keeps its internal option for tests.
-const LONG_PRESS_MS = 500;
+// Not publicly configurable (P4.4). GestureController keeps its internal
+// option for tests.
+//
+// 400, not 500: WebKit's and Chromium's own long-press recognizers fire at
+// ~500ms, so an equal threshold made it a per-device coin flip. Lose the race
+// and the platform takes the gesture — pinflow silently does nothing, which
+// reads as "the long-press is broken on iOS". Win it and the draft opens
+// underneath iOS's selection handles. Landing first is the only stable side.
+const LONG_PRESS_MS = 400;
 const MOVE_THRESHOLD_PX = 10;
+
+// Matches GestureController's SWALLOW_WINDOW_MS. This used to clear on the next
+// task, on the reasoning that "a mouse click follows its pointerup
+// synchronously" — true for mouse, false for touch, where iOS still applies a
+// ~350ms tap delay on pages without a responsive viewport. The delayed click
+// then arrived after the window had closed and placed a second, spurious pin.
+// Pinflow's own chrome is exempt from the swallow, so a bounded window cannot
+// deafen the draft popup's own buttons.
+const CLICK_SWALLOW_MS = 700;
 
 // Dispositioned by the team (via hydration) — a shared record, not the
 // reviewer's draft: frozen in the UI (no edit/delete, exempt from
@@ -135,6 +150,11 @@ export class Annotator {
   // per-gesture one-shot listener on the same window target, so listener
   // order alone cannot shield a click that arrives while still armed.
   private _eatClick = false;
+  // Retire callbacks for in-flight dying-press shields. Each normally clears
+  // itself on its own pointer's next event, but touch and pen never reuse an
+  // id — so a shield outliving destroy() would keep swallowing host input and
+  // hold this Annotator and its shadow tree alive. destroy() drains them.
+  private _shields = new Set<() => void>();
   private _marquee: {
     id: number;
     x0: number;
@@ -295,6 +315,9 @@ export class Annotator {
     this._destroyed = true;
     this._closeActiveInput(false);
     if (this._annotating) this._exitAnnotateMode();
+    // AFTER _exitAnnotateMode, which is what mints shields for a still-held
+    // press — draining earlier would leave the ones it just created.
+    this._shields.forEach((retire) => retire());
     if (this._reflowFrame) cancelAnimationFrame(this._reflowFrame);
     this._closePanel(); // sheet dismiss listeners live on document — must detach
     this._ui.destroy();
@@ -775,6 +798,13 @@ export class Annotator {
     this._annotating = true;
     this._syncArm();
     window.addEventListener('click', this._onDocumentClick, true);
+    // Touch taps never reach _onArmedPointerDown (it returns early for touch,
+    // so native scrolling keeps working), and cancelling a pointer event does
+    // not suppress touch's compatibility mouse burst anyway — that is routed
+    // through touchstart. Without these two the click was correctly swallowed
+    // while the host still got mousedown+mouseup from every armed tap.
+    window.addEventListener('mousedown', this._eatUnlessOwnUi, true);
+    window.addEventListener('mouseup', this._eatUnlessOwnUi, true);
     document.addEventListener('keydown', this._onKeyDown);
     document.addEventListener('pointermove', this._onHoverMove, { passive: true, capture: true });
     window.addEventListener('pointerdown', this._onArmedPointerDown, true);
@@ -790,6 +820,8 @@ export class Annotator {
     this._annotating = false;
     this._syncArm();
     window.removeEventListener('click', this._onDocumentClick, true);
+    window.removeEventListener('mousedown', this._eatUnlessOwnUi, true);
+    window.removeEventListener('mouseup', this._eatUnlessOwnUi, true);
     document.removeEventListener('keydown', this._onKeyDown);
     document.removeEventListener('pointermove', this._onHoverMove, { capture: true });
     window.removeEventListener('pointerdown', this._onArmedPointerDown, true);
@@ -911,10 +943,19 @@ export class Annotator {
     if (this._marquee) {
       const m = this._marquee;
       const joiner = p.pointerId ?? 0;
-      // The INITIATOR pressing again proves its release was lost outside the
-      // window (no pointerup arrives — documented browser behavior): retire
-      // the stale marquee and fall through to a fresh press (ce #5).
-      if (!m.aborted && joiner === m.id) {
+      // ANY participant pressing again proves its release was lost outside the
+      // window (no pointerup arrives — documented browser behavior): retire it
+      // and fall through to a fresh press (ce #5). Gating this on `!m.aborted`
+      // left the aborted gesture with no recovery at all: its participants had
+      // already stopped being able to retire themselves, so one lost release
+      // stranded `_marquee` forever and the standing abort guard went on
+      // eating every click on the page.
+      if (m.aborted ? m.pending.includes(joiner) : joiner === m.id) {
+        if (m.aborted) {
+          m.pending = m.pending.filter((x) => x !== joiner);
+          if (m.pending.length) return; // others still down — stay aborted
+          this._abortGuard(false);
+        }
         this._marquee = null;
         this._pressGuards(false);
         this._scheduleHoverFrame();
@@ -969,6 +1010,7 @@ export class Annotator {
   // engagement is a genuine host interaction — ce #2/#5).
   private _shieldDyingPress(id: number): void {
     const retire = (): void => {
+      this._shields.delete(retire);
       window.removeEventListener('pointerdown', onDown, true);
       window.removeEventListener('pointerup', onUp, true);
       window.removeEventListener('pointercancel', onCancel, true);
@@ -989,6 +1031,7 @@ export class Annotator {
     window.addEventListener('pointerdown', onDown, true);
     window.addEventListener('pointerup', onUp, true);
     window.addEventListener('pointercancel', onCancel, true);
+    this._shields.add(retire);
   }
 
   // Suppress text selection and native drag-and-drop for the press duration —
@@ -1008,14 +1051,22 @@ export class Annotator {
   // abort is in flight: the first stop on the propagation path, so it runs
   // before ANY host capture listener regardless of registration order.
   // Idempotent: duplicate add/remove of the same handler is a no-op.
-  private _onAbortClick = (ce: Event): void => {
-    ce.preventDefault();
-    ce.stopImmediatePropagation();
+  // One blanket window-capture eater, shared by every surface that needs one:
+  // the armed-mode compatibility mouse burst (touch taps never reach
+  // _onArmedPointerDown, and cancelling a pointer event does not suppress that
+  // burst anyway), and the standing guard held for an abort's lifetime.
+  //
+  // The own-UI check is not optional in either role — without it a stranded
+  // abort ate the arm segment's own click and left no way to disarm.
+  private _eatUnlessOwnUi = (e: Event): void => {
+    if (this._isOwnUi(e.target, e)) return;
+    e.preventDefault();
+    e.stopImmediatePropagation();
   };
 
   private _abortGuard(on: boolean): void {
     const fn = on ? window.addEventListener : window.removeEventListener;
-    fn.call(window, 'click', this._onAbortClick, true);
+    fn.call(window, 'click', this._eatUnlessOwnUi, true);
   }
 
   private _onArmedPointerUp = (e: Event): void => {
@@ -1025,7 +1076,11 @@ export class Annotator {
     // Our accepted pointer's release is ours end-to-end (ce #3). Aborted
     // participants (pinch fingers) keep their natural phases — only their
     // compatibility clicks are swallowed.
-    if (!m.aborted && (p.pointerId ?? 0) === m.id) {
+    // The accepted pointer's release is ours whether or not the gesture was
+    // later aborted: its pointerdown was already eaten when we claimed it, so
+    // handing the host a pointerup with no matching down desyncs any drag
+    // surface. Joiners keep their natural phases; only their clicks are eaten.
+    if ((p.pointerId ?? 0) === m.id) {
       e.preventDefault();
       e.stopImmediatePropagation();
     }
@@ -1078,18 +1133,26 @@ export class Annotator {
     // _onDocumentClick is first in window listener order), the one-shot
     // listener shields after teardown. Both self-clear on the next task —
     // a mouse click follows its pointerup synchronously.
-    this._eatClick = true;
-    const swallow = (ce: Event): void => {
-      window.removeEventListener('click', swallow, true); // one-shot, self-removing
+    if (this._destroyed) return;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const drop = (): void => {
+      this._shields.delete(drop);
+      window.removeEventListener('click', swallow, true);
       this._eatClick = false;
+      clearTimeout(timer);
+    };
+    const swallow = (ce: Event): void => {
+      if (this._isOwnUi(ce.target, ce)) return; // pinflow's chrome is never eaten
+      drop();
       ce.preventDefault();
       ce.stopImmediatePropagation();
     };
+    this._eatClick = true;
     window.addEventListener('click', swallow, true);
-    window.setTimeout(() => {
-      window.removeEventListener('click', swallow, true);
-      this._eatClick = false;
-    }, 0);
+    timer = setTimeout(drop, CLICK_SWALLOW_MS);
+    // Tracked like a shield so destroy() takes it with everything else: this
+    // one-shot outliving its Annotator swallowed a later, unrelated host click.
+    this._shields.add(drop);
   }
 
   private _onArmedPointerCancel = (e: Event): void => {
@@ -1159,10 +1222,20 @@ export class Annotator {
   }
 
   private _onDocumentClick = (e: MouseEvent): void => {
+    // FIRST, ahead of every swallow below: pinflow's own chrome must stay
+    // operable in every state. Ordered after the _marquee branch, a stranded
+    // abort ate the arm segment's own click and left the reviewer with no way
+    // to disarm — the guard locked the exit it exists to protect.
+    if (this._isOwnUi(e.target, e)) return;
+    // stopImmediatePropagation, not stopPropagation, at all three sites: this
+    // handler is on WINDOW capture, and so is a host's outside-click dismiss,
+    // router, or analytics listener. stopPropagation cannot silence a sibling
+    // on the same node, so a host listener registered after init still saw
+    // every armed click. Every neighbouring armed handler already did this.
     if (this._eatClick) {
       this._eatClick = false;
       e.preventDefault();
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       return;
     }
     // Any in-flight armed press (pending, live, or aborted) means this click
@@ -1171,12 +1244,11 @@ export class Annotator {
     // input, so no mid-gesture click may leak to the host (review r3/r4 [P2]).
     if (this._marquee) {
       e.preventDefault();
-      e.stopPropagation();
+      e.stopImmediatePropagation();
       return;
     }
-    if (this._isOwnUi(e.target, e)) return;
     e.preventDefault();
-    e.stopPropagation();
+    e.stopImmediatePropagation();
     this._exitAnnotateMode();
     this._placeCommentAt(e.clientX, e.clientY, e.target as Element);
   };
@@ -1767,6 +1839,10 @@ export class Annotator {
       if (pendingTap === null || ((e as PointerEvent).pointerId ?? 0) !== pendingTap) return;
       pendingTap = null;
       if (inside(e)) return; // released back inside
+      // The tap meant "close this", not "operate whatever is under it". Without
+      // this the reviewer dismissed a draft and navigated the prototype in the
+      // same gesture — the trailing click went straight to the host control.
+      this._swallowNextClick();
       onDismiss();
     };
     const onOutsideCancel = (e: Event): void => {
@@ -1893,49 +1969,53 @@ export class Annotator {
     this._showConfirmation(copied, clear);
   }
 
-  // Spec §5.6: after reviewer export, show a small confirmation panel
-  // suggesting any share channel, rather than closing silently. With
-  // config.submitTo the hand-off turns active: a primary mailto button
-  // completes the zero-backend submission channel (download + clipboard +
-  // prefilled email).
+  // Spec §5.6: after reviewer export, confirm rather than closing silently.
+  //
+  // Both channels already fired once on the way here. They are ALSO offered as
+  // buttons, because one of them cannot be verified: download() fires a
+  // DETACHED a.click() and returns void — no event, no promise — and it no-ops
+  // outright in some in-app webviews, exactly where a reviewer on a phone ends
+  // up. The old panel could only apologise for that in prose. A button lets the
+  // reviewer retry the channel that failed, which is the difference between a
+  // dead end and a recovery. Only the clipboard result is ever asserted, since
+  // it is the only one the widget can observe.
   private _showConfirmation(copied: boolean, cleared = false): void {
     this._closePanel();
-    const submitTo = this._deps.config.submitTo;
-    // download() fires a DETACHED a.click() and returns void: no event, no
-    // promise, so a completed save is not observable in general. It frequently
-    // no-ops in iOS in-app webviews — exactly where a reviewer on a phone ends
-    // up — and asserting "Saved to your downloads" there is a lie the reviewer
-    // then acts on. The clipboard write is the only verified channel, so it is
-    // the only one we state, together with the recovery it enables.
     const cleanup = cleared ? ' Comments cleared.' : '';
-    let body = copied
+    const body = copied
       ? `Copied to your clipboard. If no file downloaded, paste it instead.${cleanup}`
       : `Check your downloads for the file.${cleanup}`;
-    const buttons = [this._makeButton('Done', () => this._closePanel())];
-    if (submitTo) {
-      // Without a clipboard there is nothing to paste, so the mailto hand-off
-      // has to point at the file instead of opening an empty email.
-      body = copied
-        ? `Your feedback is copied — paste it into the email.${cleanup}`
-        : `Attach the downloaded file to the email.${cleanup}`;
-      buttons.unshift(
-        this._makeButton(
-          'Email it to the builder',
-          () => {
-            // location.href (not window.open) — mailto: never blocks on popups.
-            location.href = `mailto:${submitTo.email}?subject=${encodeURIComponent(
-              submitTo.subject ?? `Feedback: ${this._deps.config.project}`,
-            )}`;
-          },
-          'primary',
-        ),
-      );
-    }
-    const panel = this._makePanel('Your feedback is ready', body, buttons);
+    const panel = this._makePanel('Your feedback is ready', body, [
+      // NOT downloadExport(): that also writes the clipboard, which would make
+      // this button silently clobber it behind the reviewer's back — the panel
+      // offers the two channels separately on purpose.
+      this._makeButton(
+        'Download Feedback Markdown',
+        () => {
+          const [md, filename] = this._buildArtifact();
+          download(md, filename);
+        },
+        'primary',
+      ),
+      this._makeButton('Copy to Clipboard', () => void this._reCopy()),
+      this._makeButton('Done', () => this._closePanel()),
+    ]);
     this._panelEl = panel;
     this._panelKind = 'confirm';
     this._ui.root.appendChild(panel);
     this._positionPanel();
+  }
+
+  // Reports only what it can verify. Ownership-checked like the export path
+  // (review #23): a slow write must not narrate into a panel the reviewer has
+  // already dismissed or replaced.
+  private async _reCopy(): Promise<void> {
+    const startedFrom = this._panelEl;
+    const ok = await copyToClipboard(this._buildArtifact()[0]);
+    if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
+    const p = this._panelEl.querySelector('p');
+    if (p)
+      p.textContent = ok ? 'Copied to your clipboard.' : 'Copy failed — use the download instead.';
   }
 
   private _handleBuilderClear(): void {

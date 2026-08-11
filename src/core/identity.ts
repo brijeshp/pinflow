@@ -42,7 +42,17 @@ export function resolveReviewer(deps: IdentityDeps): string | null {
   const stored = deps.storage.getItem(reviewerKey(deps.project));
   if (stored && stored.trim().length > 0) return stored.trim();
   if (deps.prompt) {
-    const answer = deps.prompt("What's your name?");
+    // A sandboxed iframe without `allow-modals` — Lovable, Bolt, StackBlitz,
+    // CodeSandbox, i.e. where these prototypes actually live — does not return
+    // null from prompt(), it THROWS. Unguarded, that escaped init() and pinflow
+    // failed to mount at all. A prompt the environment refuses to show is an
+    // unanswered prompt, so it degrades exactly like a cancelled one.
+    let answer: string | null;
+    try {
+      answer = deps.prompt("What's your name?");
+    } catch {
+      return null;
+    }
     if (answer && answer.trim().length > 0) {
       const name = answer.trim();
       remember(deps.storage, deps.project, name);

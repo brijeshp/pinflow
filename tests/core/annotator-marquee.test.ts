@@ -182,13 +182,18 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(click.defaultPrevented).toBe(true); // host handlers never see the drag's click
   });
 
+  // The window is 700ms, not a single task: touch compatibility clicks lag
+  // their gesture (iOS still applies a ~350ms tap delay on pages without a
+  // responsive viewport), and a next-task clear let that delayed click through
+  // to place a spurious second pin. What must still hold is that the swallow is
+  // BOUNDED — it is a one-shot window, never a permanent mute.
   it('a LATER genuine click is not eaten by the swallow guard', async () => {
     annotator = makeAnnotator();
     arm();
     const t = hostParagraph();
     mockElementFromPoint(t);
     drag(t, [100, 100], [300, 300]);
-    await new Promise((r) => setTimeout(r, 0)); // swallow guard self-clears
+    await new Promise((r) => setTimeout(r, 750)); // past the swallow window
     const click = new MouseEvent('click', { bubbles: true, cancelable: true });
     t.dispatchEvent(click);
     expect(click.defaultPrevented).toBe(false);
@@ -637,7 +642,7 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
       ptr('pointerup', { pointerId: 1, clientX: 320, clientY: 320, pointerType: 'mouse' }),
     );
     expect(comments()).toHaveLength(1); // the SECOND drag committed — not a phantom abort
-    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 750)); // past the swallow window
     const later = new MouseEvent('click', { bubbles: true, cancelable: true });
     document.body.dispatchEvent(later);
     expect(later.defaultPrevented).toBe(false); // no stranded guard

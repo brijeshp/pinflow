@@ -287,7 +287,7 @@ The library has visual surface area in three places: the floating control, the p
 
 **Pins** are circular markers, ~24px on desktop and ~32px on mobile (touch target), with a subtle drop shadow and a clear active state. They animate in with a brief scale-up. They never block clicks on the underlying element when the reviewer is not in annotation mode.
 
-**The comment input** appears inline next to the pin, anchored such that it's always fully visible (auto-flips above/below/left/right of the pin based on viewport). It's a single auto-growing textarea with a placeholder ("What's on your mind?"), no submit button, no formatting controls. It saves on blur or after a short debounce. A delete affordance is available but de-emphasized.
+**The comment input** appears inline next to the pin, anchored such that it's always fully visible (auto-flips above/below/left/right of the pin based on viewport). It's a single auto-growing textarea with a placeholder ("What should change?") and no formatting controls. Saving is explicit: a Save button or Cmd/Ctrl+Enter persists the comment; Escape or a click outside discards the draft. A delete affordance is available but de-emphasized.
 
 **Empty state** for builder mode (no comments yet): minimal, encouraging, includes the share URL ready to copy.
 

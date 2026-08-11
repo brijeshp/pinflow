@@ -27,16 +27,21 @@ interface Press {
   target: Element;
   touch: boolean;
   marquee: boolean;
-  /** Armed mode took over mid-press: the press survives so the RELEASE can be
-   *  shielded (a fixed swallow window would expire under a long hold), but it
-   *  can no longer activate or draw (review r4 [P2]). */
-  dead: boolean;
 }
 
 // How long the post-activation click-swallow stays armed. A long-press that
 // fires no trailing click (e.g. after pointercancel) must not eat a much later,
 // genuine host click — so the flag self-clears.
 const SWALLOW_WINDOW_MS = 700;
+
+// Upper bound on a release shield. While one is outstanding the shielded
+// pointer is presumed still down, so a second pointer is multi-touch and is
+// ignored — that guard is why an intruder cannot steal the shielding. But the
+// release it waits for may never arrive (released outside the window, browser
+// UI interruption), and touch and pen mint a fresh id per contact, so nothing
+// else would ever clear it: the gesture layer stayed blocked for the life of
+// the page. Long enough to cover any real hold, short enough to be a hiccup.
+const SHIELD_MAX_MS = 10_000;
 
 /**
  * Unified capture-phase pointer state machine for "stealth" activation.
@@ -53,6 +58,17 @@ const SWALLOW_WINDOW_MS = 700;
 export class GestureController {
   private readonly _opts: GestureControllerOptions;
   private _press: Press | null = null;
+  /**
+   * A retired press whose RELEASE must still be swallowed — armed mode took
+   * over mid-press, or Escape aborted it. Held as a bare pointerId rather than
+   * a `dead` press in the slot above, because the slot gates every new gesture:
+   * a dead press waiting for a release that never came (touch and pen mint a
+   * fresh id per contact, so the same-id recovery could not fire) blocked the
+   * gesture layer permanently and left the page's selection and context menu
+   * suppressed with it. A shield must outlive its press without owning the slot.
+   */
+  private _shield: number | null = null;
+  private _shieldTimer: ReturnType<typeof setTimeout> | undefined;
   private _timer: ReturnType<typeof setTimeout> | undefined;
   private _swallowTimer: ReturnType<typeof setTimeout> | undefined;
   private _swallowNextClick = false;
@@ -72,6 +88,13 @@ export class GestureController {
     // propagation path, so the swallow runs before any host document-capture
     // listener regardless of registration order (review r1 [P1]).
     window.addEventListener('click', this._onClick, true);
+    // Touch's compatibility mouse events are NOT suppressed by cancelling the
+    // pointer event — the spec routes that through touchstart, which a passive
+    // annotation layer must not claim. So they are swallowed here alongside the
+    // click, or every long-press also reached the host's mousedown/mouseup
+    // handlers: canvas surfaces, drag targets and :active widgets all reacted.
+    window.addEventListener('mousedown', this._onClick, true);
+    window.addEventListener('mouseup', this._onClick, true);
     document.addEventListener('contextmenu', this._onContextMenu, true);
   }
 
@@ -88,12 +111,15 @@ export class GestureController {
     if (!this._running) return;
     this._running = false;
     this._cancelPress();
+    this._dropShield();
     this._swallowNextClick = false;
     clearTimeout(this._swallowTimer);
     document.removeEventListener('pointerdown', this._onPointerDown, true);
     document.removeEventListener('pointerup', this._onPointerUp, true);
     document.removeEventListener('pointercancel', this._onPointerCancel, true);
     window.removeEventListener('click', this._onClick, true);
+    window.removeEventListener('mousedown', this._onClick, true);
+    window.removeEventListener('mouseup', this._onClick, true);
     document.removeEventListener('contextmenu', this._onContextMenu, true);
   }
 
@@ -146,25 +172,33 @@ export class GestureController {
 
     if (this._opts.suspended?.()) return;
 
-    // A second active pointer means this is a multi-touch gesture, not a
-    // press — a DIFFERENT pointer cancels a live press (pinch) and can never
-    // evict a dead press's release shield (review r6 [P2]). The SAME pointer
-    // pressing again proves the previous release was lost (an outside-window
-    // release delivers no pointerup — documented browser behavior): retire
-    // the stale press — live or dead — and process this down as a fresh
-    // gesture, so the first retry is never eaten (review r8 / ce #5).
+    // The SAME pointer pressing again proves the previous release was lost (an
+    // outside-window release delivers no pointerup — documented behavior), for
+    // a shielded press as much as a live one: drop the shield and let this down
+    // open a fresh gesture, so the first retry is never eaten (review r8/ce #5).
+    // A DIFFERENT pointer still cancels a live press (pinch), but no longer
+    // meets a retired one — a shield does not occupy the slot (review r6 [P2]).
+    if (this._shield !== null) {
+      if ((pe.pointerId ?? 0) !== this._shield) return; // multi-touch, not a press
+      this._dropShield();
+    }
     if (this._press) {
       if ((pe.pointerId ?? 0) !== this._press.pointerId) {
-        if (!this._press.dead) this._cancelPress();
+        this._cancelPress(); // a second live pointer is a pinch, not a press
         return;
       }
       this._cancelPress(); // stale same-pointer press: marquee visuals cancel if latched
     }
 
-    // Desktop: a primary-button Alt press opens a pending gesture — the
+    // Desktop MOUSE: a primary-button Alt press opens a pending gesture — the
     // RELEASE decides point (still) vs area (dragged). Non-primary buttons
     // stay the host's (Alt+right-click must not hijack the context menu).
-    if (pe.pointerType !== 'touch') {
+    //
+    // Pen goes with touch, not here. Apple Pencil and the Surface pen report
+    // pointerType 'pen', and this branch demands an Alt key the hand holding a
+    // stylus does not have — so stealth mode, which has no visible dock to fall
+    // back on, was entirely unusable with a pen.
+    if (pe.pointerType !== 'touch' && pe.pointerType !== 'pen') {
       // `?? 0`: synthetic events without a button count as primary (the same
       // leniency as isPrimary elsewhere); a real right/middle press never does.
       if (!pe.altKey || (pe.button ?? 0) !== 0) return;
@@ -175,7 +209,6 @@ export class GestureController {
         target,
         touch: false,
         marquee: false,
-        dead: false,
       };
       document.addEventListener('pointermove', this._onPointerMove, true);
       document.addEventListener('keydown', this._onKeyDown, true);
@@ -184,9 +217,9 @@ export class GestureController {
       return;
     }
 
-    // Touch: begin a long-press. pointermove is only attached while a press is
-    // in flight — stealth mode must not run a capture-phase move handler on
-    // every host scroll/drag frame (P2.4).
+    // Touch and pen: begin a long-press. pointermove is only attached while a
+    // press is in flight — stealth mode must not run a capture-phase move
+    // handler on every host scroll/drag frame (P2.4).
     this._press = {
       pointerId: pe.pointerId,
       x: pe.clientX,
@@ -194,7 +227,6 @@ export class GestureController {
       target,
       touch: true,
       marquee: false,
-      dead: false,
     };
     document.addEventListener('pointermove', this._onPointerMove, true);
     clearTimeout(this._timer);
@@ -207,7 +239,16 @@ export class GestureController {
         this._killPress(pr);
         return;
       }
-      this._activate(pr.x, pr.y, pr.target);
+      // NOT _activate(): that retires the press, and the finger is still down.
+      // The compatibility click arrives at LIFT, so a swallow window opened
+      // here is spent during the hold — past ~1.2s the host page received the
+      // click under the reviewer's finger. Keeping the press as DEAD hands the
+      // release to the dead branch in _onPointerUp, which arms the swallow at
+      // the moment the click is actually coming. Same reasoning the
+      // suspend/Escape paths already use.
+      this._killPress(pr);
+      this._armSwallow();
+      this._opts.onActivate(pr.x, pr.y, pr.target);
     }, this._opts.longPressMs);
   };
 
@@ -216,21 +257,22 @@ export class GestureController {
   // retained so the matching release arms the click-swallow AT release time; a
   // window started at cancellation would expire under a long hold (review r4).
   private _killPress(p: Press): void {
-    if (p.dead) return;
-    p.dead = true;
-    clearTimeout(this._timer);
-    this._timer = undefined;
-    if (p.marquee) {
-      p.marquee = false;
-      this._opts.onAreaCancel?.();
-    }
+    this._shield = p.pointerId;
+    clearTimeout(this._shieldTimer);
+    this._shieldTimer = setTimeout(() => this._dropShield(), SHIELD_MAX_MS);
+    this._cancelPress(); // clears the timer, the listeners and any marquee visuals
+  }
+
+  private _dropShield(): void {
+    this._shield = null;
+    clearTimeout(this._shieldTimer);
   }
 
   private _onPointerMove = (e: Event): void => {
     const pe = e as PointerEvent;
     const p = this._press;
     if (!p || (pe.pointerId ?? 0) !== p.pointerId) return;
-    if (p.dead || this._opts.suspended?.()) {
+    if (this._opts.suspended?.()) {
       this._killPress(p);
       return;
     }
@@ -260,14 +302,22 @@ export class GestureController {
 
   private _onPointerUp = (e: Event): void => {
     const pe = e as PointerEvent;
+    const id = pe.pointerId ?? 0;
+    // A shielded release is the whole reason the shield exists: swallow its
+    // compatibility click, armed HERE rather than when the press was retired,
+    // since a window opened then would expire under a long hold (review r4).
+    if (this._shield === id) {
+      this._dropShield();
+      this._armSwallow();
+      return;
+    }
     const p = this._press;
-    if (!p || (pe.pointerId ?? 0) !== p.pointerId) return;
-    // Dead-press finalization comes BEFORE the touch branch: a suspended
-    // touch release must shield its compatibility click too (review r4 [P2]).
-    if (p.dead || this._opts.suspended?.()) {
-      this._killPress(p); // marquee flag drops first — no cancel echo below
+    if (!p || id !== p.pointerId) return;
+    if (this._opts.suspended?.()) {
+      // No shield: the press is releasing right now, so there is nothing left
+      // to wait for — arming one here only to drop it again is churn.
       this._cancelPress();
-      this._armSwallow(); // armed AT release — the click follows synchronously
+      this._armSwallow();
       return;
     }
     if (p.touch) {
@@ -293,18 +343,28 @@ export class GestureController {
   };
 
   private _onPointerCancel = (e: Event): void => {
-    // Only the press's OWN pointer cancels it — an unrelated pointer's
-    // cancel must not kill a live press or a dead press's release shield
-    // (review r6 [P2]). No compatibility click follows a cancel, so no swallow.
+    // Only the press's OWN pointer cancels it — an unrelated pointer's cancel
+    // must not kill a live press or a shielded release (review r6 [P2]). No
+    // compatibility click follows a cancel, so no swallow either way.
+    const id = (e as PointerEvent).pointerId ?? 0;
+    if (this._shield === id) {
+      this._dropShield();
+      return;
+    }
     const p = this._press;
-    if (!p || ((e as PointerEvent).pointerId ?? 0) !== p.pointerId) return;
+    if (!p || id !== p.pointerId) return;
     this._cancelPress();
   };
 
+  // One handler for the whole compatibility burst (mousedown → mouseup →
+  // click). Only the CLICK consumes the one-shot flag: the other two arrive
+  // before it and must leave it armed, or the click itself would slip through.
   private _onClick = (e: Event): void => {
     if (!this._swallowNextClick) return;
-    this._swallowNextClick = false;
-    clearTimeout(this._swallowTimer);
+    if (e.type === 'click') {
+      this._swallowNextClick = false;
+      clearTimeout(this._swallowTimer);
+    }
     e.preventDefault();
     e.stopImmediatePropagation();
   };

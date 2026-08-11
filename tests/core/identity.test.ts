@@ -68,3 +68,23 @@ describe('identity', () => {
     );
   });
 });
+
+// Sandboxed iframes without `allow-modals` — Lovable, Bolt, StackBlitz and
+// CodeSandbox previews, i.e. where vibe-coded prototypes actually live — make
+// window.prompt THROW rather than return null. That exception propagated out
+// of resolveReviewer and out of init(), so pinflow failed to mount at all in
+// its primary deployment environment. A blocked prompt is an unanswered
+// prompt: degrade to no identity, exactly like a cancelled one.
+describe('a prompt the environment refuses to show', () => {
+  it('degrades to null instead of throwing', () => {
+    const prompt = vi.fn(() => {
+      throw new Error('prompt() is not supported.');
+    });
+    expect(() =>
+      resolveReviewer({ url: 'http://x/', storage: localStorage, project: 'p', prompt }),
+    ).not.toThrow();
+    expect(
+      resolveReviewer({ url: 'http://x/', storage: localStorage, project: 'p', prompt }),
+    ).toBeNull();
+  });
+});

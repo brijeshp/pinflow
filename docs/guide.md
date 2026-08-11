@@ -114,10 +114,6 @@ const pinflow = init({
   reviewer: 'Sam',
   activation: { mode: 'both' },
   exportUi: 'auto',
-  submitTo: {
-    email: 'team@example.com',
-    subject: 'Checkout review',
-  },
   theme: {
     accent: '#6d4aff',
     accentContrast: '#ffffff',
@@ -133,7 +129,6 @@ const pinflow = init({
 | `mode`          | Uses reviewer mode by default; set `'builder'` for the local aggregate view. |
 | `activation`    | Chooses the visible control, gestures, or both.                              |
 | `exportUi`      | Controls the reviewer's export controls: `'auto'`, `'always'`, or `'never'`. |
-| `submitTo`      | Adds a prefilled email action after export.                                  |
 | `onSubmit`      | Sends the current reviewer's full store through a host-provided function.    |
 | `source`        | Loads this reviewer's saved comments from your backend.                      |
 | `onChange`      | Reports each saved add, update, and delete to your backend.                  |
@@ -154,9 +149,15 @@ init({
 });
 ```
 
-- `'both'` is the default: visible control, Alt/Option+click, and touch long-press.
+- `'both'` is the default: visible control, Alt/Option+click, and a long-press on touch
+  screens and pen devices.
 - `'toggle'` shows the control and disables the gestures.
 - `'stealth'` hides the control and uses gestures only.
+
+On most Linux desktops (GNOME, KDE) **Alt+drag is the window manager's own "move window"
+binding**, so it never reaches the browser and the area gesture is unavailable there. The
+dock's **+** button does everything the gestures do. If your reviewers are mainly on Linux,
+`'toggle'` removes the gestures rather than leaving a shortcut that silently does nothing.
 
 Stealth mode also delays the name prompt until the reviewer first tries to leave feedback, so
 the page loads without any visible Pinflow interaction.
@@ -299,23 +300,17 @@ cp node_modules/@brijeshp/pinflow/agent/commands/review-feedback.md .claude/comm
 Cursor and Windsurf read `agent/rules/pinflow.md`; `agent/AGENTS.snippet.md` appends to an
 existing `AGENTS.md`. See [`agent/README.md`](./agent/README.md).
 
-### Email handoff without a backend
+### `submitTo` was removed in 0.6.0
 
-Add `submitTo` to show an **Email it to the builder** action after export:
+It added an **Email it to the builder** button that opened a prefilled `mailto:` draft. The
+recipient was the host's guess and Pinflow knows nothing about the reviewer beyond a display
+name, so the action handed someone a half-written email to finish themselves. The export
+confirmation now offers **Download** and **Copy to Clipboard** as buttons instead, which are the
+two things the widget can actually do.
 
-```ts
-init({
-  project: 'checkout-redesign',
-  submitTo: {
-    email: 'team@example.com',
-    subject: 'Feedback on checkout',
-  },
-});
-```
-
-Pinflow opens a prefilled `mailto:` link. The Markdown file has already been downloaded and
-copied, so the reviewer can attach or paste it into the message. Email delivery is handled by
-the reviewer's mail application, not by Pinflow.
+If you were using it, `onSubmit` below gives you a host-owned function to send the store
+wherever you like, and `onChange`/`source` sync to a backend. If you just wanted the file in
+someone's inbox, the reviewer already has it downloaded and on their clipboard.
 
 ### Submit through your own function
 

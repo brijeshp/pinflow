@@ -106,7 +106,6 @@ const handle = init({
   },
   routeKey: () => activeTab,
   describeRoute: (key) => FRAME_LABELS[key] ?? '',
-  submitTo: { email: 'builder@example.com', subject: 'Feedback: pinflow demo' },
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   source: () => Promise.resolve(seededComments as any),
   // The demo uses `source` only to seed showcase comments, so 'auto' would

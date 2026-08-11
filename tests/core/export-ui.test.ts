@@ -472,7 +472,14 @@ describe('export UI — review hardening (surface states, real pointer ordering)
   // iOS in-app webviews (Instagram, LinkedIn, Slack) it frequently no-ops,
   // which is precisely where the reviewer-on-a-phone moat puts people, and the
   // panel asserted success there anyway. Only the clipboard write is verified.
-  async function exportAndReadPanel(clipboardWorks: boolean): Promise<string> {
+  // Returns the body copy and the whole panel separately. The distinction is
+  // load-bearing since 0.5.1: the panel OFFERS a "Copy to Clipboard" button in
+  // every state, so only the body paragraph can be read as a claim about what
+  // actually happened. Matching /clipboard/ against the whole panel would now
+  // be satisfied by the button label alone.
+  async function exportAndReadPanel(
+    clipboardWorks: boolean,
+  ): Promise<{ all: string; body: string }> {
     vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     vi.stubGlobal(
@@ -491,23 +498,29 @@ describe('export UI — review hardening (surface states, real pointer ordering)
       .find((b) => b.textContent === 'Export & share')!
       .click();
     await new Promise((r) => setTimeout(r, 0));
-    return shadow().querySelector('.panel')?.textContent ?? '';
+    const panel = shadow().querySelector('.panel');
+    return {
+      all: panel?.textContent ?? '',
+      body: panel?.querySelector('p')?.textContent ?? '',
+    };
   }
 
   it('#8: never claims the file was saved, and names the clipboard when it worked', async () => {
-    const text = await exportAndReadPanel(true);
-    expect(text).not.toMatch(/saved to your downloads/i);
+    const { all, body } = await exportAndReadPanel(true);
+    expect(all).not.toMatch(/saved to your downloads/i);
     // The verified channel is worth naming, together with the recovery it
     // enables when the unverifiable one silently did nothing.
-    expect(text).toMatch(/clipboard/i);
-    expect(text).toMatch(/paste/i);
+    expect(body).toMatch(/clipboard/i);
+    expect(body).toMatch(/paste/i);
   });
 
   it('#9: without a clipboard, points at the download without asserting it landed', async () => {
-    const text = await exportAndReadPanel(false);
-    expect(text).not.toMatch(/saved to your downloads/i);
-    expect(text).not.toMatch(/clipboard/i);
-    expect(text).toMatch(/downloads/i);
+    const { all, body } = await exportAndReadPanel(false);
+    expect(all).not.toMatch(/saved to your downloads/i);
+    // The BODY must not claim a clipboard that was never there — the offer of
+    // a Copy button is not a claim that copying happened.
+    expect(body).not.toMatch(/clipboard/i);
+    expect(body).toMatch(/downloads/i);
   });
 
   it('#5: an open sheet refreshes its counts when the corpus changes', () => {

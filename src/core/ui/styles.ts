@@ -31,8 +31,13 @@ export const STYLES =
   '.panel{position:fixed;pointer-events:auto;min-width:260px;max-width:320px;background:var(--pf-surface,light-dark(#fff,#1e222b));color:var(--pf-text,light-dark(#0f172a,#e7eaf1));border-radius:var(--pf-radius,12px);padding:16px;box-shadow:var(--pf-shadow,0 16px 48px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.08));font-size:13px;line-height:1.45}' +
   '.panel h3{margin:0 0 8px;font-size:13px;font-weight:600}' +
   '.panel p{margin:0 0 12px;opacity:.75;color:var(--pf-text-muted,inherit)}' +
-  '.panel .row{display:flex;gap:8px}' +
-  '.panel button{flex:1;min-height:36px;padding:8px 12px;border-radius:8px;border:1px solid color-mix(in oklab,currentColor 18%,transparent);background:color-mix(in oklab,currentColor 7%,transparent);color:inherit;font:inherit;cursor:pointer}' +
+  // Wraps rather than squeezes: `flex:1` alone gave every button an equal
+  // share, so a long label (the confirmation's "Download Feedback Markdown")
+  // shrank to a 3-line stack. Sizing from content with a floor lets a row that
+  // does not fit break instead — the primary takes its own line and the rest
+  // share the next. Two-button rows are unaffected: they still fit.
+  '.panel .row{display:flex;gap:8px;flex-wrap:wrap}' +
+  '.panel button{flex:auto;min-width:96px;min-height:36px;padding:8px 12px;border-radius:8px;border:1px solid color-mix(in oklab,currentColor 18%,transparent);background:color-mix(in oklab,currentColor 7%,transparent);color:inherit;font:inherit;cursor:pointer}' +
   '.panel button.primary{background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);border-color:transparent}' +
   '.panel button:hover{filter:brightness(.97)}' +
   '.pin{position:fixed;pointer-events:auto;width:24px;height:24px;border:0;padding:0;font-family:inherit;border-radius:999px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);display:grid;place-items:center;font-size:11px;font-weight:600;box-shadow:0 4px 10px rgba(0,0,0,.28),0 0 0 2px var(--pf-surface,light-dark(#fff,#1e222b));cursor:pointer;transform:translate(-50%,-50%) scale(0);animation:pop .18s ease forwards;transition:transform .12s ease}' +
