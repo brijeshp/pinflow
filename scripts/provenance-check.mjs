@@ -13,7 +13,12 @@
 import { execFileSync } from 'node:child_process';
 
 const ENFORCED_FROM = '2026-08-10T00:00:00Z';
-const PATTERN = 'codex|claude|copilot|cursor|co-authored-by|generated with';
+// `claude` must not match the repo's own `.claude/` directory — commit
+// messages legitimately cite paths like `.claude/worktrees` or
+// `.claude/skills/...` (tool-INTEGRATION naming, which the policy allows).
+// A dot immediately before the name marks a path segment; attribution never
+// arrives dot-prefixed ("Claude Code", "Co-Authored-By: Claude ...").
+const PATTERN = 'codex|(^|[^.])claude|copilot|cursor|co-authored-by|generated with';
 
 const hits = execFileSync(
   'git',
