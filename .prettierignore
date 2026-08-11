@@ -4,3 +4,9 @@ coverage
 pnpm-lock.yaml
 package-lock.json
 CHANGELOG.md
+
+# Nested git worktrees are full checkouts of this repo. Prettier walks them
+# (verified: format:check flags files under .claude/worktrees/), so a stale
+# worktree can fail CI on code that is not in the commit being checked.
+# vitest and tsc are unaffected — their globs are anchored at the root.
+.claude/worktrees

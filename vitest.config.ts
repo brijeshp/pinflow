@@ -20,6 +20,11 @@ export default defineConfig({
     globals: true,
     setupFiles: ['./tests/setup.ts'],
     include: ['tests/**/*.test.ts', 'src/**/*.test.ts'],
+    // Defensive, not a fix: the includes above are root-anchored, so nested
+    // worktrees are already missed. This only matters if someone broadens
+    // them to `**/*.test.ts`, at which point a stale .claude/worktrees
+    // checkout would double every suite in it.
+    exclude: ['**/node_modules/**', '**/dist/**', '.claude/worktrees/**'],
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
