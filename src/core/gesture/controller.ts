@@ -1,3 +1,4 @@
+import { acquireSelectionGuard } from '../ui/selection-guard';
 import type { ActivationConfig } from '../types';
 
 export interface GestureControllerOptions {
@@ -27,6 +28,11 @@ interface Press {
   target: Element;
   touch: boolean;
   marquee: boolean;
+  /** Touch/pen only: the long-press threshold fired and claimed the gesture
+   *  from the scroller (0.5.x hold-then-drag). From here movement draws the
+   *  marquee and the RELEASE disambiguates point vs area, exactly like
+   *  desktop Alt — near stays a point pin, far commits the drawn area. */
+  held: boolean;
 }
 
 // How long the post-activation click-swallow stays armed. A long-press that
@@ -58,6 +64,7 @@ const SHIELD_MAX_MS = 10_000;
 export class GestureController {
   private readonly _opts: GestureControllerOptions;
   private _press: Press | null = null;
+  private _releaseSel: (() => void) | undefined;
   /**
    * A retired press whose RELEASE must still be swallowed — armed mode took
    * over mid-press, or Escape aborted it. Held as a bare pointerId rather than
@@ -134,6 +141,9 @@ export class GestureController {
     document.removeEventListener('keydown', this._onKeyDown, true);
     document.removeEventListener('selectstart', this._onKillDefault, true);
     document.removeEventListener('dragstart', this._onKillDefault, true);
+    document.removeEventListener('touchmove', this._onTouchMove, true);
+    this._releaseSel?.();
+    this._releaseSel = undefined;
   }
 
   // Escape aborts the press (marquee visuals included) but RETAINS ownership:
@@ -149,6 +159,15 @@ export class GestureController {
   // leave a selection trail (review r1 [P2]). Press-scoped: never at rest.
   private _onKillDefault = (e: Event): void => {
     e.preventDefault();
+  };
+
+  // Registered non-passive at hold-fire, never earlier: before the hold, a
+  // moving finger is a scroll and must stay native. After it, the finger held
+  // still through the threshold, so no scroll is in flight — preventing the
+  // first touchmove keeps the scroller from ever claiming the drag. A killed
+  // press leaves the slot entirely (shield design), so `held` alone gates.
+  private _onTouchMove = (e: Event): void => {
+    if (this._press?.held) e.preventDefault();
   };
 
   private _armSwallow(): void {
@@ -209,6 +228,7 @@ export class GestureController {
         target,
         touch: false,
         marquee: false,
+        held: false,
       };
       document.addEventListener('pointermove', this._onPointerMove, true);
       document.addEventListener('keydown', this._onKeyDown, true);
@@ -220,6 +240,12 @@ export class GestureController {
     // Touch and pen: begin a long-press. pointermove is only attached while a
     // press is in flight — stealth mode must not run a capture-phase move
     // handler on every host scroll/drag frame (P2.4).
+    //
+    // The selection guard goes up with the press: WebKit's own long-press
+    // timer starts text selection + the Copy/Search callout on the SAME
+    // gesture, and `selectstart` is ignored there — CSS applied at
+    // finger-down is the only thing that reliably beats it (0.5.x).
+    this._releaseSel = acquireSelectionGuard();
     this._press = {
       pointerId: pe.pointerId,
       x: pe.clientX,
@@ -227,8 +253,10 @@ export class GestureController {
       target,
       touch: true,
       marquee: false,
+      held: false,
     };
     document.addEventListener('pointermove', this._onPointerMove, true);
+    document.addEventListener('keydown', this._onKeyDown, true);
     clearTimeout(this._timer);
     this._timer = setTimeout(() => {
       const pr = this._press;
@@ -239,13 +267,29 @@ export class GestureController {
         this._killPress(pr);
         return;
       }
-      // NOT _activate(): that retires the press, and the finger is still down.
-      // The compatibility click arrives at LIFT, so a swallow window opened
-      // here is spent during the hold — past ~1.2s the host page received the
-      // click under the reviewer's finger. Keeping the press as DEAD hands the
-      // release to the dead branch in _onPointerUp, which arms the swallow at
-      // the moment the click is actually coming. Same reasoning the
-      // suspend/Escape paths already use.
+      // Hold-then-drag (0.5.x): with an area consumer, the hold CLAIMS the
+      // gesture instead of activating. The finger held still through the
+      // threshold, so no scroll is in flight — a non-passive touchmove keeps
+      // the scroller from taking it, and the zero-size marquee dim is the
+      // "you have it" cue. The RELEASE disambiguates point vs area, exactly
+      // like desktop Alt.
+      if (this._opts.onAreaCommit) {
+        pr.held = true;
+        pr.marquee = true;
+        document.addEventListener('touchmove', this._onTouchMove, {
+          capture: true,
+          passive: false,
+        });
+        this._opts.onAreaChange?.(pr.x, pr.y, pr.x, pr.y);
+        return;
+      }
+      // No area consumer — legacy timer-fire activation. NOT _activate():
+      // that retires the press, and the finger is still down. The
+      // compatibility click arrives at LIFT, so a swallow window opened here
+      // is spent during the hold — past ~1.2s the host page received the
+      // click under the reviewer's finger. Retiring to the shield hands the
+      // release to _onPointerUp, which re-arms the swallow at the moment the
+      // click is actually coming.
       this._killPress(pr);
       this._armSwallow();
       this._opts.onActivate(pr.x, pr.y, pr.target);
@@ -277,8 +321,14 @@ export class GestureController {
       return;
     }
     if (p.touch) {
-      // Movement is scroll intent — never an area on touch (a passive layer
-      // cannot preventDefault native panning).
+      if (p.held) {
+        // The hold already claimed the gesture — movement draws. No de-latch:
+        // the dim IS the held cue, and the release decides point vs area.
+        this._opts.onAreaChange?.(p.x, p.y, pe.clientX, pe.clientY);
+        return;
+      }
+      // Pre-hold movement is scroll intent — the platform owns it (the
+      // touchmove claim only exists once the hold fires).
       if (Math.hypot(pe.clientX - p.x, pe.clientY - p.y) > this._opts.moveThresholdPx)
         this._cancelPress();
       return;
@@ -321,7 +371,25 @@ export class GestureController {
       return;
     }
     if (p.touch) {
-      this._cancelPress(); // a tap; the long-press timer owns touch activation
+      if (!p.held) {
+        this._cancelPress(); // a tap; the long-press timer owns touch activation
+        return;
+      }
+      // Held release: same disambiguation as desktop Alt below. Clear the
+      // slot BEFORE cancelling so the marquee cancel doesn't auto-fire — the
+      // commit replaces the visuals, and the point path drops them explicitly.
+      this._press = null;
+      this._cancelPress();
+      if (
+        this._opts.onAreaCommit &&
+        Math.hypot(pe.clientX - p.x, pe.clientY - p.y) > this._opts.moveThresholdPx
+      ) {
+        this._armSwallow();
+        this._opts.onAreaCommit(p.x, p.y, pe.clientX, pe.clientY);
+        return;
+      }
+      this._opts.onAreaCancel?.(); // the zero-size cue drops; this was a point
+      this._activate(p.x, p.y, p.target);
       return;
     }
     // The RELEASE coordinates are authoritative in BOTH directions (review

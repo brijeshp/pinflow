@@ -348,3 +348,43 @@ describe('stealth Alt+drag marquee (gesture grammar: Alt+click = point, Alt+drag
     expect(stored).toHaveLength(1);
   });
 });
+
+// 0.5.0 mobile report: while armed, an iOS long-press on host text started
+// native selection + the Copy/Search callout alongside the pin gesture. CSS
+// is the only reliable suppression on WebKit; the guard is modal — held only
+// while armed, released on disarm and destroy.
+describe('armed mode suppresses host selection (0.5.x touch fix)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    document.body.style.cursor = '';
+    document.adoptedStyleSheets = [];
+  });
+
+  const guardActive = (): boolean =>
+    document.adoptedStyleSheets.some((s) =>
+      Array.from(s.cssRules).some((r) => r.cssText.includes('user-select')),
+    );
+
+  it('arming installs the document-level guard; disarming removes it', () => {
+    annotator = makeAnnotator();
+    expect(guardActive()).toBe(false);
+    armBtn()!.click();
+    expect(guardActive()).toBe(true);
+    armBtn()!.click();
+    expect(guardActive()).toBe(false);
+  });
+
+  it('destroy() while armed releases the guard', () => {
+    annotator = makeAnnotator();
+    armBtn()!.click();
+    expect(guardActive()).toBe(true);
+    annotator.destroy();
+    annotator = null;
+    expect(guardActive()).toBe(false);
+  });
+});
