@@ -196,8 +196,14 @@ function scopeNodeLabel(node: ScopeNode): string {
 // css stays on the BASELINE, like selectorLines: it is the only faithful copy
 // of the path, and the agent pack directs searches there precisely because
 // attr() substitutes characters in the label.
-function scopeNodeLine(node: ScopeNode, suffix = ''): string {
-  return `- ${scopeNodeLabel(node)} — \`${inline(node.css)}\`${suffix}`;
+// `partial` is a BOOLEAN, not the suffix string it replaced. A string
+// parameter is unsafe by construction to the structural guard — it cannot see
+// where the value came from, so it must assume the worst, and it was right to:
+// nothing but discipline stopped a caller passing an untrusted value into a
+// position with no escaper on it. A boolean makes the only two outputs literals
+// the guard can prove.
+function scopeNodeLine(node: ScopeNode, partial = false): string {
+  return `- ${scopeNodeLabel(node)} — \`${inline(node.css)}\`${partial ? ' (partial)' : ''}`;
 }
 
 function scopeLines(scope: Scope): string[] {
@@ -225,8 +231,7 @@ function scopeLines(scope: Scope): string[] {
 
   if (scope.members) {
     lines.push(`**Change — ${scope.members.length} element(s) this note may alter:**`);
-    for (const m of scope.members)
-      lines.push(scopeNodeLine(m, m.band === 'partial' ? ' (partial)' : ''));
+    for (const m of scope.members) lines.push(scopeNodeLine(m, m.band === 'partial'));
   } else if (scope.between) {
     // An insertion names a GAP. The container is deliberately not offered as
     // something to rewrite — the reviewer drew a space, not a box.
