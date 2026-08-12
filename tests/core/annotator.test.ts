@@ -491,7 +491,7 @@ describe('Annotator export API (L1.5)', () => {
     seedOther();
     annotator = makeAnnotator();
     const parsed = JSON.parse(annotator.exportJSON());
-    expect(parsed.pinflowExport).toBe(3);
+    expect(parsed.pinflowExport).toBe(4);
     expect(parsed.comments.map((c: { reviewer: string }) => c.reviewer)).toEqual([REVIEWER]);
   });
 

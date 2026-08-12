@@ -1,10 +1,12 @@
 import { FP_MAX } from './selector';
+import { CLASS_CAP, EXCLUDED_CAP, LABEL_MAX, MEMBER_CAP } from './scope-limits';
+import { validateSourcePath } from './source-path';
 import { now } from './time';
-import type { Comment, ReviewerStore } from './types';
+import type { ChangeNode, Comment, ReviewerStore, Scope, ScopeNode } from './types';
 
 // Exported: exportJSON's `pinflowExport` field shares this version namespace —
-// "v3" means one thing everywhere (storage blob, JSON export, sync protocol).
-export const SCHEMA_VERSION = 3;
+// "v4" means one thing everywhere (storage blob, JSON export, sync protocol).
+export const SCHEMA_VERSION = 4;
 // `c` = comments store; kept short to save bundle bytes and to avoid
 // colliding with other pinflow:* keys (e.g. the identity key in identity.ts,
 // which lives under `pinflow:r:<project>`).
@@ -130,6 +132,98 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
   );
 }
 
+const RUNGS = new Set(['source', 'testid', 'repeated', 'landmark', 'anchor']);
+const CONFIDENCES = new Set(['high', 'medium', 'low']);
+
+// Scope validates SOFT — stripped, never fatal — and that asymmetry with
+// hasValidAnchor is the whole reason `scope` lives on Comment rather than on
+// Anchor. An anchor leaf is dereferenced unguarded downstream, so a bad one
+// must drop the record; scope is rendered guarded and never re-resolved, so a
+// bad one costs a boundary hint. Losing a hint must never lose the reviewer's
+// words.
+function scopeNode(v: unknown): ScopeNode | null {
+  if (!isObject(v) || typeof v['tag'] !== 'string' || typeof v['css'] !== 'string') return null;
+  const node: ScopeNode = { tag: v['tag'], css: v['css'] };
+  if (typeof v['testid'] === 'string') node.testid = v['testid'];
+  // Re-capped here, not trusted from the wire: capture caps these, but this
+  // boundary also serves backends, imported exports and tampered blobs.
+  if (typeof v['label'] === 'string') node.label = v['label'].slice(0, LABEL_MAX);
+  if (Array.isArray(v['classes'])) {
+    const classes = v['classes'].filter((c): c is string => typeof c === 'string');
+    if (classes.length) node.classes = classes.slice(0, CLASS_CAP);
+  }
+  return node;
+}
+
+// Non-empty or absent — never `[]`. A backend that normalises empty arrays to
+// absent must not be able to change an annotation's kind in transit, and the
+// reader decides kind by presence.
+function nodeList<T>(v: unknown, cap: number, map: (n: ScopeNode, raw: unknown) => T): T[] | null {
+  if (!Array.isArray(v)) return null;
+  const out: T[] = [];
+  for (const raw of v) {
+    const node = scopeNode(raw);
+    if (node) out.push(map(node, raw));
+    if (out.length === cap) break;
+  }
+  return out.length ? out : null;
+}
+
+function validScope(v: unknown): Scope | undefined {
+  if (!isObject(v)) return undefined;
+  const boundary = scopeNode(v['boundary']);
+  const rung = v['rung'];
+  const confidence = v['confidence'];
+  if (
+    !boundary ||
+    !finite(v['gen']) ||
+    typeof rung !== 'string' ||
+    !RUNGS.has(rung) ||
+    typeof confidence !== 'string' ||
+    !CONFIDENCES.has(confidence)
+  )
+    return undefined;
+
+  const scope: Scope = {
+    gen: v['gen'],
+    rung: rung as Scope['rung'],
+    confidence: confidence as Scope['confidence'],
+    boundary,
+  };
+
+  const members = nodeList<ChangeNode>(v['members'], MEMBER_CAP, (node, raw) => ({
+    ...node,
+    // An unknown band reads as the WEAKER one. A wire value claiming `inside`
+    // must not be able to promote a node the reviewer only grazed.
+    band: isObject(raw) && raw['band'] === 'inside' ? 'inside' : 'partial',
+  }));
+  if (members) scope.members = members as [ChangeNode, ...ChangeNode[]];
+
+  const excluded = nodeList<ScopeNode>(v['excluded'], EXCLUDED_CAP, (node) => node);
+  if (excluded) scope.excluded = excluded as [ScopeNode, ...ScopeNode[]];
+
+  if (!members && isObject(v['between'])) {
+    const between: { before?: ScopeNode; after?: ScopeNode } = {};
+    const before = scopeNode(v['between']['before']);
+    const after = scopeNode(v['between']['after']);
+    if (before) between.before = before;
+    if (after) between.after = after;
+    scope.between = between;
+  }
+
+  // Third call site for the path validator (capture and export are the other
+  // two). A conformant-looking backend can hand back anything.
+  const source = validateSourcePath(v['source']);
+  if (source) scope.source = source;
+  // A rung claiming the host declared a path, without a path that survived
+  // validation, is a claim with nothing behind it.
+  else if (scope.rung === 'source') scope.rung = 'anchor';
+
+  if (v['truncated'] === true) scope.truncated = true;
+  if (v['stale'] === true) scope.stale = true;
+  return scope;
+}
+
 // Comments from localStorage are untrusted: drop malformed entries, coerce the
 // string fields downstream code dereferences unguarded, and guarantee every
 // survivor carries a `modality` (v1 stores predate the field). v3 disposition
@@ -166,6 +260,9 @@ export function normalizeComments(input: unknown): Comment[] {
       const r = c['resolution'];
       if (typeof r === 'string') out.resolution = r.slice(0, 500);
       else delete out.resolution;
+      const scope = validScope(c['scope']);
+      if (scope) out.scope = scope;
+      else delete out.scope;
       return out;
     });
 }

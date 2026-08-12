@@ -287,7 +287,7 @@ describe('exportJSON', () => {
 
   it('emits a versioned, flattened corpus for an array of stores', () => {
     const parsed = JSON.parse(exportJSON([sarah, mike]));
-    expect(parsed.pinflowExport).toBe(3);
+    expect(parsed.pinflowExport).toBe(4);
     expect(typeof parsed.generatedAt).toBe('string');
     expect(parsed.comments).toHaveLength(4);
     expect(parsed.comments[0]).toMatchObject({ id: 'cmt_1', reviewer: 'Sarah' });

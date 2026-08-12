@@ -1,4 +1,5 @@
 import { getCssPath, getTestId, getTextFingerprint } from './selector';
+import { CLASS_CAP, EXCLUDED_CAP, LABEL_MAX, MEMBER_CAP } from './scope-limits';
 import { validateSourcePath } from './source-path';
 import type { ChangeNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from './types';
 
@@ -38,14 +39,11 @@ const PARTIAL = 0.35;
 
 // Caps. Members and exclusions are what an agent reads; depth and nodes bound
 // the walk itself. A cap that trips demotes confidence — a truncated answer
-// must never look as certain as a complete one.
-const MEMBER_CAP = 24;
-const EXCLUDED_CAP = 12;
+// must never look as certain as a complete one. The record-shape caps live in
+// scope-limits.ts because storage.ts revalidates against the same numbers.
 const DEPTH_CAP = 12;
 const NODE_CAP = 1500;
 const SIBLING_SCAN = 40;
-const LABEL_MAX = 80;
-const CLASS_CAP = 3;
 
 // A candidate boundary this large is not a boundary. Both predicates are
 // SHARES, never an element-name blocklist: `<div id="root">` wraps the whole
