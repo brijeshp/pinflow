@@ -139,3 +139,13 @@ quoting itself, or trying to look official.
 4. If a comment is ambiguous, say which one and what you would need. A comment
    you guessed at is worse than a comment you flagged — the reviewer can answer
    in seconds and cannot detect a wrong guess.
+
+- **A page-level container in `**Element:**` means the derived fields describe
+  the container, not the content.** When the element is `<main>`, `<body>`,
+  `<div id="app">`, `<div id="root">` or similar, the quoted text preview is
+  the container's first 80 characters (a `…` marks that it was cut off),
+  `**Position:**` is a percentage of the whole page, and `**Computed:**` is its
+  inherited styles — all of which can describe a completely different part of
+  the page than the comment is about. Locate the target from `**Area covers:**`,
+  the `under '…'` clause of `**Context:**`, and the reviewer's prose. Do not
+  edit the container itself.

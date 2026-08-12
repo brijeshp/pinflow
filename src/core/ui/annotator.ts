@@ -1,5 +1,5 @@
 import { anchorTarget, anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
-import { buildSelectors } from '../selector';
+import { buildSelectors, getTextFingerprint } from '../selector';
 import { copyToClipboard, download } from '../download';
 import {
   exportBuilder,
@@ -1190,13 +1190,37 @@ export class Annotator {
   private _placeAreaComment(left: number, top: number, width: number, height: number): void {
     const cx = left + width / 2;
     const cy = top + height / 2;
-    let target: Element | null = document.elementFromPoint?.(cx, cy) ?? null;
-    if (target && this._ui.host.contains(target)) target = null; // a pin under the center
     const contains = (elm: Element): boolean => {
       const r = elm.getBoundingClientRect();
       return r.left <= left && r.top <= top && r.right >= left + width && r.bottom >= top + height;
     };
-    while (target && !contains(target)) target = target.parentElement;
+    // The climb's LAST element before it stopped is the block the rect sits
+    // on — the card, not the page container. 0.6.0 computed it and threw it
+    // away, which is why an area spanning siblings exported the container's
+    // opening text. Keep it, and sample two more points down the diagonal so a
+    // rect over a row of cards can name all of them. Runs ONCE, on pointerup:
+    // nothing here touches the per-frame reflow path.
+    const subjects: Element[] = [];
+    const climb = (x: number, y: number): Element | null => {
+      let e: Element | null = document.elementFromPoint?.(x, y) ?? null;
+      if (e && this._ui.host.contains(e)) e = null; // a pin under the sample
+      let sub: Element | null = null;
+      while (e && !contains(e)) {
+        sub = e;
+        e = e.parentElement;
+      }
+      if (sub && subjects.length < 3 && !subjects.includes(sub)) subjects.push(sub);
+      return e;
+    };
+    // Centre first, so subjects[0] shares positionPercent's provenance. The
+    // 1/6 and 5/6 insets never sit on an edge, so a neighbouring block cannot
+    // be picked up by a rounding error.
+    const target = climb(cx, cy);
+    climb(left + width / 6, top + height / 6);
+    climb(left + (width * 5) / 6, top + (height * 5) / 6);
+    const covers = subjects
+      .map((e) => getTextFingerprint(e).slice(0, 40) || e.tagName.toLowerCase())
+      .join('\n');
     // buildAnchor canonicalizes to the nearest data-testid ancestor — the
     // rect must be measured against THAT element, or areaPercent and the
     // selectors would describe different boxes (review r1 [P1]).
@@ -1216,7 +1240,7 @@ export class Annotator {
             h: Math.min(clamp((height / tr.height) * 100), 100 - y),
           }
         : undefined;
-    this._placeCommentAt(cx, cy, anchorEl, area);
+    this._placeCommentAt(cx, cy, anchorEl, area, subjects[0], covers || undefined);
   }
 
   private _clearHover(): void {
@@ -1286,12 +1310,16 @@ export class Annotator {
     clientY: number,
     target: Element,
     area?: AreaPercent,
+    // Area picker only; both point paths pass neither and are unchanged.
+    deep?: Element,
+    covers?: string,
   ): void {
     if (this._ui.host.contains(target)) return; // never annotate our own UI
     if (!this._ensureIdentity()) return; // identity is required before any comment exists
     const anchor: Anchor = {
-      ...buildAnchor(target, clientX, clientY),
+      ...buildAnchor(target, clientX, clientY, deep),
       ...(area ? { areaPercent: area } : {}),
+      ...(covers ? { covers } : {}),
     };
     if (this._deps.config.voice) {
       if (this._activeVoice) return; // one recording at a time

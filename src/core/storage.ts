@@ -123,8 +123,14 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     // Optional shapes at their REAL locations (review r3: context lives on
     // the anchor, not the comment): reject records whose context, fingerprint,
     // or voice metadata would corrupt export or render.
-    optStr(anchor['textFingerprint']) &&
+    // STRICT, not optStr: normalizeComments dereferences .length on this a few
+    // lines below, so a null/absent value passed validation and then threw a
+    // TypeError that discarded the ENTIRE store, not just the bad record.
+    // buildAnchor always writes a string (possibly ''), so nothing legitimate
+    // is rejected — and there was never a working path for an absent one.
+    typeof anchor['textFingerprint'] === 'string' &&
     validArea(anchor['areaPercent']) &&
+    optStr(anchor['covers']) &&
     validContext(anchor['context']) &&
     validVoice(c['voice'])
   );
