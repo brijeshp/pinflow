@@ -1,5 +1,5 @@
 import { FP_MAX } from './selector';
-import { CLASS_CAP, EXCLUDED_CAP, LABEL_MAX, MEMBER_CAP } from './scope-limits';
+import { EXCLUDED_CAP, LABEL_MAX, MEMBER_CAP } from './scope-limits';
 import { validateSourcePath } from './source-path';
 import { now } from './time';
 import type { ChangeNode, Comment, ReviewerStore, Scope, ScopeNode } from './types';
@@ -148,10 +148,6 @@ function scopeNode(v: unknown): ScopeNode | null {
   // Re-capped here, not trusted from the wire: capture caps these, but this
   // boundary also serves backends, imported exports and tampered blobs.
   if (typeof v['label'] === 'string') node.label = v['label'].slice(0, LABEL_MAX);
-  if (Array.isArray(v['classes'])) {
-    const classes = v['classes'].filter((c): c is string => typeof c === 'string');
-    if (classes.length) node.classes = classes.slice(0, CLASS_CAP);
-  }
   return node;
 }
 

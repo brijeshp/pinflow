@@ -93,8 +93,6 @@ export interface ScopeNode {
   testid?: string;
   /** Accessible name, alt text, or text fingerprint — ≤80 chars. */
   label?: string;
-  /** At most 3 class tokens, hash-like ones dropped. */
-  classes?: string[];
 }
 
 export interface ChangeNode extends ScopeNode {

@@ -493,16 +493,6 @@ describe('scope — derived field safety', () => {
     const s = resolveScope(row, { left: 0, top: 0, width: 100, height: 100 })!.scope;
     expect(s.members![0]!.label).toBe('Buy now');
   });
-
-  it('caps class tokens per node', () => {
-    const classes = Array.from({ length: 20 }, (_, i) => `c${i}`).join(' ');
-    mount(`<div id="row"><div id="a" class="${classes}"></div></div>`);
-    const row = document.querySelector('#row') as HTMLElement;
-    rect(row, 0, 0, 100, 100);
-    rect(document.querySelector('#a')!, 0, 0, 100, 100);
-    const s = resolveScope(row, { left: 0, top: 0, width: 100, height: 100 })!.scope;
-    expect((s.members![0]!.classes ?? []).length).toBeLessThanOrEqual(3);
-  });
 });
 
 describe('validateSourcePath (R16) — drop, never repair', () => {

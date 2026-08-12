@@ -13,4 +13,3 @@
 export const MEMBER_CAP = 24;
 export const EXCLUDED_CAP = 12;
 export const LABEL_MAX = 80;
-export const CLASS_CAP = 3;

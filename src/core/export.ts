@@ -189,11 +189,8 @@ function areaLine(a: AreaPercent): string {
 // everywhere else.
 function scopeNodeLabel(node: ScopeNode): string {
   const ident = node.testid ? ` data-testid="${attr(node.testid)}"` : '';
-  // Classes ride inside the label because that is where a reader looks for
-  // them; capped at capture and at hydration, escaped like the testid.
-  const cls = node.classes?.length ? ` class="${node.classes.map(attr).join(' ')}"` : '';
   const text = node.label ? ` (“${attr(node.label)}”)` : '';
-  return `\`<${attr(node.tag)}${ident}${cls}>\`${text}`;
+  return `\`<${attr(node.tag)}${ident}>\`${text}`;
 }
 
 // css stays on the BASELINE, like selectorLines: it is the only faithful copy

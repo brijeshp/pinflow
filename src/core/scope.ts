@@ -1,5 +1,5 @@
 import { getCssPath, getTestId, getTextFingerprint } from './selector';
-import { CLASS_CAP, EXCLUDED_CAP, LABEL_MAX, MEMBER_CAP } from './scope-limits';
+import { EXCLUDED_CAP, LABEL_MAX, MEMBER_CAP } from './scope-limits';
 import { validateSourcePath } from './source-path';
 import type { ChangeNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from './types';
 
@@ -101,18 +101,6 @@ function clean(value: string | null | undefined): string | undefined {
   return out || undefined;
 }
 
-// Hash-like tokens identify a build, not a component, and change on every
-// rebuild — the opposite of what a durable hint is for.
-function classesOf(el: Element): string[] | undefined {
-  const out: string[] = [];
-  for (const token of Array.from(el.classList)) {
-    if (token.length > 24 || (token.length > 5 && /\d/.test(token))) continue;
-    out.push(token);
-    if (out.length === CLASS_CAP) break;
-  }
-  return out.length ? out : undefined;
-}
-
 function describe(el: Element): ScopeNode {
   const node: ScopeNode = { tag: el.tagName.toLowerCase(), css: getCssPath(el) };
   const testid = getTestId(el);
@@ -121,8 +109,6 @@ function describe(el: Element): ScopeNode {
     el.getAttribute('aria-label') ?? el.getAttribute('alt') ?? getTextFingerprint(el),
   );
   if (label) node.label = label;
-  const classes = classesOf(el);
-  if (classes) node.classes = classes;
   return node;
 }
 

@@ -41,6 +41,14 @@ Outside-dismiss of the draft popup and the export sheet (shared `_armOutsideDism
 - **The walk ends at the first non-descendant once an exact match exists.** Pre-order makes that match's subtree contiguous, so nothing after it can win.
 - **Three bounds, whichever trips first.** Two counters, because one cannot do both jobs: `FINGERPRINT_VISIT_LIMIT` (20000, charged by _every_ node) bounds work, so a `<select>` of thousands of `<option>`s cannot outrun the walk; `FINGERPRINT_WALK_LIMIT` (2000, charged only by _scored_ nodes) bounds meaning, so a gallery's 1,500 `<source>` elements cannot evict real content and push the heal onto the page container. `FINGERPRINT_WALK_MS` (2 ms, sampled every 16 visits) covers the device gap — 2000 nodes is roughly 1.5 ms on a laptop and 9.5 ms on a mid-range phone. Per-node cost is bounded too (0.4.1 review #7): heal-time text extraction streams text nodes in 2 KB chunks via `healFingerprint()` against the same shared deadline (created before the positional rungs, so corroboration spends from the same budget) instead of materialising subtrees via `textContent` — which stays pin-creation-only. Hydrated fingerprints are capped to the 80-char representation (`FP_MAX`) at both the hydration (`normalizeComments`) and matcher (`findByCandidates`) boundaries before any O(length) work (review #8).
 
+**`scope.ts`** — Region → element SET at one instant (`selector.ts` is one element ⇄ durable strings across renders; `anchor.ts` is one element → record at one instant). `resolveScope(target, region?)` returns the serializable `Scope` plus live element refs from ONE walk, so the outline can never disagree with what was stored. Top-down walk with early stop at the first `inside` node; recursion is driven by INTERSECTION not band, which is what makes the exclusion invariant structural (an ancestor of an emitted node always reports EMITTED and can never reach the exclusion branch). Coverage is `area(rect ∩ el)/area(el)` — coverage-of-target, clipped against the container first. `climb()` is the five-rung ladder (source → testid → repeated → landmark → anchor), exported for `anchor.ts` reuse. `demoteScope()` is what a heal leaves behind. **Zero `_`-prefixed identifiers, enforced by a source-reading test** — mangling is per entry point and skips quoted access, so a `_` key on a persisted record is silent data corruption CI cannot catch.
+
+**`source-path.ts`** — `validateSourcePath()`: positive charset, per-segment rejection, extension allowlist deliberately excluding `.md`/`.json`/`.yml`/`.sh`. Its own module because all three call sites need it and two (`export.ts`, `storage.ts`) must not import the engine.
+
+**`scope-limits.ts`** — the record caps `scope.ts` applies at capture and `storage.ts` re-applies at hydration. One home because neither module may import the other.
+
+**`ui/outline.ts`** — `ScopeOutline`: 2px + wash for a change target, 1px for the boundary, dashed for uncertain, a seam bar for an insertion. Exclusions are never drawn. Zero-area falls back to the `getClientRects()` union and then drops the box — a fabricated box is worse than an absent one.
+
 **`router.ts`** — SPA route watching via `history.pushState`/`replaceState` patching plus popstate/hashchange listeners. `watchRoute()` emits onChange only when the route actually changed and guards against orphaned callbacks.
 
 **`route-key.ts`** — Strips pinflow-internal URL params (`reviewer`, `mode`) before deriving the logical screen key, so comments anchor to the conceptual route.
@@ -87,7 +95,7 @@ Outside-dismiss of the draft popup and the export sheet (shared `_armOutsideDism
 
 ## Storage behavior
 
-- **Schema:** `schemaVersion: 3` (`SCHEMA_VERSION` in `src/core/storage.ts`). v1 records (no modality) migrate on load with `modality='text'`; v3 added optional `status`/`resolution`, so v2 records pass through unchanged.
+- **Schema:** `schemaVersion: 4` (`SCHEMA_VERSION` in `src/core/storage.ts`). v1 records (no modality) migrate on load with `modality='text'`; v3 added optional `status`/`resolution`, so v2 records pass through unchanged.
 - **Validation:** `normalizeComments()` drops entries with missing `id`, malformed `anchor`, or invalid selector shapes; coerces text/route/createdAt to strings.
 - **Blocked access:** SecurityError on read → in-memory shim; comments last the session only; a single console.warn on first write failure.
 - **Forward tolerance:** `migrate()` reads hypothetical v3+ stable core fields; foreign data (missing reviewer/project/schemaVersion) is discarded.

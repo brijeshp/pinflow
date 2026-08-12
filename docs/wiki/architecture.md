@@ -12,11 +12,15 @@ src/
     ui/annotator.ts   the widget: pins, panels, editor popup (largest file in the repo)
     ui/styles.ts      hand-minified shadow-DOM CSS, --pf-* theme tokens
     ui/dom.ts         shadow-root factory
+    ui/outline.ts     the scope outline: one container, N boxes, one idempotent remove()
     gesture/          stealth activation (Alt+click / long-press)
-    storage.ts        schema-versioned localStorage persistence (v1→v2 migration)
+    storage.ts        schema-versioned localStorage persistence (v1→v2→v3→v4)
     safe-storage.ts   in-memory fallback when localStorage is blocked
     anchor.ts         element anchoring: build/resolve/screen-project anchors
     selector.ts       selector-candidate generation + resolution ladder
+    scope.ts          region → element SET: the blast-radius ladder + covered set
+    scope-limits.ts   record caps shared by scope.ts and storage.ts (neither may import the other)
+    source-path.ts    data-pinflow-source validator; DOM-free so export.ts can use it
     router.ts         SPA route watching (history patching)
     route-key.ts      logical screen key derivation (strips pinflow URL params)
     export.ts         markdown export (the product's actual output)
@@ -39,6 +43,7 @@ Voice must cost text-only users **0 bytes**. `@brijeshp/pinflow/voice` is marked
 1. **Activate**: control button, or stealth gesture (`src/core/gesture/`) in `stealth`/`both` modes.
 2. **Pin**: click an element → `buildAnchor()` (`src/core/anchor.ts`) resolves the nearest `data-testid` ancestor of the click target, then captures selector candidates (`src/core/selector.ts`), a text fingerprint, and percentage offsets from it.
 3. **Comment**: text via the explicit-save editor popup, or voice via the lazily-loaded module streaming Deepgram transcripts back through `VoiceHost.commit`.
+   3b. **Scope**: `resolveScope()` (`src/core/scope.ts`) derives the edit boundary ONCE at placement — never on a reflow frame — and `ScopeOutline` paints it before the composer opens.
 4. **Persist**: `upsertComment()` → `saveStore()` (`src/core/storage.ts`) under `pinflow:c:<project>:<reviewer>`; `onChange` fires after each persisted mutation.
 5. **Hydrate** (hosts with a backend): `config.source()` fetched once at identity resolution, merged by comment id (`mergeComments()`); server wins disposition, local-only/newer comments re-announce through `onChange` so sync losses self-heal.
 6. **Re-render**: route changes (`src/core/router.ts` or host-driven `Handle.refreshRoute()`) close any open draft popup and re-scope pins to the current logical screen (`src/core/route-key.ts`, or host-supplied `config.routeKey`).

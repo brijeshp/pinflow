@@ -119,7 +119,7 @@ describe('schema v4 — scope persists, softly', () => {
     expect(out!.scope!.members![0]!.band).toBe('partial');
   });
 
-  it('caps a hydrated label and class list — the payload is untrusted', () => {
+  it('caps a hydrated label — the payload is untrusted', () => {
     const out = normalizeOne({
       scope: {
         ...SCOPE,
@@ -129,14 +129,12 @@ describe('schema v4 — scope persists, softly', () => {
             css: 'p',
             band: 'inside',
             label: 'x'.repeat(9000),
-            classes: Array.from({ length: 50 }, (_, i) => `c${i}`),
           },
         ],
       },
     });
     const m = out!.scope!.members![0]!;
     expect(m.label!.length).toBeLessThanOrEqual(80);
-    expect(m.classes!.length).toBeLessThanOrEqual(3);
   });
 
   it('caps a hydrated member list', () => {
