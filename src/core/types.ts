@@ -67,6 +67,83 @@ export interface Anchor {
   };
 }
 
+/**
+ * Which ladder rung produced a scope. Strongest first — an agent must be able
+ * to tell a host-declared `data-pinflow-source` boundary from a landmark
+ * fallback, because they justify very different confidence.
+ */
+export type ScopeRung = 'source' | 'testid' | 'repeated' | 'landmark' | 'anchor';
+
+export type ScopeConfidence = 'high' | 'medium' | 'low';
+
+/** How much of an element the drawn region covered. `grazed` is never emitted as a change. */
+export type ScopeBand = 'inside' | 'partial';
+
+/**
+ * One element named by a scope. Locators plus just enough human context to
+ * recognise it; every string is captured pre-capped and codepoint-stripped, so
+ * the JSON twin and the `onChange` wire payload are clean too — not only the
+ * markdown.
+ */
+export interface ScopeNode {
+  /** Lowercased tag name. */
+  tag: string;
+  /** CSS path, same generator as the anchor's. */
+  css: string;
+  testid?: string;
+  /** Accessible name, alt text, or text fingerprint — ≤80 chars. */
+  label?: string;
+  /** At most 3 class tokens, hash-like ones dropped. */
+  classes?: string[];
+}
+
+export interface ChangeNode extends ScopeNode {
+  band: ScopeBand;
+}
+
+/**
+ * The blast radius: what an agent acting on this comment may change, and the
+ * boundary it may not leave.
+ *
+ * Lives on `Comment`, NOT on `Anchor`, and that placement is load-bearing.
+ * `hasValidAnchor` is fatal — a malformed leaf drops the whole comment,
+ * because anchor leaves are dereferenced unguarded. Scope is rendered guarded
+ * and never re-resolved, so it is strippable, and strippable fields belong on
+ * the comment. Losing a boundary hint must never lose the reviewer's words.
+ *
+ * There is deliberately NO `kind` discriminator on `Comment` — that would make
+ * `Comment` a union and break it as the single wire type PROTOCOL.md
+ * documents. Structure is total instead: `between` present → insertion;
+ * `members` present → region; neither → point. No empty collection is ever
+ * written, so a backend that normalises `[]` to absent cannot change an
+ * annotation's kind in transit.
+ */
+export interface Scope {
+  /**
+   * Tuning generation. Mandatory and NOT retrofittable: the coverage bands and
+   * caps are unresolved research, `rung`/`confidence` are persisted AND shipped
+   * to agents, and retuning them later would make `confidence: 'high'` mean two
+   * different things with no way to tell which tuning wrote an existing record.
+   */
+  gen: number;
+  rung: ScopeRung;
+  confidence: ScopeConfidence;
+  /** The containing boundary — the edit ceiling. */
+  boundary: ScopeNode;
+  /** The changed node set. Non-empty tuple: "a region with no members" is unrepresentable. */
+  members?: [ChangeNode, ...ChangeNode[]];
+  /** Grazed neighbours the agent must not edit to satisfy the note. */
+  excluded?: [ScopeNode, ...ScopeNode[]];
+  /** Insertion point: the siblings bracketing the drawn region, in document order. */
+  between?: { before?: ScopeNode; after?: ScopeNode };
+  /** Host-declared source path — validated against a format allowlist, never merely escaped. */
+  source?: string;
+  /** The change set hit its cap; the named nodes are a prefix, not the whole set. */
+  truncated?: true;
+  /** A heal moved the anchor, so the derived node sets no longer describe today's DOM. */
+  stale?: true;
+}
+
 export type Modality = 'text' | 'voice';
 
 export interface VoiceMeta {
@@ -103,6 +180,13 @@ export interface Comment {
   status?: 'open' | 'done' | 'declined';
   /** Team's one-line resolution note (≤500 chars). Server-owned, like `status`. */
   resolution?: string;
+  /**
+   * Derived edit boundary (v4). Client-derived at creation and never
+   * re-resolved: re-deriving against a later DOM would attribute a boundary to
+   * a reviewer who never saw it. Validated SOFT — a malformed scope is
+   * stripped, never fatal. Absent on every v3 record, which stays valid.
+   */
+  scope?: Scope;
 }
 
 export interface ReviewerStore {
