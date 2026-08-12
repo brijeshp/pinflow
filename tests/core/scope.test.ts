@@ -237,7 +237,8 @@ describe('scope — exclusions (R7)', () => {
     const row = document.querySelector('#row') as HTMLElement;
     rect(row, 0, 0, 4100, 100);
     rect(document.querySelector('#hit')!, 0, 0, 100, 20);
-    for (let i = 0; i < 40; i++) rect(document.querySelector(`#c${i}`)!, 100 + i * 100, 0, 100, 100);
+    for (let i = 0; i < 40; i++)
+      rect(document.querySelector(`#c${i}`)!, 100 + i * 100, 0, 100, 100);
     // Covers #hit outright and clips the leading 20px of every other cell.
     const result = resolveScope(row, { left: 0, top: 0, width: 4100, height: 20 })!;
     expect(result.scope.members).toHaveLength(1);
@@ -326,7 +327,9 @@ describe('scope — the ladder (R2, R3)', () => {
   });
 
   it('rung (b): the nearest data-testid ancestor', () => {
-    mount('<section data-testid="pricing"><button id="b"><span id="s">Go</span></button></section>');
+    mount(
+      '<section data-testid="pricing"><button id="b"><span id="s">Go</span></button></section>',
+    );
     const { el, rung } = climb(document.querySelector('#s') as Element);
     expect(rung).toBe('testid');
     expect((el as HTMLElement).dataset['testid']).toBe('pricing');
@@ -433,7 +436,9 @@ describe('scope — the never-<body> predicate (R4)', () => {
 
 describe('scope — caps and skips', () => {
   it('data-pinflow-ignore skips the whole subtree', () => {
-    mount('<div id="row"><div id="keep"></div><div id="skip" data-pinflow-ignore><i id="in"></i></div></div>');
+    mount(
+      '<div id="row"><div id="keep"></div><div id="skip" data-pinflow-ignore><i id="in"></i></div></div>',
+    );
     const row = document.querySelector('#row') as HTMLElement;
     rect(row, 0, 0, 400, 100);
     rect(document.querySelector('#keep')!, 0, 0, 200, 100);
@@ -632,11 +637,27 @@ describe('scope — resolveScope contract', () => {
     expect(JSON.stringify(result.scope)).not.toContain('[object');
   });
 
-  it('omits members for a point pin whose boundary is the pinned element itself', () => {
-    mount('<div><span id="s">x</span></div>');
+  it('a point pin gets a STRICT ancestor as its ceiling', () => {
+    // The climb starts at the parent, not the element: starting at the element
+    // collapses ceiling and change into one whenever a rung matches the element
+    // itself — which anchorTarget guarantees on every page using data-testid.
+    mount('<div id="wrap"><span id="s">x</span></div>');
     const s = document.querySelector('#s') as Element;
     rect(s, 0, 0, 10, 10);
     const scope = resolveScope(s)!.scope;
+    expect((scope.boundary.css ?? '').includes('wrap') || scope.boundary.tag === 'div').toBe(true);
+    expect(scope.members).toHaveLength(1);
+    expect(scope.members![0]!.tag).toBe('span');
+  });
+
+  it('omits members when there is no ancestor above the pinned element', () => {
+    // Directly under <body>, so the climb has nowhere legal to go: the element
+    // is its own boundary and there is nothing separate to name as a change.
+    mount('<span id="s">x</span>');
+    const s = document.querySelector('#s') as Element;
+    rect(s, 0, 0, 10, 10);
+    const scope = resolveScope(s)!.scope;
+    expect(scope.boundary.tag).toBe('span');
     expect(scope.members).toBeUndefined();
   });
 

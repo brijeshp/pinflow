@@ -212,7 +212,9 @@ function scopeLines(scope: Scope): string[] {
   notes.push(`rung: ${scope.rung}`, `confidence: ${scope.confidence}`);
   if (scope.stale) notes.push('stale — the anchor healed, so the named elements were dropped');
   if (scope.truncated) notes.push('truncated — more elements matched than are listed');
-  lines.push(`**Scope:** ${scopeNodeLabel(scope.boundary)} — \`${inline(scope.boundary.css)}\` (${inline(notes.join(', '))})`);
+  lines.push(
+    `**Scope:** ${scopeNodeLabel(scope.boundary)} — \`${inline(scope.boundary.css)}\` (${inline(notes.join(', '))})`,
+  );
 
   // Rendered with its provenance in the label, not as a bare path. The
   // validator proves the string is a plausible path, never that the path
@@ -406,7 +408,11 @@ export function exportReviewer(
     '---',
   ].join('\n');
 
-  const parts = [header, ...preambleFor(store.comments), bodyFromGroups(groups, false, describeRoute)];
+  const parts = [
+    header,
+    ...preambleFor(store.comments),
+    bodyFromGroups(groups, false, describeRoute),
+  ];
   const orphan = orphanSection(orphaned);
   if (orphan) parts.push('---', orphan);
   return parts.filter(Boolean).join('\n\n') + '\n';

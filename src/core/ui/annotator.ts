@@ -1,4 +1,7 @@
 import { anchorTarget, anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
+import { demoteScope, resolveScope } from '../scope';
+import type { ScopeRect } from '../scope';
+import { ScopeOutline } from './outline';
 import { buildSelectors } from '../selector';
 import { copyToClipboard, download } from '../download';
 import {
@@ -22,6 +25,7 @@ import {
   upsertComment,
 } from '../storage';
 import type {
+  Scope,
   ActivationConfig,
   Anchor,
   AreaPercent,
@@ -139,6 +143,8 @@ export class Annotator {
   // no capture-phase move handler at rest, mirroring the gesture controller's
   // press scoping). The same element doubles as the marquee box while dragging.
   private _hoverEl: HTMLDivElement | null = null;
+  // One owner, one idempotent teardown, N-agnostic (see ui/outline.ts).
+  private _outline = new ScopeOutline();
   private _hoverTarget: Element | null = null;
   private _hoverFrame = 0;
   // Drag-to-marquee (armed mode, mouse/pen only): press origin + latest
@@ -316,6 +322,9 @@ export class Annotator {
     this._teardownVoice();
     this._destroyed = true;
     this._closeActiveInput(false);
+    // Explicit: _closeActiveInput returns early when no composer is open, and
+    // teardown must leave nothing painted either way.
+    this._outline.clear();
     if (this._annotating) this._exitAnnotateMode();
     // AFTER _exitAnnotateMode, which is what mints shields for a still-held
     // press — draining earlier would leave the ones it just created.
@@ -578,6 +587,16 @@ export class Annotator {
   // untouched. Fingerprint stays as pinned (it is provenance: the artifact
   // reports what the reviewer actually commented on). Reviewer mode only —
   // builder aggregates other reviewers' stores read-only.
+  // A heal moves the anchor to a DIFFERENT element than the reviewer pinned,
+  // so every derived node list on the scope describes a DOM that no longer
+  // exists. Keeping them would let the artifact name elements with total
+  // confidence that were never in the drawn region — the wrong-re-anchor
+  // doctrine, one layer up. The boundary survives: it is the one claim a heal
+  // does not invalidate.
+  private _healScope(comment: Comment): Comment {
+    return comment.scope ? { ...comment, scope: demoteScope(comment.scope) } : comment;
+  }
+
   private _persistHeal(commentId: string, target: Element): void {
     if (this._deps.mode !== 'reviewer') return;
     const c = this._store.comments.find((x) => x.id === commentId);
@@ -595,7 +614,9 @@ export class Annotator {
     this._store = {
       ...this._store,
       comments: this._store.comments.map((x) =>
-        x.id === commentId ? { ...x, anchor: { ...x.anchor, selectors: fresh } } : x,
+        x.id === commentId
+          ? this._healScope({ ...x, anchor: { ...x.anchor, selectors: fresh } })
+          : x,
       ),
     };
     // NOT _persist(): that invalidates the anchor cache, but a heal describes
@@ -1216,7 +1237,7 @@ export class Annotator {
             h: Math.min(clamp((height / tr.height) * 100), 100 - y),
           }
         : undefined;
-    this._placeCommentAt(cx, cy, anchorEl, area);
+    this._placeCommentAt(cx, cy, anchorEl, area, { left, top, width, height });
   }
 
   private _clearHover(): void {
@@ -1286,6 +1307,7 @@ export class Annotator {
     clientY: number,
     target: Element,
     area?: AreaPercent,
+    region?: ScopeRect,
   ): void {
     if (this._ui.host.contains(target)) return; // never annotate our own UI
     if (!this._ensureIdentity()) return; // identity is required before any comment exists
@@ -1293,12 +1315,24 @@ export class Annotator {
       ...buildAnchor(target, clientX, clientY),
       ...(area ? { areaPercent: area } : {}),
     };
+    // Resolved ONCE, here, at commit time — never on a reflow frame. A live
+    // marquee paints only its own box; the walk is 1.18 ms clean and 8.14 ms
+    // under 6x throttling, which is fine once and fatal at 60 Hz.
+    //
+    // Measured against the CANONICAL anchor target so preview, capture,
+    // footprint and outline are all the same element.
+    const scoped = resolveScope(anchorTarget(target), region);
+    // Same synchronous turn as the hover box's removal: both commit paths call
+    // _clearHover() immediately before this, and a frame that paints with
+    // neither box makes the resolve blink.
+    if (scoped) this._outline.show(this._ui.root, scoped, region);
+    const scope = scoped?.scope;
     if (this._deps.config.voice) {
       if (this._activeVoice) return; // one recording at a time
-      this._startVoiceDot(anchor, clientX, clientY);
+      this._startVoiceDot(anchor, clientX, clientY, scope);
       return;
     }
-    this._commitTextComment(anchor, '', true);
+    this._commitTextComment(anchor, '', true, undefined, undefined, scope);
   }
 
   // `route`/`fullUrl` default to the current location; the voice degrade path
@@ -1310,6 +1344,7 @@ export class Annotator {
     openForEdit: boolean,
     route?: string,
     fullUrl?: string,
+    scope?: Scope,
   ): void {
     const t = now();
     const comment: Comment = {
@@ -1321,6 +1356,10 @@ export class Annotator {
       text,
       modality: 'text',
       anchor,
+      // Frozen at PIN time alongside the route, not resolved here: a voice
+      // note commits long after the gesture, and re-deriving at commit would
+      // attribute a boundary to a DOM the reviewer never saw.
+      ...(scope ? { scope } : {}),
     };
     this._store = upsertComment(this._store, comment);
     this._persist();
@@ -1336,7 +1375,7 @@ export class Annotator {
   // Drop a voice dot, lazily load the voice module, and start a session — with
   // generation guards so an import/start resolving after teardown self-cancels
   // and releases whatever it produced.
-  private _startVoiceDot(anchor: Anchor, clientX: number, clientY: number): void {
+  private _startVoiceDot(anchor: Anchor, clientX: number, clientY: number, scope?: Scope): void {
     const mount = el('div');
     mount.style.cssText = 'position:fixed;';
     place(
@@ -1355,7 +1394,15 @@ export class Annotator {
     const route = this._routeKey();
     // fullUrl freezes WITH the route (review #32): both describe where
     // the recording began, and navigation mid-finalize must not split them.
-    const host = this._buildVoiceHost(mount, anchor, route, window.location.href, active, myGen);
+    const host = this._buildVoiceHost(
+      mount,
+      anchor,
+      route,
+      window.location.href,
+      active,
+      myGen,
+      scope,
+    );
 
     this._loadVoiceModule()
       .then((mod) => {
@@ -1385,6 +1432,10 @@ export class Annotator {
     fullUrl: string,
     active: ActiveVoice,
     gen: number,
+    // Frozen at dot creation alongside `route`/`fullUrl`, and for the same
+    // reason: a recording commits long after the gesture, and all three
+    // describe one moment that must never split across a navigation.
+    scope?: Scope,
   ): VoiceHost {
     const commitVoice = (text: string, voice: VoiceMeta): void => {
       if (this._activeVoice === active) this._activeVoice = null;
@@ -1399,11 +1450,15 @@ export class Annotator {
         modality: 'voice',
         voice,
         anchor,
+        // An area + voice comment carries both: the scope is a property of the
+        // gesture, not of the modality.
+        ...(scope ? { scope } : {}),
       };
       this._store = upsertComment(this._store, comment);
       this._persist();
       this._emitChange('add', comment);
       mount.remove();
+      this._outline.clear();
       this._renderPins();
     };
     return {
@@ -1446,6 +1501,9 @@ export class Annotator {
         if (this._destroyed) return;
         if (this._activeVoice === active) this._activeVoice = null;
         mount.remove();
+        // The one abandon path that shows an outline and may never open a
+        // composer, so _closeActiveInput never runs to clear it.
+        this._outline.clear();
       },
       degradeToText: (prefill) => {
         if (this._destroyed) return;
@@ -1457,7 +1515,7 @@ export class Annotator {
         const live = gen === this._generation;
         const text = prefill ?? '';
         if (!live && text.length === 0) return;
-        this._commitTextComment(anchor, text, live, route, fullUrl);
+        this._commitTextComment(anchor, text, live, route, fullUrl, scope);
       },
       logger: this._voiceLogger,
       signal: active.abort.signal,
@@ -1888,7 +1946,12 @@ export class Annotator {
   // delete already removed it; destroy must not write during teardown).
   private _closeActiveInput(cleanupEmpty = true): void {
     const input = this._activeInput;
+    // AFTER the guard, not before it. _openInput closes any previous composer
+    // on its way in, so an unconditional clear here wiped the outline that the
+    // very same placement had just painted — the outline never survived to be
+    // seen. It belongs to a composer that actually existed.
     if (!input) return;
+    this._outline.clear();
     this._activeInput = null;
     input.cleanup();
     input.wrap.remove();

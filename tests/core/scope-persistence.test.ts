@@ -78,7 +78,10 @@ describe('schema v4 — scope persists, softly', () => {
   it.each([
     ['not an object', 'grid'],
     ['no boundary', { gen: 1, rung: 'testid', confidence: 'high' }],
-    ['a boundary with no css', { gen: 1, rung: 'testid', confidence: 'high', boundary: { tag: 'p' } }],
+    [
+      'a boundary with no css',
+      { gen: 1, rung: 'testid', confidence: 'high', boundary: { tag: 'p' } },
+    ],
     ['an unknown rung', { ...SCOPE, rung: 'vibes' }],
     ['an unknown confidence', { ...SCOPE, confidence: 'certain' }],
     ['a non-numeric gen', { ...SCOPE, gen: 'one' }],

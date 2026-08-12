@@ -34,8 +34,18 @@ const REGION: Scope = {
   confidence: 'high',
   boundary: { tag: 'div', css: 'main > div.grid', testid: 'plans', label: 'Choose a plan' },
   members: [
-    { tag: 'article', css: 'main > div.grid > article:nth-of-type(1)', label: 'Free', band: 'inside' },
-    { tag: 'article', css: 'main > div.grid > article:nth-of-type(2)', label: 'Pro', band: 'partial' },
+    {
+      tag: 'article',
+      css: 'main > div.grid > article:nth-of-type(1)',
+      label: 'Free',
+      band: 'inside',
+    },
+    {
+      tag: 'article',
+      css: 'main > div.grid > article:nth-of-type(2)',
+      label: 'Pro',
+      band: 'partial',
+    },
   ],
   excluded: [{ tag: 'aside', css: 'main > aside', label: 'Related' }],
 };
@@ -86,7 +96,11 @@ describe('the scope lines', () => {
   });
 
   it('says so when a heal invalidated the node lists', () => {
-    const md = render({ ...REGION, members: undefined, excluded: undefined, stale: true });
+    // Shaped the way demoteScope actually leaves it: the keys are DELETED, not
+    // set to undefined — exactOptionalPropertyTypes makes that distinction
+    // real, and a record with `members: undefined` is not one this code writes.
+    const { members: _m, excluded: _x, ...kept } = REGION;
+    const md = render({ ...kept, stale: true });
     expect(md).toMatch(/stale/i);
     expect(md).not.toContain('**Change');
   });

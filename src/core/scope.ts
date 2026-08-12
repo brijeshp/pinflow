@@ -409,7 +409,15 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
     rung = rungOf(boundary);
     confidence = CONFIDENCE[rung];
   } else {
-    const climbed = climb(target);
+    // A point pin's boundary must be a STRICT ancestor of what it changes, so
+    // the climb starts at the parent. Starting at the element collapses the
+    // two whenever a rung matches the element itself — and `anchorTarget`
+    // guarantees that for every page that uses `data-testid`, since the stored
+    // anchor IS the testid element. The useful answer there is the section
+    // ABOVE the component: change this component, do not leave this section.
+    const above = target.parentElement;
+    const climbed =
+      above && !isRoot(above) ? climb(above) : { el: target, rung: 'anchor' as ScopeRung };
     // R4: a ladder pick that is really the page reports the ANCHOR element
     // with low confidence instead — never the page, never `<body>`.
     if (climbed.el !== target && tooWide(climbed.el)) {
