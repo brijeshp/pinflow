@@ -945,3 +945,39 @@ describe('an unnamed reviewer', () => {
     );
   });
 });
+
+// Review #1: only the annotator's _buildArtifact blanked the handle, so every
+// PUBLIC path — the pure helpers hosts run server-side, and reviewer-mode JSON
+// — printed `anon_…` as if it were a person's name. The earlier test passed a
+// store with reviewer:'' and so proved nothing about a real minted handle.
+describe('a minted handle never reaches a public artifact', () => {
+  const meta = { generatedAt: '2026-08-12T10:00:00Z', project: 'my-prototype' };
+  const HANDLE = 'anon_k3f9x1abq';
+  const minted: ReviewerStore = { ...sarah, reviewer: HANDLE };
+
+  it('exportReviewer suppresses it in the heading and header', () => {
+    const md = exportReviewer(minted, meta, () => false);
+    expect(md).not.toContain(HANDLE);
+    expect(md).toContain('# Feedback for my-prototype\n');
+    expect(md).not.toMatch(/^Reviewer:/m);
+  });
+
+  it('exportFilename suppresses it in the who segment', () => {
+    expect(exportFilename('proj', HANDLE, '2026-08-12T10:00:00Z')).toBe(
+      'pinflow-feedback-proj-2026-08-12T10-00-00Z.md',
+    );
+  });
+
+  it('single-reviewer exportJSON suppresses it on every comment', () => {
+    const parsed = JSON.parse(exportJSON(minted));
+    expect(exportJSON(minted)).not.toContain(HANDLE);
+    expect(parsed.comments.every((c: { reviewer: string }) => c.reviewer === '')).toBe(true);
+  });
+
+  // The builder aggregate is the accepted exception: two unnamed reviewers must
+  // stay distinguishable, and the audience is the developer, not the reviewer.
+  it('keeps handles in the builder aggregate so reviewers stay distinct', () => {
+    const other: ReviewerStore = { ...sarah, reviewer: 'anon_zzz000111' };
+    expect(exportJSON([minted, other])).toContain(HANDLE);
+  });
+});

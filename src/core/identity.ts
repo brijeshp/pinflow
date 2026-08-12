@@ -17,6 +17,7 @@ export interface IdentityDeps {
 }
 
 const ANON_PREFIX = 'anon_';
+const HANDLE_LEN = 9;
 
 /**
  * A stable per-browser handle so a reviewer HAS an identity — and therefore a
@@ -24,16 +25,19 @@ const ANON_PREFIX = 'anon_';
  * never a display name: `isAnonymous` gates it out of the export.
  */
 export function anonymousHandle(): string {
-  return `${ANON_PREFIX}${randomToken(9)}`;
+  return `${ANON_PREFIX}${randomToken(HANDLE_LEN)}`;
 }
 
 /**
- * True for a minted handle. A host that passes `?reviewer=anon_x` by hand gets
- * treated as unnamed; that collision is theirs to avoid and costs only
- * attribution.
+ * True only for the exact shape `anonymousHandle()` mints. A prefix test also
+ * swallowed real names — `anon_dave` as a URL param or a typed name lost its
+ * attribution silently (0.7.0 review D). Matching the minted shape reserves
+ * nothing a person would plausibly type.
  */
+const ANON_SHAPE = new RegExp(`^${ANON_PREFIX}[a-z0-9]{${HANDLE_LEN}}$`);
+
 export function isAnonymous(name: string): boolean {
-  return name.startsWith(ANON_PREFIX);
+  return ANON_SHAPE.test(name);
 }
 
 function reviewerKey(project: string): string {
@@ -48,6 +52,17 @@ export function rememberReviewer(storage: Storage, project: string, name: string
   } catch {
     /* non-persistent session */
   }
+}
+
+/**
+ * The name this browser currently files comments under, or null. Exported
+ * because a live widget has to notice when ANOTHER tab renames the reviewer —
+ * writing under a retired key resurrects a corpus identity resolution will
+ * never look at again (0.7.0 review #3).
+ */
+export function rememberedReviewer(storage: Storage, project: string): string | null {
+  const v = storage.getItem(reviewerKey(project));
+  return v && v.trim().length > 0 ? v.trim() : null;
 }
 
 export function reviewerFromUrl(url: string): string | null {
@@ -66,8 +81,8 @@ export function resolveReviewer(deps: IdentityDeps): string | null {
     rememberReviewer(deps.storage, deps.project, urlName);
     return urlName;
   }
-  const stored = deps.storage.getItem(reviewerKey(deps.project));
-  if (stored && stored.trim().length > 0) return stored.trim();
+  const stored = rememberedReviewer(deps.storage, deps.project);
+  if (stored) return stored;
   if (deps.mint) {
     const name = deps.mint();
     rememberReviewer(deps.storage, deps.project, name);

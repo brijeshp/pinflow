@@ -100,3 +100,17 @@ describe('identity', () => {
     expect(isAnonymous(minted as string)).toBe(true);
   });
 });
+
+// Review D: the first cut used a `anon_` PREFIX test, so a real person named
+// or URL-tagged `anon_dave` silently lost their attribution in every export.
+describe('anonymous detection matches only the minted shape', () => {
+  it('accepts what anonymousHandle actually mints', () => {
+    expect(isAnonymous(anonymousHandle())).toBe(true);
+  });
+
+  it('leaves plausible human names attributed', () => {
+    for (const name of ['anon_dave', 'anon_', 'anonymous', 'anon_TOOLONGVALUE', 'Anon_abcdefghi']) {
+      expect(isAnonymous(name)).toBe(false);
+    }
+  });
+});

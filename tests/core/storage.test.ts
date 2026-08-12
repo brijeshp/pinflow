@@ -625,3 +625,57 @@ describe('renameReviewer', () => {
     expect(loadStore(localStorage, 'p', 'anon_abc')?.comments).toHaveLength(1);
   });
 });
+
+// Review #2: the first merge kept the TARGET's copy of a duplicate id and then
+// deleted the source key — so a newer edit made under the anonymous handle was
+// destroyed by naming yourself. Ids matching is not the same as content
+// surviving, which is exactly what the original test asserted.
+describe('renameReviewer duplicate-id conflicts', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('keeps the newer edit when both sides hold the same comment', () => {
+    saveStore(localStorage, {
+      ...emptyStore('p', 'Brijesh'),
+      comments: [
+        makeComment({ id: 'cmt_1', text: 'stale edit', updatedAt: '2026-08-11T12:00:00Z' }),
+      ],
+    });
+    saveStore(localStorage, {
+      ...emptyStore('p', 'anon_abc'),
+      comments: [makeComment({ id: 'cmt_1', text: 'new edit', updatedAt: '2026-08-12T12:00:00Z' })],
+    });
+    expect(renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh')).toBe(true);
+
+    const kept = loadStore(localStorage, 'p', 'Brijesh')?.comments ?? [];
+    expect(kept).toHaveLength(1);
+    expect(kept[0]!.text).toBe('new edit');
+    expect(kept[0]!.updatedAt).toBe('2026-08-12T12:00:00Z');
+  });
+
+  it('keeps the target copy when the source edit is older', () => {
+    saveStore(localStorage, {
+      ...emptyStore('p', 'Brijesh'),
+      comments: [makeComment({ id: 'cmt_1', text: 'newer', updatedAt: '2026-08-12T12:00:00Z' })],
+    });
+    saveStore(localStorage, {
+      ...emptyStore('p', 'anon_abc'),
+      comments: [makeComment({ id: 'cmt_1', text: 'older', updatedAt: '2026-08-11T12:00:00Z' })],
+    });
+    renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh');
+    expect(loadStore(localStorage, 'p', 'Brijesh')?.comments[0]!.text).toBe('newer');
+  });
+
+  it('breaks an updatedAt tie toward the target, deterministically', () => {
+    const at = '2026-08-12T12:00:00Z';
+    saveStore(localStorage, {
+      ...emptyStore('p', 'Brijesh'),
+      comments: [makeComment({ id: 'cmt_1', text: 'target', updatedAt: at })],
+    });
+    saveStore(localStorage, {
+      ...emptyStore('p', 'anon_abc'),
+      comments: [makeComment({ id: 'cmt_1', text: 'source', updatedAt: at })],
+    });
+    renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh');
+    expect(loadStore(localStorage, 'p', 'Brijesh')?.comments[0]!.text).toBe('target');
+  });
+});

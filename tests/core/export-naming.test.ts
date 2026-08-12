@@ -148,3 +148,234 @@ describe('naming yourself at export', () => {
     expect(loadStore(localStorage, PROJECT, HANDLE)?.comments).toHaveLength(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 0.7.0 review findings #3 — #7. Each of these was a terminal or continuity
+// path that the first six tests never touched.
+// ---------------------------------------------------------------------------
+
+interface Extra {
+  onSubmit?: (payload: { reviewer: string }) => void;
+  source?: () => Promise<Comment[]>;
+}
+
+function makeAnnotatorWith(reviewer: string, extra: Extra): Annotator {
+  return new Annotator({
+    config: {
+      project: PROJECT,
+      // 'auto' switches the chip OFF when `source` is set; these tests drive
+      // the sheet, so the affordance has to exist regardless.
+      exportUi: 'always',
+      ...(extra.onSubmit ? { onSubmit: extra.onSubmit as never } : {}),
+      ...(extra.source ? { source: extra.source } : {}),
+    },
+    reviewer,
+    mode: 'reviewer',
+    storage: localStorage,
+  });
+}
+
+function roots(): ShadowRoot[] {
+  return [...document.querySelectorAll('[data-pinflow-root]')]
+    .map((h) => (h as HTMLElement & { shadowRoot: ShadowRoot | null }).shadowRoot)
+    .filter((s): s is ShadowRoot => s !== null);
+}
+
+function seed(reviewer: string, comments: Comment[]): void {
+  saveStore(localStorage, { ...emptyStore(PROJECT, reviewer), comments });
+}
+
+describe('terminal paths and continuity after a rename', () => {
+  let annotator: Annotator | null = null;
+  let second: Annotator | null = null;
+
+  beforeEach(() => {
+    // Capture the artifact actually handed to download(), so assertions read
+    // what the reviewer would receive rather than re-deriving it.
+    (window as unknown as { __blob: Blob | undefined }).__blob = undefined;
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((b: Blob | MediaSource) => {
+      (window as unknown as { __blob?: Blob }).__blob = b as Blob;
+      return 'blob:mock';
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    annotator?.destroy();
+    second?.destroy();
+    annotator = second = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  // #4 — Send to builder is the sheet's other terminal action. It read the
+  // store directly, so the name the reviewer had just typed never reached it.
+  it('#4 Send to builder submits under the typed name and moves the corpus', async () => {
+    seed(HANDLE, [makeComment('cmt_1', 'note')]);
+    let payload: { reviewer: string } | null = null;
+    annotator = makeAnnotatorWith(HANDLE, {
+      onSubmit: (p) => {
+        payload = p;
+      },
+    });
+    const root = roots()[0]!;
+    root.querySelector<HTMLButtonElement>('button.chip')!.click();
+    const field = root.querySelector<HTMLInputElement>('input.name')!;
+    field.value = 'Brijesh';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    [...root.querySelectorAll('button')].find((b) => b.textContent === 'Send to builder')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(payload).not.toBeNull();
+    expect((payload as unknown as { reviewer: string }).reviewer).toBe('Brijesh');
+    expect(localStorage.getItem(`pinflow:r:${PROJECT}`)).toBe('Brijesh');
+    expect(loadStore(localStorage, PROJECT, 'Brijesh')?.comments).toHaveLength(1);
+    expect(localStorage.getItem(storageKey(PROJECT, HANDLE))).toBeNull();
+  });
+
+  // #5 — the field's own label says it is included in the export. Clearing it
+  // must therefore remove it from the export, without destroying the identity
+  // the corpus is filed under.
+  it('#5 clearing a prefilled name drops attribution without renaming anything', async () => {
+    seed('Brijesh', [makeComment('cmt_1', 'note')]);
+    annotator = makeAnnotatorWith('Brijesh', {});
+    const root = roots()[0]!;
+    root.querySelector<HTMLButtonElement>('button.chip')!.click();
+    const field = root.querySelector<HTMLInputElement>('input.name')!;
+    expect(field.value).toBe('Brijesh'); // prefilled
+    field.value = '';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    [...root.querySelectorAll('button')].find((b) => b.textContent === 'Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const md = await (window as unknown as { __blob?: Blob }).__blob?.text();
+    expect(md).toBeDefined();
+    expect(md).not.toContain('Brijesh');
+    // Export-scoped only: the corpus is still filed under the real name.
+    expect(loadStore(localStorage, PROJECT, 'Brijesh')?.comments).toHaveLength(1);
+    expect(localStorage.getItem(`pinflow:r:${PROJECT}`)).not.toBe('');
+  });
+
+  it('#5 the confirmation retry does not resurrect the cleared name', async () => {
+    seed('Brijesh', [makeComment('cmt_1', 'note')]);
+    annotator = makeAnnotatorWith('Brijesh', {});
+    const root = roots()[0]!;
+    root.querySelector<HTMLButtonElement>('button.chip')!.click();
+    const field = root.querySelector<HTMLInputElement>('input.name')!;
+    field.value = '';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    [...root.querySelectorAll('button')].find((b) => b.textContent === 'Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The sheet is gone and _nameEl is null; a rebuild here would read the
+    // stored identity and undo the reviewer's opt-out.
+    [...root.querySelectorAll('button')]
+      .find((b) => b.textContent === 'Download Feedback Markdown')!
+      .click();
+    await new Promise((r) => setTimeout(r, 0));
+    const md = await (window as unknown as { __blob?: Blob }).__blob?.text();
+    expect(md).not.toContain('Brijesh');
+  });
+
+  // #6 — folding into an existing corpus changes what should be on screen.
+  it('#6 comments merged in from the target become visible immediately', async () => {
+    seed(HANDLE, [makeComment('cmt_new', 'from the handle')]);
+    seed('Brijesh', [makeComment('cmt_old', 'from the name')]);
+    annotator = makeAnnotatorWith(HANDLE, {});
+    const root = roots()[0]!;
+    expect(root.querySelectorAll('button.pin')).toHaveLength(1);
+
+    root.querySelector<HTMLButtonElement>('button.chip')!.click();
+    const field = root.querySelector<HTMLInputElement>('input.name')!;
+    field.value = 'Brijesh';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    [...root.querySelectorAll('button')].find((b) => b.textContent === 'Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(root.querySelectorAll('button.pin')).toHaveLength(2);
+    expect(root.querySelector('button.chip')?.textContent).toBe('2');
+  });
+
+  // #7 — `reviewer` is a display label. Changing it must not cancel a read
+  // that was already in flight for the same person's corpus.
+  it('#7 a rename does not discard an in-flight source hydration', async () => {
+    seed(HANDLE, [makeComment('cmt_local', 'local')]);
+    let release: (c: Comment[]) => void = () => {};
+    const pending = new Promise<Comment[]>((r) => {
+      release = r;
+    });
+    annotator = makeAnnotatorWith(HANDLE, { source: () => pending });
+
+    const root = roots()[0]!;
+    root.querySelector<HTMLButtonElement>('button.chip')!.click();
+    const field = root.querySelector<HTMLInputElement>('input.name')!;
+    field.value = 'Brijesh';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    [...root.querySelectorAll('button')].find((b) => b.textContent === 'Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    release([makeComment('cmt_server', 'from the server')]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    const ids = (loadStore(localStorage, PROJECT, 'Brijesh')?.comments ?? []).map((c) => c.id);
+    expect([...ids].sort()).toEqual(['cmt_local', 'cmt_server']);
+  });
+
+  // #3 — two tabs. A rename in one retires the key the other is still writing
+  // to, and identity resolution will never look at that key again.
+  it('#3 a second tab folds its later writes into the renamed corpus', async () => {
+    seed(HANDLE, [makeComment('cmt_a', 'a')]);
+    annotator = makeAnnotatorWith(HANDLE, {}); // tab A
+    second = makeAnnotatorWith(HANDLE, {}); // tab B, same corpus
+
+    const tabA = roots()[0]!;
+    tabA.querySelector<HTMLButtonElement>('button.chip')!.click();
+    const field = tabA.querySelector<HTMLInputElement>('input.name')!;
+    field.value = 'Brijesh';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    [...tabA.querySelectorAll('button')].find((b) => b.textContent === 'Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Tab B, unaware, writes a new comment under the retired handle.
+    (second as unknown as { _store: { comments: Comment[] } })._store.comments.push(
+      makeComment('cmt_b', 'b'),
+    );
+    (second as unknown as { _persist: () => void })._persist();
+
+    // Neither comment may be stranded where identity resolution won't look.
+    const named = (loadStore(localStorage, PROJECT, 'Brijesh')?.comments ?? []).map((c) => c.id);
+    expect([...named].sort()).toEqual(['cmt_a', 'cmt_b']);
+    expect(localStorage.getItem(storageKey(PROJECT, HANDLE))).toBeNull();
+  });
+});
+
+// The sheet's Enter affordance had no coverage — all the other sheet tests
+// click a button, so the keydown path could have rotted unnoticed.
+describe('Enter in the name field exports', () => {
+  let annotator: Annotator | null = null;
+
+  beforeEach(() => {
+    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+  });
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+
+  it('names the reviewer and exports without touching a button', async () => {
+    annotator = openSheet(HANDLE);
+    const field = nameField()!;
+    field.value = 'Brijesh';
+    field.dispatchEvent(new Event('input', { bubbles: true }));
+    field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(localStorage.getItem(`pinflow:r:${PROJECT}`)).toBe('Brijesh');
+    expect(loadStore(localStorage, PROJECT, 'Brijesh')?.comments).toHaveLength(1);
+  });
+});
