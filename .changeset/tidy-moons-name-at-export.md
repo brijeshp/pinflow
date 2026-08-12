@@ -22,4 +22,4 @@ Existing reviewers are unaffected: a name already remembered under `pinflow:r:<p
 
 **Two tabs no longer split a corpus.** A rename retires a storage key that another open tab may still be writing to, and identity resolution never looks at that key again — so the second tab's comments would vanish on reload. Each persist now checks whether the remembered reviewer has moved and folds forward into it. Folding a corpus into an existing one resolves duplicate ids by newest `updatedAt` (ties to the destination) rather than by id alone, which previously discarded the newer edit.
 
-Core grows ~470 B (18.14 kB ESM gz), an approved trade against ceilings raised to 18.25 kB ESM / 18.6 kB IIFE.
+Core grows ~470 B (18.14 kB ESM gz), an approved trade against ceilings raised to 18.22 kB ESM / 18.56 kB IIFE.
