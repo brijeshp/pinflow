@@ -1042,3 +1042,74 @@ describe('0.6.1 **Area covers:**', () => {
     expect(/data-testid="([^"]*)"/.test(line)).toBe(false);
   });
 });
+
+describe('0.6.1 review round: bounded and honest label rendering', () => {
+  function areaMd(covers: string): string {
+    return exportReviewer(
+      {
+        reviewer: 'r',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        comments: [
+          {
+            id: 'c1',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            route: '/r',
+            fullUrl: 'https://x/',
+            modality: 'text',
+            text: 'n',
+            anchor: {
+              selectors: { testid: null, id: null, css: 'ul', xpath: '/ul' },
+              textFingerprint: 'fp',
+              positionPercent: { x: 1, y: 1 },
+              viewport: { width: 800, height: 600 },
+              areaPercent: { x: 0, y: 0, w: 10, h: 10 },
+              covers,
+            },
+          },
+        ],
+      } as never,
+      { generatedAt: '2026-01-01T00:00:00.000Z', project: 'p' },
+      () => false,
+    );
+  }
+
+  // Capture caps each label at 40 chars, but a source() payload never passes
+  // through capture. Without a cap at the render chokepoint one hydrated label
+  // produced a 5019-character line in the artifact.
+  it('bounds a hydrated label that never passed through capture', () => {
+    const line = areaMd('A'.repeat(5000))
+      .split('\n')
+      .find((l) => l.startsWith('**Area covers:**'))!;
+    expect(line.length).toBeLessThan(120);
+    expect(line).toContain('…');
+  });
+
+  it('leaves a label at the documented 40-char bound untouched', () => {
+    const label = 'B'.repeat(40);
+    const line = areaMd(label)
+      .split('\n')
+      .find((l) => l.startsWith('**Area covers:**'))!;
+    expect(line).toContain(`“${label}”`);
+  });
+});
+
+// The stored fingerprint is the 80-char REPRESENTATION; the original length is
+// not recorded, so exactly-80 and 5000 chars are indistinguishable at export.
+// The marker is therefore documented as "80 or more", not "was truncated".
+describe('0.6.1 review round: the ellipsis marks the cap, not proven truncation (review #1)', () => {
+  it('marks a fingerprint of exactly FP_MAX', async () => {
+    const line = await elementLine(
+      labelOnly({ testid: null, id: null, css: 'p', xpath: '/p' }, 'a'.repeat(80)),
+    );
+    expect(line).toContain('…”');
+  });
+
+  it('does not mark 79 characters', async () => {
+    const line = await elementLine(
+      labelOnly({ testid: null, id: null, css: 'p', xpath: '/p' }, 'a'.repeat(79)),
+    );
+    expect(line).not.toContain('…');
+  });
+});

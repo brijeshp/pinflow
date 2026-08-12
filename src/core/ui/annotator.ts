@@ -1212,9 +1212,12 @@ export class Annotator {
       if (sub && subjects.length < 3 && !subjects.includes(sub)) subjects.push(sub);
       return e;
     };
-    // Centre first, so subjects[0] shares positionPercent's provenance. The
-    // 1/6 and 5/6 insets never sit on an edge, so a neighbouring block cannot
-    // be picked up by a rounding error.
+    // Centre first, so subjects[0] shares positionPercent's provenance WHEN the
+    // centre lands on a block. When it lands in a gutter the climb stops
+    // immediately, records nothing, and subjects[0] becomes the first inset's
+    // block — a real block the rect crosses, which is still the best heading
+    // available, just not the pin's own. The 1/6 and 5/6 insets never sit on an
+    // edge, so a neighbouring block cannot be picked up by a rounding error.
     const target = climb(cx, cy);
     climb(left + width / 6, top + height / 6);
     climb(left + (width * 5) / 6, top + (height * 5) / 6);

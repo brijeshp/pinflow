@@ -95,10 +95,18 @@ function elementLabel(comment: Comment): string {
   // positive an agent would then search for. It also makes the fingerprint
   // visually un-confusable with an attribute, which is the confusion that
   // produced a finding in all three review rounds.
-  // A preview that hit the cap used to read as the element's COMPLETE text.
-  // On a coarse anchor that is actively misleading: it is the first 80 chars
-  // of the whole page. normalizeComments re-caps hydrated values at the same
-  // bound, so `>= FP_MAX` is a reliable "this was cut off" signal.
+  // A preview at the cap used to read as the element's COMPLETE text. On a
+  // coarse anchor that is actively misleading: it is the first 80 chars of the
+  // whole page.
+  //
+  // The marker means "this element's text is FP_MAX characters or more", NOT
+  // "this was provably cut off". Only the 80-char representation is stored —
+  // the original length is not — so text of exactly 80 characters and text of
+  // 5000 are indistinguishable here and both get the ellipsis. Recording real
+  // truncation provenance would need a persisted flag: new schema surface and
+  // bundle bytes to disambiguate a rare boundary whose worst case is an agent
+  // believing there is slightly more text than there is. Deliberately not
+  // taken; the agent pack states the "or more" reading (review #1).
   // The ellipsis is folded INSIDE attr() rather than added as a second
   // interpolation: the label's escaping surface stays one-call-per-slot, which
   // is what the AST guard enforces and what three review rounds kept losing.
@@ -176,6 +184,12 @@ function visualLines(comment: Comment): string[] {
 
 // Area comments (marquee picker): the drawn region, numbers only — no
 // untrusted text enters this line.
+// Capture caps each label at this bound, but a source() payload never passes
+// through capture — one hydrated label rendered a 5019-character line. Cap at
+// the render chokepoint too, matching how FP_MAX is re-applied at hydration
+// (review #2).
+const COVER_MAX = 40;
+
 // Split FIRST, then attr() each item: these are raw page strings sitting
 // inside typographic quotes, and inline() strips newlines AFTER the split, so
 // no entry can start a line. **Area covers:** is therefore line-anchored and
@@ -189,7 +203,7 @@ function areaLine(a: AreaPercent, covers?: string): string {
       ? `\n**Area covers:** ${covers
           .split('\n')
           .slice(0, 3)
-          .map((c) => `“${attr(c)}”`)
+          .map((c) => `“${attr(c.length > COVER_MAX ? c.slice(0, COVER_MAX) + '…' : c)}”`)
           .join(', ')}`
       : '')
   );

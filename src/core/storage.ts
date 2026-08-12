@@ -130,7 +130,11 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     // is rejected — and there was never a working path for an absent one.
     typeof anchor['textFingerprint'] === 'string' &&
     validArea(anchor['areaPercent']) &&
-    optStr(anchor['covers']) &&
+    // string-or-ABSENT, not optStr: optStr admits null, and normalizeComments
+    // preserves it through the spread into a field the type declares as
+    // `string | undefined` — so a source() payload could hand every downstream
+    // consumer a null where only a string is possible (review #2).
+    (anchor['covers'] === undefined || typeof anchor['covers'] === 'string') &&
     validContext(anchor['context']) &&
     validVoice(c['voice'])
   );

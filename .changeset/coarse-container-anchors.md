@@ -15,6 +15,6 @@ A reviewer pinning empty space, or dragging a marquee across sibling elements, a
 
 Deliberately not done: refusing or redirecting a pin. A predicate that rejects a legitimate full-page pin (a single-screen app where the pinnable thing really is the whole page) would be worse than the bug; a regression test pins that behaviour.
 
-Known limitation: the three samples run down the rect's diagonal, so a marquee over a 2x2 grid can miss the anti-diagonal members. Per-candidate area-ratio scoring would fix it and did not fit the budget.
+Known limitations, both accepted deliberately: the three samples run down the rect's diagonal, so a marquee over a 2x2 grid can miss the anti-diagonal members (per-candidate area-ratio scoring would fix it and did not fit the budget); and the trailing ellipsis on a text preview means "80 characters or more", not "provably truncated" — only the capped representation is stored, so text of exactly 80 characters carries it too. Recording real truncation provenance would need a persisted flag, which is new schema surface and bundle bytes for a rare boundary whose worst case is an agent believing there is slightly more text than there is.
 
-**Size:** core grows ~210 B gz (IIFE 17.89 -> 18.10 KB local). Ceilings notch to 18.4 / 18.05 KB, an owner-approved trade per the budget policy in `AGENTS.md`, and are re-ratcheted razor-thin over the linux CI actual before this merges.
+**Size:** core grows ~210 B gz. Ceilings notch to **18.18 KB IIFE / 17.83 KB ESM**, set from the linux CI actuals (18.13 / 17.78) with the ~50 B margin the budget policy in `AGENTS.md` calls razor-thin — an owner-approved trade, not a drift.
