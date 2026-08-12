@@ -1,5 +1,11 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { modeFromUrl, resolveReviewer, reviewerFromUrl } from '../../src/core/identity';
+import { beforeEach, describe, expect, it } from 'vitest';
+import {
+  anonymousHandle,
+  isAnonymous,
+  modeFromUrl,
+  resolveReviewer,
+  reviewerFromUrl,
+} from '../../src/core/identity';
 
 describe('identity', () => {
   beforeEach(() => localStorage.clear());
@@ -27,18 +33,39 @@ describe('identity', () => {
     expect(resolveReviewer({ url: 'http://x/', storage: localStorage, project: 'p' })).toBe('Mike');
   });
 
-  it('falls back to prompt', () => {
-    const prompt = vi.fn().mockReturnValue('Jen');
-    const name = resolveReviewer({ url: 'http://x/', storage: localStorage, project: 'p', prompt });
-    expect(name).toBe('Jen');
-    expect(localStorage.getItem('pinflow:r:p')).toBe('Jen');
+  it('mints an anonymous handle when nothing else identifies the reviewer', () => {
+    const name = resolveReviewer({
+      url: 'http://x/',
+      storage: localStorage,
+      project: 'p',
+      mint: anonymousHandle,
+    });
+    expect(name).not.toBeNull();
+    expect(isAnonymous(name as string)).toBe(true);
+    // Remembered, so the same browser is the same reviewer on the next visit.
+    expect(localStorage.getItem('pinflow:r:p')).toBe(name);
   });
 
-  it('returns null when prompt cancelled and nothing cached', () => {
-    const prompt = vi.fn().mockReturnValue(null);
-    expect(
-      resolveReviewer({ url: 'http://x/', storage: localStorage, project: 'p', prompt }),
-    ).toBeNull();
+  it('reuses the remembered handle rather than minting a second one', () => {
+    const deps = { url: 'http://x/', storage: localStorage, project: 'p', mint: anonymousHandle };
+    expect(resolveReviewer(deps)).toBe(resolveReviewer(deps));
+  });
+
+  // Stealth must stay invisible at host startup — including in localStorage.
+  // Without a mint, identity stays unresolved until the first activation.
+  it('returns null when no mint is offered', () => {
+    expect(resolveReviewer({ url: 'http://x/', storage: localStorage, project: 'p' })).toBeNull();
+    expect(localStorage.getItem('pinflow:r:p')).toBeNull();
+  });
+
+  it('a real name is never mistaken for an anonymous handle', () => {
+    expect(isAnonymous('Brijesh')).toBe(false);
+    expect(isAnonymous('')).toBe(false);
+    expect(isAnonymous('__builder__')).toBe(false);
+  });
+
+  it('mints distinct handles', () => {
+    expect(anonymousHandle()).not.toBe(anonymousHandle());
   });
 
   it('parses mode from URL', () => {
@@ -62,29 +89,14 @@ describe('identity', () => {
     expect(
       resolveReviewer({ url: 'http://x/?reviewer=Ann', storage: throwing, project: 'p' }),
     ).toBe('Ann');
-    const prompt = vi.fn().mockReturnValue('Jen');
-    expect(resolveReviewer({ url: 'http://x/', storage: throwing, project: 'p', prompt })).toBe(
-      'Jen',
-    );
-  });
-});
-
-// Sandboxed iframes without `allow-modals` — Lovable, Bolt, StackBlitz and
-// CodeSandbox previews, i.e. where vibe-coded prototypes actually live — make
-// window.prompt THROW rather than return null. That exception propagated out
-// of resolveReviewer and out of init(), so pinflow failed to mount at all in
-// its primary deployment environment. A blocked prompt is an unanswered
-// prompt: degrade to no identity, exactly like a cancelled one.
-describe('a prompt the environment refuses to show', () => {
-  it('degrades to null instead of throwing', () => {
-    const prompt = vi.fn(() => {
-      throw new Error('prompt() is not supported.');
+    // A handle that cannot be remembered is still a usable handle for this
+    // session — the corpus just won't survive the reload.
+    const minted = resolveReviewer({
+      url: 'http://x/',
+      storage: throwing,
+      project: 'p',
+      mint: anonymousHandle,
     });
-    expect(() =>
-      resolveReviewer({ url: 'http://x/', storage: localStorage, project: 'p', prompt }),
-    ).not.toThrow();
-    expect(
-      resolveReviewer({ url: 'http://x/', storage: localStorage, project: 'p', prompt }),
-    ).toBeNull();
+    expect(isAnonymous(minted as string)).toBe(true);
   });
 });

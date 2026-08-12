@@ -1,4 +1,4 @@
-import { modeFromUrl, resolveReviewer } from './identity';
+import { anonymousHandle, modeFromUrl, resolveReviewer } from './identity';
 import { watchRoute } from './router';
 import { routeKey as routeOf } from './route-key';
 import { acquireStorage } from './safe-storage';
@@ -102,17 +102,18 @@ function initLive(config: PinflowConfig): Handle {
   const storage = acquireStorage();
   const mode: Mode = config.mode ?? modeFromUrl(window.location.href) ?? 'reviewer';
   const stealth = config.activation?.mode === 'stealth';
-  const promptFn = (m: string): string | null => window.prompt(m);
-  // Stealth must stay invisible at host startup: URL-param / remembered
-  // identity still resolves eagerly (non-blocking), but the window.prompt
-  // fallback is deferred to the first gesture activation (resolveIdentity).
+  // Nobody is asked who they are at page load. A reviewer gets a minted
+  // handle so they have a corpus immediately, and the export sheet asks for a
+  // name at the one moment attribution matters. Stealth mints nothing here —
+  // it must not even write storage before its first activation, so identity is
+  // deferred to the gesture (resolveIdentity).
   const reviewer =
     config.reviewer ??
     resolveReviewer({
       url: window.location.href,
       storage,
       project: config.project,
-      ...(mode === 'reviewer' && !stealth ? { prompt: promptFn } : {}),
+      ...(mode === 'reviewer' && !stealth ? { mint: anonymousHandle } : {}),
     }) ??
     (mode === 'builder' ? '__builder__' : null);
 
@@ -131,7 +132,7 @@ function initLive(config: PinflowConfig): Handle {
               url: window.location.href,
               storage,
               project: config.project,
-              prompt: promptFn,
+              mint: anonymousHandle,
             }),
         }),
   });

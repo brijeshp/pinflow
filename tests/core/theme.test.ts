@@ -61,11 +61,17 @@ describe('theme tokens (A1)', () => {
     expect(STYLES).toMatch(/\.root\{[^}]*font-family:var\(--pf-font-family,-apple-system/);
   });
 
-  it('draft textarea is 16px on coarse pointers — iOS Safari must not auto-zoom on focus', () => {
+  it('every typable field is 16px on coarse pointers — iOS Safari must not auto-zoom on focus', () => {
     // Safari zooms the whole page when a focused input is under 16px; the
     // reviewer then pinches out and the gesture eats the draft. 16px on touch
-    // devices removes the zoom trigger at the source.
-    expect(STYLES).toContain('@media (pointer:coarse){.input textarea{font-size:16px}}');
+    // devices removes the zoom trigger at the source. Every field a reviewer
+    // can type into needs it, not just the draft — the export sheet's name
+    // field is the last thing they touch on a phone.
+    const rule = STYLES.match(/@media \(pointer:coarse\)\{([^}]*)\{font-size:16px\}\}/);
+    expect(rule).not.toBeNull();
+    const selectors = (rule?.[1] ?? '').split(',');
+    expect(selectors).toContain('.input textarea');
+    expect(selectors).toContain('.panel input.name');
   });
 
   it('resolution treatments ride the textMuted token (L2.3)', () => {

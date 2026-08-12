@@ -226,6 +226,49 @@ export function saveStore(storage: Storage, store: ReviewerStore): void {
   }
 }
 
+/**
+ * Move a reviewer's corpus to a new name. The storage key embeds the reviewer
+ * (`pinflow:c:<project>:<reviewer>`), so naming yourself at export time is a
+ * key move, not a field edit — without this the comments would be stranded
+ * under the old handle and the named store would open empty.
+ *
+ * Copy-then-delete, never the reverse: a refused write leaves the reviewer's
+ * comments exactly where they were. Returns whether the move happened.
+ */
+export function renameReviewer(
+  storage: Storage,
+  project: string,
+  from: string,
+  to: string,
+): boolean {
+  if (from === to) return false;
+  const source = loadStore(storage, project, from);
+  if (!source) return false;
+  // Naming yourself something you've used before on this browser folds the two
+  // corpora together rather than shadowing one with the other.
+  const target = loadStore(storage, project, to);
+  const existing = target?.comments ?? [];
+  const seen = new Set(existing.map((c) => c.id));
+  const merged: PersistedStore = {
+    ...(target ?? source),
+    project,
+    reviewer: to,
+    comments: [...existing, ...source.comments.filter((c) => !seen.has(c.id))],
+    schemaVersion: SCHEMA_VERSION,
+  };
+  try {
+    storage.setItem(storageKey(project, to), JSON.stringify(merged));
+  } catch {
+    return false; // source untouched — the reviewer keeps their comments
+  }
+  try {
+    storage.removeItem(storageKey(project, from));
+  } catch {
+    /* the copy landed; a stale duplicate under the old key is survivable */
+  }
+  return true;
+}
+
 export function listReviewers(storage: Storage, project: string): string[] {
   const prefix = `${KEY_PREFIX}${encodeURIComponent(project)}:`;
   const out: string[] = [];

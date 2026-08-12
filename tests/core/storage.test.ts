@@ -6,6 +6,7 @@ import {
   loadAllStores,
   loadStore,
   mergeComments,
+  renameReviewer,
   saveStore,
   storageKey,
   upsertComment,
@@ -568,4 +569,59 @@ it('caps an oversized hydrated textFingerprint to the 80-char representation', a
   expect(kept).toHaveLength(1);
   expect(kept[0]!.id).toBe('big');
   expect(kept[0]!.anchor.textFingerprint).toBe('a'.repeat(80));
+});
+
+// Naming yourself at export time moves the corpus: the storage key embeds the
+// reviewer (`pinflow:c:<project>:<reviewer>`), so a rename that only rewrote
+// the blob would strand every existing comment under the old key.
+describe('renameReviewer', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('moves the corpus to the new key and drops the old one', () => {
+    saveStore(localStorage, {
+      ...emptyStore('p', 'anon_abc'),
+      comments: [makeComment({ id: 'cmt_1' })],
+    });
+    expect(renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh')).toBe(true);
+
+    const moved = loadStore(localStorage, 'p', 'Brijesh');
+    expect(moved?.comments.map((c) => c.id)).toEqual(['cmt_1']);
+    expect(moved?.reviewer).toBe('Brijesh');
+    expect(localStorage.getItem(storageKey('p', 'anon_abc'))).toBeNull();
+  });
+
+  it('merges into an existing store under the target name without duplicating', () => {
+    saveStore(localStorage, {
+      ...emptyStore('p', 'anon_abc'),
+      comments: [makeComment({ id: 'cmt_new' }), makeComment({ id: 'cmt_shared' })],
+    });
+    saveStore(localStorage, {
+      ...emptyStore('p', 'Brijesh'),
+      comments: [makeComment({ id: 'cmt_old' }), makeComment({ id: 'cmt_shared' })],
+    });
+    expect(renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh')).toBe(true);
+
+    const ids = loadStore(localStorage, 'p', 'Brijesh')?.comments.map((c) => c.id) ?? [];
+    expect([...ids].sort()).toEqual(['cmt_new', 'cmt_old', 'cmt_shared']);
+    expect(localStorage.getItem(storageKey('p', 'anon_abc'))).toBeNull();
+  });
+
+  it('is a no-op when the names match', () => {
+    saveStore(localStorage, { ...emptyStore('p', 'Brijesh'), comments: [makeComment()] });
+    expect(renameReviewer(localStorage, 'p', 'Brijesh', 'Brijesh')).toBe(false);
+    expect(loadStore(localStorage, 'p', 'Brijesh')?.comments).toHaveLength(1);
+  });
+
+  it('reports failure without destroying the source when the write is refused', () => {
+    saveStore(localStorage, { ...emptyStore('p', 'anon_abc'), comments: [makeComment()] });
+    const real = localStorage.setItem.bind(localStorage);
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation((k: string, v: string) => {
+      if (k === storageKey('p', 'Brijesh')) throw new DOMException('quota', 'QuotaExceededError');
+      real(k, v);
+    });
+    expect(renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh')).toBe(false);
+    spy.mockRestore();
+    // The corpus must still be readable under the name it already had.
+    expect(loadStore(localStorage, 'p', 'anon_abc')?.comments).toHaveLength(1);
+  });
 });

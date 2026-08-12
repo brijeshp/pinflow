@@ -279,11 +279,14 @@ export function exportReviewer(
 ): string {
   const { live, orphaned } = partitionOrphans(store.comments, isOrphaned);
   const groups = groupByRoute(live);
+  // An unnamed reviewer (skipped the name step) carries an internal handle,
+  // which the caller blanks: attribution is omitted rather than invented.
+  const who = store.reviewer ? inline(store.reviewer) : '';
   const header = [
-    `# Feedback for ${inline(meta.project)} — from ${inline(store.reviewer)}`,
+    `# Feedback for ${inline(meta.project)}${who ? ` — from ${who}` : ''}`,
     '',
     `Generated: ${inline(meta.generatedAt)}`,
-    `Reviewer: ${inline(store.reviewer)}`,
+    ...(who ? [`Reviewer: ${who}`] : []),
     `Total comments: ${store.comments.length}`,
     `Routes covered: ${routesCovered(groups)}`,
     '',
@@ -357,7 +360,9 @@ export function exportBuilder(
   return parts.filter(Boolean).join('\n\n') + '\n';
 }
 
-// `reviewer` doubles as the kind switch: null means the builder aggregate.
+// `reviewer` doubles as the kind switch: null means the builder aggregate,
+// '' means a reviewer who never named themselves — neither borrows the other's
+// label, so an unnamed export is not mistaken for a multi-reviewer roll-up.
 export function exportFilename(
   project: string,
   reviewer: string | null,
@@ -365,7 +370,8 @@ export function exportFilename(
   ext = 'md',
 ): string {
   const ts = timestamp.replace(/[:.]/g, '-');
-  const who = reviewer ? `${reviewer}-${project}` : `${project}-aggregate`;
+  const who =
+    reviewer === null ? `${project}-aggregate` : reviewer ? `${reviewer}-${project}` : project;
   return `pinflow-feedback-${who}-${ts}.${ext}`;
 }
 

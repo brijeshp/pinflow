@@ -18,9 +18,11 @@ import {
   loadStore,
   mergeComments,
   normalizeComments,
+  renameReviewer,
   saveStore,
   upsertComment,
 } from '../storage';
+import { isAnonymous, rememberReviewer } from '../identity';
 import type {
   ActivationConfig,
   Anchor,
@@ -122,6 +124,8 @@ export class Annotator {
   private _dockEl: HTMLDivElement | null = null;
   private _armEl: HTMLButtonElement | null = null;
   private _panelEl: HTMLDivElement | null = null;
+  // Lives only while the export sheet is open; read once, on export.
+  private _nameEl: HTMLInputElement | null = null;
   // Anytime-export affordance: the count chip, whichever element anchors the
   // open panel (control in toggle mode, chip for the export sheet), which KIND
   // of panel is up (a sheet summon must replace a menu/confirmation, not just
@@ -510,6 +514,7 @@ export class Annotator {
     this._panelEl?.remove();
     this._panelEl = null;
     this._panelKind = null;
+    this._nameEl = null;
     // Every close path keeps the builder chip's disclosure state honest —
     // Clear all closes the drawer without going through the toggle (review r2).
     if (this._chipEl?.hasAttribute('aria-expanded'))
@@ -683,6 +688,20 @@ export class Annotator {
         this._makeButton('Export & clear', () => void this._handleReviewerExport(true)),
       ],
     );
+    // Attribution is asked for HERE and nowhere else: it is the only moment it
+    // matters, and the only one where a reviewer has context for the question.
+    // Optional by design — a skipped name exports fine, just unattributed.
+    const name = el('input', 'name');
+    name.type = 'text';
+    name.placeholder = 'Your name (optional)';
+    name.value = this._displayName();
+    name.setAttribute('aria-label', 'Your name, included in the export');
+    // Enter is "I'm done naming, export" — the primary action of this sheet.
+    name.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') void this._handleReviewerExport();
+    });
+    this._nameEl = name;
+    sheet.insertBefore(name, sheet.querySelector('.row'));
     // Host-owned submission channel (0.5.0: lives here since the menu panel
     // is gone; hosts pairing onSubmit with `source` should set exportUi).
     if (this._deps.config.onSubmit) {
@@ -1944,17 +1963,46 @@ export class Annotator {
     void copyToClipboard(md);
   }
 
+  /**
+   * The name to attribute an export to — '' for a reviewer who never gave one.
+   * A minted handle is a storage key, not a person: putting `anon_k3f9x` in the
+   * artifact would be worse than saying nothing.
+   */
+  private _displayName(): string {
+    const r = this._reviewer;
+    return r && !isAnonymous(r) ? r : '';
+  }
+
   // Single source for the markdown artifact + its filename, mode-aware.
   private _buildArtifact(): [md: string, filename: string] {
     const { project, describeRoute } = this._deps.config;
     const meta = { generatedAt: now(), project };
     const builder = this._deps.mode === 'builder';
+    const who = this._displayName();
     return [
       builder
         ? exportBuilder(this._allStores(), meta, this._isOrphaned, describeRoute)
-        : exportReviewer(this._store, meta, this._isOrphaned, describeRoute),
-      exportFilename(project, builder ? null : this._store.reviewer, meta.generatedAt),
+        : exportReviewer({ ...this._store, reviewer: who }, meta, this._isOrphaned, describeRoute),
+      exportFilename(project, builder ? null : who, meta.generatedAt),
     ];
+  }
+
+  /**
+   * Adopt the name typed into the export sheet. The storage key embeds the
+   * reviewer, so this MOVES the corpus — and only commits the new identity if
+   * that move succeeded. A refused write leaves both the name and the comments
+   * where they were: this export goes out unattributed, which is honest, where
+   * remembering a name whose corpus never moved would open empty next visit.
+   */
+  private _adoptTypedName(): void {
+    const typed = this._nameEl?.value.trim() ?? '';
+    const from = this._reviewer;
+    if (!typed || from === null || typed === from) return;
+    const { storage, config } = this._deps;
+    if (!renameReviewer(storage, config.project, from, typed)) return;
+    rememberReviewer(storage, config.project, typed);
+    this._reviewer = typed;
+    this._store = loadStore(storage, config.project, typed) ?? emptyStore(config.project, typed);
   }
 
   private async _handleReviewerExport(clear = false): Promise<void> {
@@ -1962,6 +2010,7 @@ export class Annotator {
     // from pinning (0.3.0 review #4). Disarm BEFORE capturing the ownership
     // panel — disarming may rebuild an open menu.
     if (this._annotating) this._exitAnnotateMode();
+    this._adoptTypedName(); // before the artifact is built — it sets the attribution
     const [md, filename] = this._buildArtifact();
     download(md, filename);
     const startedFrom = this._panelEl;

@@ -1,3 +1,5 @@
+import { randomToken } from './id';
+
 // Namespaced under `pinflow:r:` to avoid colliding with the comments store
 // prefix (`pinflow:c:`) used in storage.ts.
 const NAME_KEY_PREFIX = 'pinflow:r';
@@ -6,7 +8,32 @@ export interface IdentityDeps {
   url?: string;
   storage: Storage;
   project: string;
-  prompt?: (message: string) => string | null;
+  /**
+   * Mints an identity when neither the URL nor storage supplies one. Omitted
+   * by stealth at init, which must not touch storage before its first
+   * activation — identity resolves on the gesture instead.
+   */
+  mint?: () => string;
+}
+
+const ANON_PREFIX = 'anon_';
+
+/**
+ * A stable per-browser handle so a reviewer HAS an identity — and therefore a
+ * corpus of their own — without being asked who they are. It is a storage key,
+ * never a display name: `isAnonymous` gates it out of the export.
+ */
+export function anonymousHandle(): string {
+  return `${ANON_PREFIX}${randomToken(9)}`;
+}
+
+/**
+ * True for a minted handle. A host that passes `?reviewer=anon_x` by hand gets
+ * treated as unnamed; that collision is theirs to avoid and costs only
+ * attribution.
+ */
+export function isAnonymous(name: string): boolean {
+  return name.startsWith(ANON_PREFIX);
 }
 
 function reviewerKey(project: string): string {
@@ -15,7 +42,7 @@ function reviewerKey(project: string): string {
 
 // Best-effort, mirroring storage.ts's never-throw discipline: private modes /
 // full quotas may reject the write; identity then just isn't remembered.
-function remember(storage: Storage, project: string, name: string): void {
+export function rememberReviewer(storage: Storage, project: string, name: string): void {
   try {
     storage.setItem(reviewerKey(project), name);
   } catch {
@@ -36,28 +63,15 @@ export function reviewerFromUrl(url: string): string | null {
 export function resolveReviewer(deps: IdentityDeps): string | null {
   const urlName = deps.url ? reviewerFromUrl(deps.url) : null;
   if (urlName) {
-    remember(deps.storage, deps.project, urlName);
+    rememberReviewer(deps.storage, deps.project, urlName);
     return urlName;
   }
   const stored = deps.storage.getItem(reviewerKey(deps.project));
   if (stored && stored.trim().length > 0) return stored.trim();
-  if (deps.prompt) {
-    // A sandboxed iframe without `allow-modals` — Lovable, Bolt, StackBlitz,
-    // CodeSandbox, i.e. where these prototypes actually live — does not return
-    // null from prompt(), it THROWS. Unguarded, that escaped init() and pinflow
-    // failed to mount at all. A prompt the environment refuses to show is an
-    // unanswered prompt, so it degrades exactly like a cancelled one.
-    let answer: string | null;
-    try {
-      answer = deps.prompt("What's your name?");
-    } catch {
-      return null;
-    }
-    if (answer && answer.trim().length > 0) {
-      const name = answer.trim();
-      remember(deps.storage, deps.project, name);
-      return name;
-    }
+  if (deps.mint) {
+    const name = deps.mint();
+    rememberReviewer(deps.storage, deps.project, name);
+    return name;
   }
   return null;
 }

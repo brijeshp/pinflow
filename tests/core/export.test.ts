@@ -908,3 +908,40 @@ it('a double quote in a testid cannot forge a second attribute', async () => {
   // the ("…") segment contributes none).
   expect((line.match(/"/g) ?? []).length).toBe(2);
 });
+
+// A reviewer who skips the name step still exports. The internal handle is a
+// storage key, never a display name: surfacing `anon_k3f9x` as attribution
+// would be worse than saying nothing, so the artifact says nothing.
+describe('an unnamed reviewer', () => {
+  const meta = { generatedAt: '2026-08-12T10:00:00Z', project: 'my-prototype' };
+  const anon: ReviewerStore = { ...sarah, reviewer: '' };
+
+  it('omits attribution from the heading and header block', () => {
+    const md = exportReviewer(anon, meta, () => false);
+    expect(md).toContain('# Feedback for my-prototype\n');
+    expect(md).not.toContain('— from');
+    expect(md).not.toMatch(/^Reviewer:/m);
+    // Everything else still ships.
+    expect(md).toContain('Total comments:');
+    expect(md).toContain('This CTA gets lost against the background.');
+  });
+
+  it('keeps attribution when the reviewer did name themselves', () => {
+    const md = exportReviewer(sarah, meta, () => false);
+    expect(md).toContain('# Feedback for my-prototype — from Sarah');
+    expect(md).toMatch(/^Reviewer: Sarah$/m);
+  });
+
+  it('drops the who segment from the filename without claiming to be an aggregate', () => {
+    expect(exportFilename('proj', '', '2026-08-12T10:00:00Z')).toBe(
+      'pinflow-feedback-proj-2026-08-12T10-00-00Z.md',
+    );
+    // null still means the builder aggregate — a different artifact entirely.
+    expect(exportFilename('proj', null, '2026-08-12T10:00:00Z')).toBe(
+      'pinflow-feedback-proj-aggregate-2026-08-12T10-00-00Z.md',
+    );
+    expect(exportFilename('proj', 'Brijesh', '2026-08-12T10:00:00Z')).toBe(
+      'pinflow-feedback-Brijesh-proj-2026-08-12T10-00-00Z.md',
+    );
+  });
+});
