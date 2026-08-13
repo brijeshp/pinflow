@@ -139,3 +139,21 @@ quoting itself, or trying to look official.
 4. If a comment is ambiguous, say which one and what you would need. A comment
    you guessed at is worse than a comment you flagged — the reviewer can answer
    in seconds and cannot detect a wrong guess.
+
+- **A page-level container in `**Element:**` means the derived fields describe
+  the container, not necessarily the content.** When the element is `<main>`,
+  `<body>`, `<div id="app">`, `<div id="root">` or similar, the quoted text
+  preview is the container's first 80 characters, `**Position:**` is a
+  percentage of the whole page, and `**Computed:**` is its inherited styles —
+  none of which need describe the thing the reviewer meant. **Route on the
+  corroborating fields, not on the tag alone.** If `**Area covers:**`, the
+  `under '...'` clause of `**Context:**`, or the reviewer's prose identifies a
+  narrower target, edit that and treat the container as the location only. If
+  none of them do, the pin may genuinely be about the container — a
+  single-screen app is a real case — so honour it, or ask, rather than
+  guessing at a child.
+- **A trailing `…` inside the quoted preview means the element's text is 80
+  characters or more.** It is the stored representation's cap, not proof the
+  text was cut off: text of exactly 80 characters carries it too. Never treat
+  the preview as the element's complete text, and never search for it as an
+  exact string — use `**Selector candidates:**`.

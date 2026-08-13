@@ -73,7 +73,20 @@ export function anchorTarget(el: Element): Element {
   return el;
 }
 
-export function buildAnchor(target: Element, clientX: number, clientY: number): Anchor {
+export function buildAnchor(
+  target: Element,
+  clientX: number,
+  clientY: number,
+  // The area picker's pre-climb element: the block the rect was actually drawn
+  // over. ONLY the heading moves. Selectors, fingerprint, name, role and
+  // styles still describe the ANCHORED element — they must all agree or the
+  // export block contradicts itself with nothing to explain the mismatch.
+  // "nearest heading above here" is a fact about the POSITION, not a property
+  // of the element, which is what makes it the one field safe to re-source.
+  // `deep ?? el`, not `deep ?? target`: target can be deeper than el, and
+  // walking from deeper can surface a different heading on every point pin.
+  deep?: Element,
+): Anchor {
   const el = anchorTarget(target);
   const fingerprint = getTextFingerprint(el);
   // Best-effort human context (accessible name, role, nearest heading) —
@@ -86,7 +99,7 @@ export function buildAnchor(target: Element, clientX: number, clientY: number): 
   // alt must never balloon the anchor toward the host's payload bound.
   const name = el.getAttribute('aria-label') ?? el.getAttribute('alt') ?? fingerprint;
   if (name) context.name = name.slice(0, 80);
-  const heading = nearestHeading(el);
+  const heading = nearestHeading(deep ?? el);
   if (heading) context.heading = heading;
   const src = el instanceof HTMLImageElement ? el.src : el.getAttribute('src');
   if (src) context.src = src.slice(0, 200);

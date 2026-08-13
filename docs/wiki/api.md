@@ -66,7 +66,7 @@ declaration would lose to the host's inline `all:initial`).
 
 - **`Comment`** — `id`, `createdAt`, `updatedAt`, `route`, `fullUrl`, `text`, `anchor`, `modality: 'text' | 'voice'`, `voice?: VoiceMeta`, plus the server-owned lifecycle disposition: `status?: 'open' | 'done' | 'declined'` and `resolution?: string` (≤500 chars). Disposition is set by the TEAM via the host and arrives through hydration — never written by the reviewer's device; absent = open.
 - **`ReviewerStore`** — `reviewer`, `project`, `createdAt`, `comments[]`.
-- **`Anchor`** — `selectors` (testid, id, css, xpath), `textFingerprint`, `positionPercent` (0..100 x/y), `viewport` (width, height), and optional pin-time `context`: accessible `name`/`role`/nearest `heading` (≤80 chars each), truncated image `src` for image pins, and a `styles` computed-style micro-snapshot (background, backgroundImage, color, fontSize, fontFamily, radius — defaults omitted) capturing what the reviewer actually saw.
+- **`Anchor`** — `selectors` (testid, id, css, xpath), `textFingerprint`, `positionPercent` (0..100 x/y), `viewport` (width, height), and optional pin-time `context`: accessible `name`/`role`/nearest `heading` (≤80 chars each), truncated image `src` for image pins, and a `styles` computed-style micro-snapshot (background, backgroundImage, color, fontSize, fontFamily, radius — defaults omitted) capturing what the reviewer actually saw. Area comments may also carry `covers`: up to 3 newline-separated labels (≤40 chars each) of the blocks the drawn rect was sampled over, since the containing ancestor a marquee climbs to can be a page-level container whose own text describes a different part of the page.
 
 ## React wrapper (`src/react/index.ts`)
 
