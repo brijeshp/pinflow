@@ -173,3 +173,51 @@ describe('visual context capture (agent blast radius)', () => {
     expect(anchor.context?.name).toBe('Team photo');
   });
 });
+
+// ————— 0.6.1: heading from the block the marquee was drawn over —————
+// An area rect spanning sibling cards has no tight common ancestor, so the
+// climb lands on a page-level container. nearestHeading() was then walking
+// from THAT — and a container like <main> has NO heading above it — so the
+// export lost its "under '…'" clause, the one line telling the agent where on
+// the page to look. Fixture mirrors the shipped pinflow.dev structure.
+describe('buildAnchor deep-element heading (0.6.1)', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const page =
+    '<main id="main">' +
+    '<section><h1>Put feedback directly on the page</h1></section>' +
+    '<section><h2>Three ways teams use it</h2>' +
+    '<ul id="cards"><li id="card">Production websites</li></ul></section>' +
+    '</main>';
+
+  it('a page-level anchor has no heading of its own (the reported defect)', () => {
+    document.body.innerHTML = page;
+    const main = document.getElementById('main')!;
+    expect(buildAnchor(main, 0, 0).context?.heading).toBeUndefined();
+  });
+
+  it('takes the heading from the deep element when one is supplied', () => {
+    document.body.innerHTML = page;
+    const main = document.getElementById('main')!;
+    const card = document.getElementById('card')!;
+    expect(buildAnchor(main, 0, 0, card).context?.heading).toBe('Three ways teams use it');
+  });
+
+  // The guard against the mixed-provenance design we rejected: only the
+  // heading may come from the deep element. Everything else must keep
+  // describing the element **Element:** names, or the block contradicts
+  // itself with nothing to explain the mismatch.
+  it('moves ONLY the heading, never the selectors, fingerprint, name or role', () => {
+    document.body.innerHTML = page;
+    const main = document.getElementById('main')!;
+    const card = document.getElementById('card')!;
+    const plain = buildAnchor(main, 0, 0);
+    const deep = buildAnchor(main, 0, 0, card);
+    expect(deep.selectors).toEqual(plain.selectors);
+    expect(deep.textFingerprint).toBe(plain.textFingerprint);
+    expect(deep.context?.name).toBe(plain.context?.name);
+    expect(deep.context?.role).toBe(plain.context?.role);
+  });
+});

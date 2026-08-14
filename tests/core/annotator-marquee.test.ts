@@ -665,3 +665,178 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(rule).toContain('-webkit-touch-callout:none');
   });
 });
+
+// ————— 0.6.1: what the rect was actually drawn over —————
+// A rect spanning sibling cards has no tight common ancestor, so the climb
+// lands on a page-level container and the export quoted that container's first
+// 80 characters — the hero, thousands of pixels from the comment. The climb
+// already resolved the real block and threw it away; `covers` keeps it.
+describe('area comments record the blocks they cover (0.6.1)', () => {
+  let annotator: Annotator | null = null;
+
+  afterEach(async () => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    document.body.style.cursor = '';
+    vi.restoreAllMocks();
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
+  // Coordinate-aware, because the three diagonal samples must be able to hit
+  // three different elements. happy-dom has no layout, so this IS the layout.
+  function hitTest(map: Array<[number, number, Element | null]>, fallback: Element | null): void {
+    Object.defineProperty(document, 'elementFromPoint', {
+      value: vi.fn((x: number, y: number) => {
+        for (const [mx, my, el] of map) {
+          if (Math.abs(mx - x) < 1.5 && Math.abs(my - y) < 1.5) return el;
+        }
+        return fallback;
+      }),
+      configurable: true,
+      writable: true,
+    });
+  }
+
+  // drag (100,100)->(300,300): centre (200,200), insets (133.3,133.3) and (266.7,266.7)
+  function threeCards(): { list: HTMLElement; cards: HTMLElement[] } {
+    const list = document.createElement('ul');
+    const cards = ['card one', 'card two', 'card three'].map((t) => {
+      const li = document.createElement('li');
+      li.textContent = t;
+      list.appendChild(li);
+      return li;
+    });
+    document.body.appendChild(list);
+    mockRect(list, { left: 0, top: 0, width: 800, height: 800 });
+    cards.forEach((c, i) => mockRect(c, { left: 100 + i * 10, top: 100, width: 40, height: 40 }));
+    return { list, cards };
+  }
+
+  it('names all three blocks the diagonal crosses, centre first', () => {
+    annotator = makeAnnotator();
+    arm();
+    const { list, cards } = threeCards();
+    hitTest(
+      [
+        [200, 200, cards[1]!],
+        [100 + 200 / 6, 100 + 200 / 6, cards[0]!],
+        [100 + (200 * 5) / 6, 100 + (200 * 5) / 6, cards[2]!],
+      ],
+      list,
+    );
+
+    drag(list, [100, 100], [300, 300]);
+
+    const stored = comments();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.anchor.covers).toBe('card two\ncard one\ncard three');
+  });
+
+  // THE REGRESSION GUARD on the climb refactor. The centre resolution must be
+  // byte-identical to 0.6.0 — same anchor, same areaPercent — or every stored
+  // area comment silently changes meaning.
+  it('leaves the anchor and areaPercent exactly as 0.6.0 computed them', () => {
+    annotator = makeAnnotator();
+    arm();
+    const { list, cards } = threeCards();
+    hitTest([[200, 200, cards[1]!]], list);
+
+    drag(list, [100, 100], [300, 300]);
+
+    const a = comments()[0]!.anchor;
+    expect(a.selectors.css).toContain('ul');
+    expect(a.areaPercent!['x']).toBeCloseTo((100 / 800) * 100, 1);
+    expect(a.areaPercent!['y']).toBeCloseTo((100 / 800) * 100, 1);
+    expect(a.areaPercent!['w']).toBeCloseTo((200 / 800) * 100, 1);
+    expect(a.areaPercent!['h']).toBeCloseTo((200 / 800) * 100, 1);
+  });
+
+  it('records nothing when the drag only crosses the container itself', () => {
+    annotator = makeAnnotator();
+    arm();
+    const { list } = threeCards();
+    hitTest([], list); // every sample lands on the containing <ul>
+
+    drag(list, [100, 100], [300, 300]);
+
+    expect(comments()[0]!.anchor.covers).toBeUndefined();
+  });
+
+  it('dedupes repeated hits and caps the list at three', () => {
+    annotator = makeAnnotator();
+    arm();
+    const { list, cards } = threeCards();
+    hitTest([], cards[0]!); // every sample returns the SAME card
+
+    drag(list, [100, 100], [300, 300]);
+
+    expect(comments()[0]!.anchor.covers).toBe('card one');
+  });
+
+  it('never lists pinflow-s own chrome as a covered block', () => {
+    annotator = makeAnnotator();
+    arm();
+    const { list, cards } = threeCards();
+    // document.elementFromPoint returns the shadow HOST, never a node inside
+    // the shadow root — so the host is the only shape of our own chrome the
+    // sampler can ever see.
+    const own = document.querySelector('[data-pinflow-root]')!;
+    hitTest(
+      [
+        [200, 200, own],
+        [100 + 200 / 6, 100 + 200 / 6, cards[0]!],
+      ],
+      list,
+    );
+
+    drag(list, [100, 100], [300, 300]);
+
+    const covers = comments()[0]!.anchor.covers ?? '';
+    expect(covers).not.toContain('pinflow');
+    expect(covers).toBe('card one');
+  });
+
+  // FALSE-POSITIVE GUARD. Nothing in 0.6.1 may refuse or redirect a pin. A
+  // single-screen app where the pinnable thing legitimately IS the whole page
+  // must keep working exactly as before — a predicate that rejects real pins
+  // would be worse than the bug we are fixing.
+  it('a legitimate full-page pin is still placed, unchanged and un-refused', () => {
+    annotator = makeAnnotator();
+    arm();
+    const app = document.createElement('main');
+    app.id = 'app';
+    app.textContent = 'single screen app';
+    document.body.appendChild(app);
+    mockRect(app, { left: 0, top: 0, width: 1200, height: 800 });
+    mockElementFromPoint(app);
+
+    app.dispatchEvent(ptr('pointerdown', { clientX: 400, clientY: 200, pointerType: 'mouse' }));
+    app.dispatchEvent(ptr('pointerup', { clientX: 400, clientY: 200, pointerType: 'mouse' }));
+    app.dispatchEvent(ptr('click', { clientX: 400, clientY: 200, pointerType: 'mouse' }));
+
+    const stored = comments();
+    expect(stored).toHaveLength(1);
+    expect(stored[0]!.anchor.selectors.id).toBe('app');
+    expect(stored[0]!.anchor.covers).toBeUndefined();
+    expect(stored[0]!.anchor.positionPercent).toEqual({ x: 33.33, y: 25 });
+  });
+
+  it('labels a text-less block by its tag name', () => {
+    annotator = makeAnnotator();
+    arm();
+    const list = document.createElement('ul');
+    const li = document.createElement('li');
+    li.appendChild(document.createElement('img'));
+    list.appendChild(li);
+    document.body.appendChild(list);
+    mockRect(list, { left: 0, top: 0, width: 800, height: 800 });
+    mockRect(li, { left: 100, top: 100, width: 40, height: 40 });
+    hitTest([], li);
+
+    drag(list, [100, 100], [300, 300]);
+
+    expect(comments()[0]!.anchor.covers).toBe('li');
+  });
+});

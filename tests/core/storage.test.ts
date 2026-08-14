@@ -7,6 +7,7 @@ import {
   loadStore,
   mergeComments,
   renameReviewer,
+  normalizeComments,
   saveStore,
   storageKey,
   upsertComment,
@@ -569,6 +570,121 @@ it('caps an oversized hydrated textFingerprint to the 80-char representation', a
   expect(kept).toHaveLength(1);
   expect(kept[0]!.id).toBe('big');
   expect(kept[0]!.anchor.textFingerprint).toBe('a'.repeat(80));
+});
+
+// ————— 0.6.1 —————
+describe('a malformed textFingerprint must not take the whole store down', () => {
+  function rec(fingerprint: unknown): unknown {
+    return {
+      id: 'c1',
+      createdAt: 'x',
+      updatedAt: 'x',
+      route: '/',
+      fullUrl: 'http://x/',
+      modality: 'text',
+      text: 't',
+      anchor: {
+        selectors: { testid: null, id: null, css: 'p', xpath: '/p' },
+        textFingerprint: fingerprint,
+        positionPercent: { x: 1, y: 1 },
+        viewport: { width: 100, height: 100 },
+      },
+    };
+  }
+
+  // optStr admitted null/undefined, then normalizeComments dereferenced
+  // .length unguarded in the same map — so ONE hostile record from a source()
+  // payload or tampered localStorage threw and discarded every other comment.
+  it.each([
+    ['null', null],
+    ['absent', undefined],
+    ['a number', 42],
+  ])('drops only the bad record when the fingerprint is %s', (_label, fp) => {
+    const good = rec('real fingerprint') as Record<string, unknown>;
+    (good as { id: string }).id = 'c2';
+    expect(() => normalizeComments([rec(fp), good] as never)).not.toThrow();
+    const out = normalizeComments([rec(fp), good] as never);
+    expect(out.map((c) => c.id)).toEqual(['c2']);
+  });
+
+  it('keeps an empty-string fingerprint, which buildAnchor legitimately writes', () => {
+    expect(normalizeComments([rec('')] as never)).toHaveLength(1);
+  });
+});
+
+describe('covers survives hydration (0.6.1)', () => {
+  function rec(covers: unknown): unknown {
+    return {
+      id: 'c1',
+      createdAt: 'x',
+      updatedAt: 'x',
+      route: '/',
+      fullUrl: 'http://x/',
+      modality: 'text',
+      text: 't',
+      anchor: {
+        selectors: { testid: null, id: null, css: 'p', xpath: '/p' },
+        textFingerprint: 'fp',
+        positionPercent: { x: 1, y: 1 },
+        viewport: { width: 100, height: 100 },
+        areaPercent: { x: 0, y: 0, w: 10, h: 10 },
+        ...(covers === undefined ? {} : { covers }),
+      },
+    };
+  }
+
+  it('keeps a valid covers string untouched', () => {
+    const out = normalizeComments([rec('one\ntwo')] as never);
+    expect(out[0]!.anchor.covers).toBe('one\ntwo');
+  });
+
+  it('an old area comment with no covers still validates', () => {
+    expect(normalizeComments([rec(undefined)] as never)).toHaveLength(1);
+  });
+
+  it('drops a record whose covers is not a string', () => {
+    expect(normalizeComments([rec(42)] as never)).toEqual([]);
+  });
+});
+
+// ————— 0.6.1 review round —————
+describe('covers is string-or-absent, never null (review #2)', () => {
+  function rec(covers: unknown, present = true): unknown {
+    return {
+      id: 'c1',
+      createdAt: 'x',
+      updatedAt: 'x',
+      route: '/',
+      fullUrl: 'http://x/',
+      modality: 'text',
+      text: 't',
+      anchor: {
+        selectors: { testid: null, id: null, css: 'p', xpath: '/p' },
+        textFingerprint: 'fp',
+        positionPercent: { x: 1, y: 1 },
+        viewport: { width: 100, height: 100 },
+        areaPercent: { x: 0, y: 0, w: 10, h: 10 },
+        ...(present ? { covers } : {}),
+      },
+    };
+  }
+
+  // optStr admits null, and the spread preserved it into a field the type
+  // declares as `string | undefined` — so a source() payload could hand every
+  // downstream consumer a null where only a string is possible.
+  it('drops a record whose covers is null', () => {
+    expect(normalizeComments([rec(null)] as never)).toEqual([]);
+  });
+
+  it('keeps absence, which is how every point comment and every 0.6.0 record looks', () => {
+    const out = normalizeComments([rec(undefined, false)] as never);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.anchor.covers).toBeUndefined();
+  });
+
+  it('keeps a real string', () => {
+    expect(normalizeComments([rec('one\ntwo')] as never)[0]!.anchor.covers).toBe('one\ntwo');
+  });
 });
 
 // Naming yourself at export time moves the corpus: the storage key embeds the

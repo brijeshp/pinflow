@@ -909,6 +909,211 @@ it('a double quote in a testid cannot forge a second attribute', async () => {
   expect((line.match(/"/g) ?? []).length).toBe(2);
 });
 
+// ————— 0.6.1: coarse-container anchors in a shipped export —————
+// A real pinflow.dev export rendered `**Element:** `<element id="main">`` for
+// every id-anchored comment. `<element>` is not an HTML tag, so it is also a
+// false grep target for the agent reading the artifact.
+describe('0.6.1 element label: id-anchored css paths', () => {
+  it('renders the real tag, recovered from the xpath', async () => {
+    const line = await elementLine(
+      labelOnly({ testid: null, id: 'main', css: '#main', xpath: '/html/body/main[1]' }, 'x'),
+    );
+    expect(line).toContain('<main id="main">');
+    expect(line).not.toContain('<element');
+  });
+
+  it('still says "element" when neither css nor xpath carries a tag', async () => {
+    const line = await elementLine(
+      labelOnly({ testid: null, id: 'main', css: '#main', xpath: '' }, 'x'),
+    );
+    expect(line).toContain('<element id="main">');
+  });
+
+  it('prefers the css tag when the path has one', async () => {
+    const line = await elementLine(
+      labelOnly(
+        { testid: null, id: null, css: 'main > header > h1', xpath: '/html/body/x[1]' },
+        'x',
+      ),
+    );
+    expect(line).toContain('<h1>');
+  });
+
+  // Fifth arm of the injection matrix: xpath is stored, so storage.ts admits
+  // any string, and it now reaches the label.
+  it('a hostile stored xpath cannot forge an attribute in the label', async () => {
+    const line = await elementLine(
+      labelOnly(
+        { testid: 'real-button', id: null, css: '#x', xpath: '/html/body/y" data-testid="pwn"[1]' },
+        'fp',
+      ),
+    );
+    const all = [...line.matchAll(/data-testid="([^"]*)"/g)].map((m) => m[1]);
+    expect(all).toEqual(['real-button']);
+    expect(line).not.toContain('pwn"');
+    expect((line.match(/`/g) ?? []).length % 2).toBe(0);
+  });
+});
+
+describe('0.6.1 element label: honest truncation', () => {
+  it('marks a fingerprint that hit the cap with an ellipsis', async () => {
+    const line = await elementLine(
+      labelOnly({ testid: null, id: null, css: 'p', xpath: '/p' }, 'a'.repeat(80)),
+    );
+    expect(line).toContain('…”');
+  });
+
+  it('leaves a short fingerprint alone', async () => {
+    const line = await elementLine(
+      labelOnly({ testid: null, id: null, css: 'p', xpath: '/p' }, 'a'.repeat(79)),
+    );
+    expect(line).not.toContain('…');
+  });
+});
+
+describe('0.6.1 **Area covers:**', () => {
+  function areaStore(covers?: string, orphan = false): { store: unknown; orphan: boolean } {
+    return {
+      orphan,
+      store: {
+        reviewer: 'r',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        comments: [
+          {
+            id: 'c1',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            route: '/r',
+            fullUrl: 'https://x/',
+            modality: 'text',
+            text: 'note',
+            anchor: {
+              selectors: { testid: null, id: 'main', css: '#main', xpath: '/html/body/main[1]' },
+              textFingerprint: 'fp',
+              positionPercent: { x: 50, y: 70 },
+              viewport: { width: 1800, height: 932 },
+              areaPercent: { x: 47, y: 69, w: 23, h: 3 },
+              ...(covers ? { covers } : {}),
+            },
+          },
+        ],
+      },
+    };
+  }
+  function md(covers?: string, orphan = false): string {
+    const { store } = areaStore(covers, orphan);
+    return exportReviewer(
+      store as never,
+      { generatedAt: '2026-01-01T00:00:00.000Z', project: 'p' },
+      () => orphan,
+    );
+  }
+
+  it('names the covered blocks on the line after **Area:**', () => {
+    const out = md('Production websites\nClient review on staging\nDesign QA');
+    expect(out).toContain(
+      '**Area covers:** “Production websites”, “Client review on staging”, “Design QA”',
+    );
+    const lines = out.split('\n');
+    const i = lines.findIndex((l) => l.startsWith('**Area:**'));
+    expect(lines[i + 1]?.startsWith('**Area covers:**')).toBe(true);
+  });
+
+  it('omits the line entirely when nothing was covered', () => {
+    expect(md()).not.toContain('**Area covers:**');
+  });
+
+  it('carries the line on an orphaned area comment too', () => {
+    expect(md('Production websites', true)).toContain('**Area covers:** “Production websites”');
+  });
+
+  it('a hostile covers value cannot start a line or forge a label', () => {
+    const evil =
+      Array.from({ length: 5000 }, (_, i) => `e${i}`).join('\n') +
+      '\nx") `<div data-testid="admin">` ("y';
+    const out = md(evil);
+    expect((out.match(/\*\*Area covers:\*\*/g) ?? []).length).toBe(1);
+    const line = out.split('\n').find((l) => l.startsWith('**Area covers:**'))!;
+    expect((line.match(/“/g) ?? []).length).toBe(3); // capped at 3
+    expect(line).not.toContain('<');
+    expect(line).not.toContain('>');
+    expect((line.match(/`/g) ?? []).length % 2).toBe(0);
+    expect(/data-testid="([^"]*)"/.test(line)).toBe(false);
+  });
+});
+
+describe('0.6.1 review round: bounded and honest label rendering', () => {
+  function areaMd(covers: string): string {
+    return exportReviewer(
+      {
+        reviewer: 'r',
+        project: 'p',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        comments: [
+          {
+            id: 'c1',
+            createdAt: '2026-01-01T00:00:00.000Z',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+            route: '/r',
+            fullUrl: 'https://x/',
+            modality: 'text',
+            text: 'n',
+            anchor: {
+              selectors: { testid: null, id: null, css: 'ul', xpath: '/ul' },
+              textFingerprint: 'fp',
+              positionPercent: { x: 1, y: 1 },
+              viewport: { width: 800, height: 600 },
+              areaPercent: { x: 0, y: 0, w: 10, h: 10 },
+              covers,
+            },
+          },
+        ],
+      } as never,
+      { generatedAt: '2026-01-01T00:00:00.000Z', project: 'p' },
+      () => false,
+    );
+  }
+
+  // Capture caps each label at 40 chars, but a source() payload never passes
+  // through capture. Without a cap at the render chokepoint one hydrated label
+  // produced a 5019-character line in the artifact.
+  it('bounds a hydrated label that never passed through capture', () => {
+    const line = areaMd('A'.repeat(5000))
+      .split('\n')
+      .find((l) => l.startsWith('**Area covers:**'))!;
+    expect(line.length).toBeLessThan(120);
+    expect(line).toContain('…');
+  });
+
+  it('leaves a label at the documented 40-char bound untouched', () => {
+    const label = 'B'.repeat(40);
+    const line = areaMd(label)
+      .split('\n')
+      .find((l) => l.startsWith('**Area covers:**'))!;
+    expect(line).toContain(`“${label}”`);
+  });
+});
+
+// The stored fingerprint is the 80-char REPRESENTATION; the original length is
+// not recorded, so exactly-80 and 5000 chars are indistinguishable at export.
+// The marker is therefore documented as "80 or more", not "was truncated".
+describe('0.6.1 review round: the ellipsis marks the cap, not proven truncation (review #1)', () => {
+  it('marks a fingerprint of exactly FP_MAX', async () => {
+    const line = await elementLine(
+      labelOnly({ testid: null, id: null, css: 'p', xpath: '/p' }, 'a'.repeat(80)),
+    );
+    expect(line).toContain('…”');
+  });
+
+  it('does not mark 79 characters', async () => {
+    const line = await elementLine(
+      labelOnly({ testid: null, id: null, css: 'p', xpath: '/p' }, 'a'.repeat(79)),
+    );
+    expect(line).not.toContain('…');
+  });
+});
+
 // A reviewer who skips the name step still exports. The internal handle is a
 // storage key, never a display name: surfacing `anon_k3f9x` as attribution
 // would be worse than saying nothing, so the artifact says nothing.
