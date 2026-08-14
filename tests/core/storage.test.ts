@@ -795,3 +795,129 @@ describe('renameReviewer duplicate-id conflicts', () => {
     expect(loadStore(localStorage, 'p', 'Brijesh')?.comments[0]!.text).toBe('target');
   });
 });
+
+// 0.8.0 review. scope.ts strips invisible characters from a label at CAPTURE,
+// and says why: the value "flows into localStorage, the JSON export and the
+// host's onChange payload, all of which bypass the markdown escapers
+// entirely". Hydration serves backends, imported exports and tampered blobs —
+// strictly less trusted than the DOM — but re-applied only the LENGTH cap. So
+// the one boundary that exists to distrust the wire let the wire through.
+describe('scope hydration sanitises like capture does', () => {
+  const withScope = (boundary: unknown): unknown[] => [
+    {
+      id: 'c1',
+      createdAt: '',
+      updatedAt: '',
+      route: '/',
+      text: 'the reviewer words',
+      modality: 'text',
+      anchor: {
+        selectors: { testid: null, id: null, css: 'body', xpath: '/html/body' },
+        textFingerprint: '',
+        positionPercent: { x: 1, y: 1 },
+        viewport: { width: 9, height: 9 },
+      },
+      scope: { gen: 1, rung: 'landmark', confidence: 'low', boundary },
+    },
+  ];
+
+  it('strips bidi overrides, zero-width and Unicode tag characters from a label', () => {
+    const evil = 'Save‮​\u{E0001} me';
+    const out = normalizeComments(withScope({ tag: 'div', css: 'div', label: evil }) as never);
+    const label = out[0]!.scope!.boundary.label!;
+    expect(label).toBe('Save me');
+    expect(/[​-‏‪-‮﻿]/.test(label)).toBe(false);
+    expect(/\uDB40[\uDC00-\uDC7F]/.test(label)).toBe(false);
+  });
+
+  it('also strips them from a testid, which reaches the same artifact line', () => {
+    const out = normalizeComments(
+      withScope({ tag: 'div', css: 'div', testid: 'up‮grade' }) as never,
+    );
+    expect(out[0]!.scope!.boundary.testid).toBe('upgrade');
+  });
+
+  // Every other untrusted string on the record is bounded — textFingerprint to
+  // FP_MAX, resolution to 500. These two were not, so one payload could carry
+  // an unbounded string into every future export and onChange call.
+  it('rejects a node whose tag or css is absurdly long rather than truncating it', () => {
+    const longCss = normalizeComments(withScope({ tag: 'div', css: 'y'.repeat(50000) }) as never);
+    expect(longCss[0]!.scope).toBeUndefined();
+    const longTag = normalizeComments(withScope({ tag: 'x'.repeat(5000), css: 'div' }) as never);
+    expect(longTag[0]!.scope).toBeUndefined();
+    // Losing a boundary hint must never lose the reviewer's words.
+    expect(longCss[0]!.text).toBe('the reviewer words');
+    expect(longTag[0]!.text).toBe('the reviewer words');
+  });
+
+  it('keeps a realistic deep css path', () => {
+    const real = Array.from({ length: 20 }, (_, i) => `div.wrapper-${i} > section`).join(' > ');
+    const out = normalizeComments(withScope({ tag: 'section', css: real }) as never);
+    expect(out[0]!.scope!.boundary.css).toBe(real);
+  });
+});
+
+// A non-string label reaching a string-only sanitiser is how the FP_MAX bug
+// took out a whole store: the guard was a cast, so the throw happened inside
+// the map and discarded every other comment with it.
+it('survives a scope node whose label or testid is not a string', () => {
+  const rec = (boundary: unknown): unknown[] => [
+    {
+      id: 'c1',
+      createdAt: '',
+      updatedAt: '',
+      route: '/',
+      text: 'kept',
+      modality: 'text',
+      anchor: {
+        selectors: { testid: null, id: null, css: 'body', xpath: '/html/body' },
+        textFingerprint: '',
+        positionPercent: { x: 1, y: 1 },
+        viewport: { width: 9, height: 9 },
+      },
+      scope: { gen: 1, rung: 'landmark', confidence: 'low', boundary },
+    },
+  ];
+  for (const bad of [5, {}, [], true]) {
+    expect(() =>
+      normalizeComments(rec({ tag: 'div', css: 'div', label: bad }) as never),
+    ).not.toThrow();
+    const out = normalizeComments(rec({ tag: 'div', css: 'div', testid: bad }) as never);
+    expect(out[0]!.text).toBe('kept');
+    expect(out[0]!.scope!.boundary.testid).toBeUndefined();
+  }
+});
+
+// The 0.7.0 rename and the 0.8.0 scope model met for the first time in a
+// merge, so no test covered a scoped comment surviving a corpus move.
+it('carries scope through a reviewer rename, newest edit winning', () => {
+  localStorage.clear();
+  const scoped = (id: string, updatedAt: string, label: string): Comment => ({
+    ...makeComment({ id, updatedAt }),
+    scope: {
+      gen: 1,
+      rung: 'testid',
+      confidence: 'high',
+      boundary: { tag: 'section', css: 'section', label },
+    },
+  });
+  saveStore(localStorage, {
+    ...emptyStore('p', 'Brijesh'),
+    comments: [scoped('cmt_1', '2026-08-11T00:00:00Z', 'older')],
+  });
+  saveStore(localStorage, {
+    ...emptyStore('p', 'anon_abc'),
+    comments: [
+      scoped('cmt_1', '2026-08-12T00:00:00Z', 'newer'),
+      scoped('cmt_2', '2026-08-12T00:00:00Z', 'only-here'),
+    ],
+  });
+  expect(renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh')).toBe(true);
+
+  const moved = loadStore(localStorage, 'p', 'Brijesh')?.comments ?? [];
+  expect(moved).toHaveLength(2);
+  const one = moved.find((c) => c.id === 'cmt_1')!;
+  expect(one.scope?.boundary.label).toBe('newer');
+  expect(one.scope?.rung).toBe('testid');
+  expect(moved.find((c) => c.id === 'cmt_2')?.scope?.boundary.label).toBe('only-here');
+});

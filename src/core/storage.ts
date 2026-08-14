@@ -1,6 +1,6 @@
 import { rememberReviewer } from './identity';
 import { FP_MAX } from './selector';
-import { EXCLUDED_CAP, LABEL_MAX, MEMBER_CAP } from './scope-limits';
+import { cleanLabel, CSS_MAX, EXCLUDED_CAP, MEMBER_CAP, TAG_MAX } from './scope-limits';
 import { validateSourcePath } from './source-path';
 import { now } from './time';
 import type { ChangeNode, Comment, ReviewerStore, Scope, ScopeNode } from './types';
@@ -154,11 +154,20 @@ const CONFIDENCES = new Set(['high', 'medium', 'low']);
 // words.
 function scopeNode(v: unknown): ScopeNode | null {
   if (!isObject(v) || typeof v['tag'] !== 'string' || typeof v['css'] !== 'string') return null;
+  // Rejected, not truncated. A clipped css path is a selector that may match a
+  // DIFFERENT element than the one the reviewer drew around, which is worse
+  // than having no hint at all — and losing a hint never loses their words.
+  if (!v['tag'] || v['tag'].length > TAG_MAX || v['css'].length > CSS_MAX) return null;
   const node: ScopeNode = { tag: v['tag'], css: v['css'] };
-  if (typeof v['testid'] === 'string') node.testid = v['testid'];
-  // Re-capped here, not trusted from the wire: capture caps these, but this
-  // boundary also serves backends, imported exports and tampered blobs.
-  if (typeof v['label'] === 'string') node.label = v['label'].slice(0, LABEL_MAX);
+  // Re-sanitised here, not trusted from the wire. Capture cleans what it reads
+  // from the DOM; this boundary serves backends, imported exports and tampered
+  // blobs, so it applies the SAME rule — length was already re-capped, but the
+  // invisible-character strip was not, and `exportJSON` and `onChange` carry
+  // these strings past the markdown escapers untouched.
+  const testid = cleanLabel(v['testid']);
+  if (testid) node.testid = testid;
+  const label = cleanLabel(v['label']);
+  if (label) node.label = label;
   return node;
 }
 
