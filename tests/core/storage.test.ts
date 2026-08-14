@@ -6,6 +6,8 @@ import {
   loadAllStores,
   loadStore,
   mergeComments,
+  renameReviewer,
+  normalizeComments,
   saveStore,
   storageKey,
   upsertComment,
@@ -568,4 +570,228 @@ it('caps an oversized hydrated textFingerprint to the 80-char representation', a
   expect(kept).toHaveLength(1);
   expect(kept[0]!.id).toBe('big');
   expect(kept[0]!.anchor.textFingerprint).toBe('a'.repeat(80));
+});
+
+// ————— 0.6.1 —————
+describe('a malformed textFingerprint must not take the whole store down', () => {
+  function rec(fingerprint: unknown): unknown {
+    return {
+      id: 'c1',
+      createdAt: 'x',
+      updatedAt: 'x',
+      route: '/',
+      fullUrl: 'http://x/',
+      modality: 'text',
+      text: 't',
+      anchor: {
+        selectors: { testid: null, id: null, css: 'p', xpath: '/p' },
+        textFingerprint: fingerprint,
+        positionPercent: { x: 1, y: 1 },
+        viewport: { width: 100, height: 100 },
+      },
+    };
+  }
+
+  // optStr admitted null/undefined, then normalizeComments dereferenced
+  // .length unguarded in the same map — so ONE hostile record from a source()
+  // payload or tampered localStorage threw and discarded every other comment.
+  it.each([
+    ['null', null],
+    ['absent', undefined],
+    ['a number', 42],
+  ])('drops only the bad record when the fingerprint is %s', (_label, fp) => {
+    const good = rec('real fingerprint') as Record<string, unknown>;
+    (good as { id: string }).id = 'c2';
+    expect(() => normalizeComments([rec(fp), good] as never)).not.toThrow();
+    const out = normalizeComments([rec(fp), good] as never);
+    expect(out.map((c) => c.id)).toEqual(['c2']);
+  });
+
+  it('keeps an empty-string fingerprint, which buildAnchor legitimately writes', () => {
+    expect(normalizeComments([rec('')] as never)).toHaveLength(1);
+  });
+});
+
+describe('covers survives hydration (0.6.1)', () => {
+  function rec(covers: unknown): unknown {
+    return {
+      id: 'c1',
+      createdAt: 'x',
+      updatedAt: 'x',
+      route: '/',
+      fullUrl: 'http://x/',
+      modality: 'text',
+      text: 't',
+      anchor: {
+        selectors: { testid: null, id: null, css: 'p', xpath: '/p' },
+        textFingerprint: 'fp',
+        positionPercent: { x: 1, y: 1 },
+        viewport: { width: 100, height: 100 },
+        areaPercent: { x: 0, y: 0, w: 10, h: 10 },
+        ...(covers === undefined ? {} : { covers }),
+      },
+    };
+  }
+
+  it('keeps a valid covers string untouched', () => {
+    const out = normalizeComments([rec('one\ntwo')] as never);
+    expect(out[0]!.anchor.covers).toBe('one\ntwo');
+  });
+
+  it('an old area comment with no covers still validates', () => {
+    expect(normalizeComments([rec(undefined)] as never)).toHaveLength(1);
+  });
+
+  it('drops a record whose covers is not a string', () => {
+    expect(normalizeComments([rec(42)] as never)).toEqual([]);
+  });
+});
+
+// ————— 0.6.1 review round —————
+describe('covers is string-or-absent, never null (review #2)', () => {
+  function rec(covers: unknown, present = true): unknown {
+    return {
+      id: 'c1',
+      createdAt: 'x',
+      updatedAt: 'x',
+      route: '/',
+      fullUrl: 'http://x/',
+      modality: 'text',
+      text: 't',
+      anchor: {
+        selectors: { testid: null, id: null, css: 'p', xpath: '/p' },
+        textFingerprint: 'fp',
+        positionPercent: { x: 1, y: 1 },
+        viewport: { width: 100, height: 100 },
+        areaPercent: { x: 0, y: 0, w: 10, h: 10 },
+        ...(present ? { covers } : {}),
+      },
+    };
+  }
+
+  // optStr admits null, and the spread preserved it into a field the type
+  // declares as `string | undefined` — so a source() payload could hand every
+  // downstream consumer a null where only a string is possible.
+  it('drops a record whose covers is null', () => {
+    expect(normalizeComments([rec(null)] as never)).toEqual([]);
+  });
+
+  it('keeps absence, which is how every point comment and every 0.6.0 record looks', () => {
+    const out = normalizeComments([rec(undefined, false)] as never);
+    expect(out).toHaveLength(1);
+    expect(out[0]!.anchor.covers).toBeUndefined();
+  });
+
+  it('keeps a real string', () => {
+    expect(normalizeComments([rec('one\ntwo')] as never)[0]!.anchor.covers).toBe('one\ntwo');
+  });
+});
+
+// Naming yourself at export time moves the corpus: the storage key embeds the
+// reviewer (`pinflow:c:<project>:<reviewer>`), so a rename that only rewrote
+// the blob would strand every existing comment under the old key.
+describe('renameReviewer', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('moves the corpus to the new key and drops the old one', () => {
+    saveStore(localStorage, {
+      ...emptyStore('p', 'anon_abc'),
+      comments: [makeComment({ id: 'cmt_1' })],
+    });
+    expect(renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh')).toBe(true);
+
+    const moved = loadStore(localStorage, 'p', 'Brijesh');
+    expect(moved?.comments.map((c) => c.id)).toEqual(['cmt_1']);
+    expect(moved?.reviewer).toBe('Brijesh');
+    expect(localStorage.getItem(storageKey('p', 'anon_abc'))).toBeNull();
+  });
+
+  it('merges into an existing store under the target name without duplicating', () => {
+    saveStore(localStorage, {
+      ...emptyStore('p', 'anon_abc'),
+      comments: [makeComment({ id: 'cmt_new' }), makeComment({ id: 'cmt_shared' })],
+    });
+    saveStore(localStorage, {
+      ...emptyStore('p', 'Brijesh'),
+      comments: [makeComment({ id: 'cmt_old' }), makeComment({ id: 'cmt_shared' })],
+    });
+    expect(renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh')).toBe(true);
+
+    const ids = loadStore(localStorage, 'p', 'Brijesh')?.comments.map((c) => c.id) ?? [];
+    expect([...ids].sort()).toEqual(['cmt_new', 'cmt_old', 'cmt_shared']);
+    expect(localStorage.getItem(storageKey('p', 'anon_abc'))).toBeNull();
+  });
+
+  it('is a no-op when the names match', () => {
+    saveStore(localStorage, { ...emptyStore('p', 'Brijesh'), comments: [makeComment()] });
+    expect(renameReviewer(localStorage, 'p', 'Brijesh', 'Brijesh')).toBe(false);
+    expect(loadStore(localStorage, 'p', 'Brijesh')?.comments).toHaveLength(1);
+  });
+
+  it('reports failure without destroying the source when the write is refused', () => {
+    saveStore(localStorage, { ...emptyStore('p', 'anon_abc'), comments: [makeComment()] });
+    const real = localStorage.setItem.bind(localStorage);
+    const spy = vi.spyOn(localStorage, 'setItem').mockImplementation((k: string, v: string) => {
+      if (k === storageKey('p', 'Brijesh')) throw new DOMException('quota', 'QuotaExceededError');
+      real(k, v);
+    });
+    expect(renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh')).toBe(false);
+    spy.mockRestore();
+    // The corpus must still be readable under the name it already had.
+    expect(loadStore(localStorage, 'p', 'anon_abc')?.comments).toHaveLength(1);
+  });
+});
+
+// Review #2: the first merge kept the TARGET's copy of a duplicate id and then
+// deleted the source key — so a newer edit made under the anonymous handle was
+// destroyed by naming yourself. Ids matching is not the same as content
+// surviving, which is exactly what the original test asserted.
+describe('renameReviewer duplicate-id conflicts', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('keeps the newer edit when both sides hold the same comment', () => {
+    saveStore(localStorage, {
+      ...emptyStore('p', 'Brijesh'),
+      comments: [
+        makeComment({ id: 'cmt_1', text: 'stale edit', updatedAt: '2026-08-11T12:00:00Z' }),
+      ],
+    });
+    saveStore(localStorage, {
+      ...emptyStore('p', 'anon_abc'),
+      comments: [makeComment({ id: 'cmt_1', text: 'new edit', updatedAt: '2026-08-12T12:00:00Z' })],
+    });
+    expect(renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh')).toBe(true);
+
+    const kept = loadStore(localStorage, 'p', 'Brijesh')?.comments ?? [];
+    expect(kept).toHaveLength(1);
+    expect(kept[0]!.text).toBe('new edit');
+    expect(kept[0]!.updatedAt).toBe('2026-08-12T12:00:00Z');
+  });
+
+  it('keeps the target copy when the source edit is older', () => {
+    saveStore(localStorage, {
+      ...emptyStore('p', 'Brijesh'),
+      comments: [makeComment({ id: 'cmt_1', text: 'newer', updatedAt: '2026-08-12T12:00:00Z' })],
+    });
+    saveStore(localStorage, {
+      ...emptyStore('p', 'anon_abc'),
+      comments: [makeComment({ id: 'cmt_1', text: 'older', updatedAt: '2026-08-11T12:00:00Z' })],
+    });
+    renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh');
+    expect(loadStore(localStorage, 'p', 'Brijesh')?.comments[0]!.text).toBe('newer');
+  });
+
+  it('breaks an updatedAt tie toward the target, deterministically', () => {
+    const at = '2026-08-12T12:00:00Z';
+    saveStore(localStorage, {
+      ...emptyStore('p', 'Brijesh'),
+      comments: [makeComment({ id: 'cmt_1', text: 'target', updatedAt: at })],
+    });
+    saveStore(localStorage, {
+      ...emptyStore('p', 'anon_abc'),
+      comments: [makeComment({ id: 'cmt_1', text: 'source', updatedAt: at })],
+    });
+    renameReviewer(localStorage, 'p', 'anon_abc', 'Brijesh');
+    expect(loadStore(localStorage, 'p', 'Brijesh')?.comments[0]!.text).toBe('target');
+  });
 });

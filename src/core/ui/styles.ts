@@ -37,7 +37,11 @@ export const STYLES =
   // does not fit break instead — the primary takes its own line and the rest
   // share the next. Two-button rows are unaffected: they still fit.
   '.panel .row{display:flex;gap:8px;flex-wrap:wrap}' +
-  '.panel button{flex:auto;min-width:96px;min-height:36px;padding:8px 12px;border-radius:8px;border:1px solid color-mix(in oklab,currentColor 18%,transparent);background:color-mix(in oklab,currentColor 7%,transparent);color:inherit;font:inherit;cursor:pointer}' +
+  // The name field shares the button's box so it costs a selector, not a rule.
+  '.panel button,.panel input.name{flex:auto;min-width:96px;min-height:36px;padding:8px 12px;border-radius:8px;border:1px solid color-mix(in oklab,currentColor 18%,transparent);background:color-mix(in oklab,currentColor 7%,transparent);color:inherit;font:inherit;cursor:pointer}' +
+  // The root sets user-select:none for the pin layer; the field opts back in
+  // or it cannot be selected or corrected.
+  '.panel input.name{-webkit-user-select:text;user-select:text;box-sizing:border-box;width:100%;margin:0 0 10px;cursor:text}' +
   '.panel button.primary{background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);border-color:transparent}' +
   '.panel button:hover{filter:brightness(.97)}' +
   '.pin{position:fixed;pointer-events:auto;width:24px;height:24px;border:0;padding:0;font-family:inherit;border-radius:999px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);display:grid;place-items:center;font-size:11px;font-weight:600;box-shadow:0 4px 10px rgba(0,0,0,.28),0 0 0 2px var(--pf-surface,light-dark(#fff,#1e222b));cursor:pointer;transform:translate(-50%,-50%) scale(0);animation:pop .18s ease forwards;transition:transform .12s ease}' +
@@ -87,7 +91,7 @@ export const STYLES =
   // iOS Safari auto-zooms the page when a focused input is under 16px; the
   // reviewer's recovery pinch then eats the draft. 16px on touch kills the
   // zoom trigger at the source.
-  '@media (pointer:coarse){.input textarea{font-size:16px}}' +
+  '@media (pointer:coarse){.input textarea,.panel input.name{font-size:16px}}' +
   '.input .actions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--pf-text-muted,inherit)}' +
   // Read-only disposition line in a resolved comment's popup ("✓ Done — note").
   '.input .res{margin-top:8px;font-size:12px;color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +

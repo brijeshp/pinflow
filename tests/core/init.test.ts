@@ -68,18 +68,22 @@ describe('init / destroy', () => {
     expect(() => handle.destroy()).not.toThrow();
   });
 
-  it('returns noop handle when reviewer cannot be resolved and mode is reviewer', async () => {
+  // A first-time reviewer used to meet window.prompt before they had read a
+  // word of the page, and a dismissed dialog produced a noop handle with no
+  // console output at all — indistinguishable from a widget that never loaded.
+  it('mints an identity for a first-time reviewer instead of asking', async () => {
     const { init } = await import('../../src/core/index');
-    vi.spyOn(window, 'prompt').mockReturnValue(null);
+    const prompt = vi.spyOn(window, 'prompt');
     const handle = init({ project: 'orphan' });
-    expect(handle).toHaveProperty('destroy');
+    expect(prompt).not.toHaveBeenCalled();
+    expect(document.querySelector('[data-pinflow-root]')).not.toBeNull();
+    expect(localStorage.getItem('pinflow:r:orphan')).toMatch(/^anon_/);
     handle.destroy();
   });
 
-  it('noop handle carries the full export API returning empty artifacts', async () => {
+  it('returns a noop handle carrying the full export API when the host empties the reviewer', async () => {
     const { init } = await import('../../src/core/index');
-    vi.spyOn(window, 'prompt').mockReturnValue(null);
-    const handle = init({ project: 'orphan' });
+    const handle = init({ project: 'orphan', reviewer: '' });
     expect(handle.exportMarkdown()).toBe('');
     expect(handle.exportJSON()).toBe('');
     expect(() => handle.downloadExport()).not.toThrow(); // typed void; inert
@@ -125,20 +129,21 @@ describe('init / destroy', () => {
   });
 
   describe('stealth identity deferral (P4.3)', () => {
-    it('stealth init never prompts, yet still mounts the layer', async () => {
+    // Stealth's contract is invisibility at host startup. Minting is silent,
+    // but it WRITES — so the deferral still matters: a page the reviewer never
+    // activated must leave no trace in their storage.
+    it('stealth init mounts the layer without minting an identity', async () => {
       const { init } = await import('../../src/core/index');
-      const prompt = vi.spyOn(window, 'prompt').mockReturnValue('ShouldNotBeAsked');
       const handle = init({ project: 'st', activation: { mode: 'stealth' } });
-      expect(prompt).not.toHaveBeenCalled();
       expect(document.querySelector('[data-pinflow-root]')).not.toBeNull();
+      expect(localStorage.getItem('pinflow:r:st')).toBeNull();
       handle.destroy();
     });
 
-    it('first activation prompts exactly once; later activations reuse the identity', async () => {
+    it('first activation mints exactly one identity; later activations reuse it', async () => {
       const { init } = await import('../../src/core/index');
-      const prompt = vi.spyOn(window, 'prompt').mockReturnValue('Stealthy');
+      const prompt = vi.spyOn(window, 'prompt');
       const handle = init({ project: 'st', activation: { mode: 'stealth' } });
-      expect(prompt).not.toHaveBeenCalled();
 
       // Save text after each activation — switching away from an unsaved
       // EMPTY popup discards that comment by design (explicit-save semantics).
@@ -151,27 +156,19 @@ describe('init / destroy', () => {
       };
 
       altClick(document.body);
-      expect(prompt).toHaveBeenCalledTimes(1);
+      const minted = localStorage.getItem('pinflow:r:st');
+      expect(minted).toMatch(/^anon_/);
       saveWith('first');
 
       altClick(document.body);
-      expect(prompt).toHaveBeenCalledTimes(1); // identity is sticky
+      expect(localStorage.getItem('pinflow:r:st')).toBe(minted); // identity is sticky
       saveWith('second');
 
-      const raw = localStorage.getItem('pinflow:c:st:Stealthy');
+      expect(prompt).not.toHaveBeenCalled();
+      const raw = localStorage.getItem(`pinflow:c:st:${minted}`);
       expect(raw).not.toBeNull();
       expect(JSON.parse(raw as string).comments).toHaveLength(2);
-      handle.destroy();
-    });
-
-    it('declining the prompt drops the activation; the next one asks again', async () => {
-      const { init } = await import('../../src/core/index');
-      const prompt = vi.spyOn(window, 'prompt').mockReturnValue(null);
-      const handle = init({ project: 'st', activation: { mode: 'stealth' } });
-
-      altClick(document.body);
-      altClick(document.body);
-      expect(prompt).toHaveBeenCalledTimes(2);
+      // The old failure mode: an unresolved identity stringified into the key.
       expect(localStorage.getItem('pinflow:c:st:null')).toBeNull();
       handle.destroy();
     });
@@ -323,11 +320,10 @@ describe('fail-loud boot (first-user feedback: silent failure cost a 30-minute d
     handle.destroy();
   });
 
-  it('prints nothing on the inert path — declined identity yields no ready line', async () => {
+  it('prints nothing on the inert path — an emptied reviewer yields no ready line', async () => {
     const { init } = await import('../../src/core/index');
     const info = vi.spyOn(console, 'info').mockImplementation(() => {});
-    vi.spyOn(window, 'prompt').mockReturnValue(null);
-    const handle = init({ project: 'boot3' });
+    const handle = init({ project: 'boot3', reviewer: '' });
     expect(info).not.toHaveBeenCalled();
     handle.destroy();
   });

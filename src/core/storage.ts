@@ -1,3 +1,4 @@
+import { rememberReviewer } from './identity';
 import { FP_MAX } from './selector';
 import { EXCLUDED_CAP, LABEL_MAX, MEMBER_CAP } from './scope-limits';
 import { validateSourcePath } from './source-path';
@@ -125,8 +126,18 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     // Optional shapes at their REAL locations (review r3: context lives on
     // the anchor, not the comment): reject records whose context, fingerprint,
     // or voice metadata would corrupt export or render.
-    optStr(anchor['textFingerprint']) &&
+    // STRICT, not optStr: normalizeComments dereferences .length on this a few
+    // lines below, so a null/absent value passed validation and then threw a
+    // TypeError that discarded the ENTIRE store, not just the bad record.
+    // buildAnchor always writes a string (possibly ''), so nothing legitimate
+    // is rejected — and there was never a working path for an absent one.
+    typeof anchor['textFingerprint'] === 'string' &&
     validArea(anchor['areaPercent']) &&
+    // string-or-ABSENT, not optStr: optStr admits null, and normalizeComments
+    // preserves it through the spread into a field the type declares as
+    // `string | undefined` — so a source() payload could hand every downstream
+    // consumer a null where only a string is possible (review #2).
+    (anchor['covers'] === undefined || typeof anchor['covers'] === 'string') &&
     validContext(anchor['context']) &&
     validVoice(c['voice'])
   );
@@ -317,6 +328,77 @@ export function saveStore(storage: Storage, store: ReviewerStore): void {
       console.warn('[pinflow] failed to persist comments', err);
     }
   }
+}
+
+/**
+ * Union two comment lists by id, newest `updatedAt` winning; a tie goes to
+ * `base` so the result never depends on argument order beyond that rule.
+ *
+ * Distinct from `mergeComments()`, which encodes the SYNC protocol's
+ * server-always-wins disposition policy. That policy is wrong for a purely
+ * local fold — there is no server here, only two corpora belonging to the same
+ * person (0.7.0 review #2, which lost a newer edit to an id-only merge).
+ */
+export function unionByRecency(base: Comment[], incoming: Comment[]): Comment[] {
+  const out = base.slice();
+  const at = new Map(base.map((c, i) => [c.id, i]));
+  for (const c of incoming) {
+    const i = at.get(c.id);
+    if (i === undefined) {
+      at.set(c.id, out.length);
+      out.push(c);
+    } else if (c.updatedAt > out[i]!.updatedAt) {
+      out[i] = c;
+    }
+  }
+  return out;
+}
+
+/**
+ * Move a reviewer's corpus to a new name. The storage key embeds the reviewer
+ * (`pinflow:c:<project>:<reviewer>`), so naming yourself at export time is a
+ * key move, not a field edit — without this the comments would be stranded
+ * under the old handle and the named store would open empty.
+ *
+ * Copy-then-delete, never the reverse: a refused write leaves the reviewer's
+ * comments exactly where they were. Returns whether the move happened.
+ */
+export function renameReviewer(
+  storage: Storage,
+  project: string,
+  from: string,
+  to: string,
+): boolean {
+  if (from === to) return false;
+  const source = loadStore(storage, project, from);
+  if (!source) return false;
+  // Naming yourself something you've used before on this browser folds the two
+  // corpora together rather than shadowing one with the other.
+  const target = loadStore(storage, project, to);
+  const merged: PersistedStore = {
+    ...(target ?? source),
+    project,
+    reviewer: to,
+    comments: unionByRecency(target?.comments ?? [], source.comments),
+    schemaVersion: SCHEMA_VERSION,
+  };
+  try {
+    storage.setItem(storageKey(project, to), JSON.stringify(merged));
+  } catch {
+    return false; // source untouched — the reviewer keeps their comments
+  }
+  // Copy -> REMEMBER -> delete, in that order. The identity marker is what
+  // resolution reads on the next load, so it must land while the source key
+  // still exists: if this write is the one that fails, the old name still
+  // points at an intact corpus (0.7.0 review, residual risk 2). Remembering
+  // after the delete could strand the corpus under a name nobody resolves to.
+  rememberReviewer(storage, project, to);
+  try {
+    storage.removeItem(storageKey(project, from));
+  } catch {
+    /* the copy landed; a stale duplicate under the old key is survivable */
+  }
+  return true;
 }
 
 export function listReviewers(storage: Storage, project: string): string[] {

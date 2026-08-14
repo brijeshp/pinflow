@@ -38,6 +38,16 @@ export interface Anchor {
    */
   areaPercent?: AreaPercent;
   /**
+   * Area comments only: up to 3 newline-separated labels (≤40 chars each) of
+   * the blocks the drawn rect was sampled over. The comment still anchors to
+   * the containing ancestor — this names WHAT the rect covered, which the
+   * ancestor's own text cannot: a rect spanning sibling cards climbs to a
+   * page-level container whose first 80 characters describe a different part
+   * of the page entirely. A pin-time record like `context.styles`, so it goes
+   * stale if the page changes. Additive in 0.6.1.
+   */
+  covers?: string;
+  /**
    * Best-effort human context captured at pin time: accessible name, role,
    * and the nearest preceding/ancestor heading text (≤80 chars each) — lets
    * exports say "the 'Continue' button under 'Next section'". Additive in v3.

@@ -1,7 +1,23 @@
+import { isAnonymous } from './identity';
+import { FP_MAX } from './selector';
 import { validateSourcePath } from './source-path';
 import { SCHEMA_VERSION } from './storage';
 import { now } from './time';
 import type { AreaPercent, Comment, ReviewerStore, Scope, ScopeNode } from './types';
+
+/**
+ * The single rule for who an artifact is attributed to. A minted handle is a
+ * storage key, not a person: `anon_k3f9x` in a heading, a filename, or a JSON
+ * `reviewer` field reads as a name and is not one.
+ *
+ * This lives HERE, not in the annotator, because every public entry point —
+ * `exportReviewer`, `exportFilename`, `exportJSON`, and the toolkit re-exports
+ * hosts run server-side — has to obey it. Normalizing at the one UI call site
+ * left all of those printing the handle (0.7.0 review #1).
+ */
+export function attribution(reviewer: string): string {
+  return isAnonymous(reviewer) ? '' : reviewer;
+}
 
 export interface ExportMeta {
   generatedAt: string;
@@ -45,8 +61,8 @@ function quoted(text: string): string {
 // NON-GLOBAL form returns the forged one first. Structure was defended;
 // semantics were not.
 //
-// All FOUR interpolations in the label go through this — tag, testid, id,
-// fingerprint. Rounds 1 and 2 each fixed a subset, which is how the tag
+// All FIVE interpolations in the label go through this — css tag, xpath tag
+// fallback, testid, id, fingerprint. Rounds 1 and 2 each fixed a subset, which is how the tag
 // survived twice.
 function attr(v: unknown): string {
   return (
@@ -82,15 +98,23 @@ export type DescribeRoute = (key: string) => string;
 // tampered localStorage can put `"` or `<` in it and forge an attribute inside
 // the pseudo-tag. Not reachable from page markup (cssSegment builds from
 // tagName), which is exactly why it survived two review rounds.
-function tagFromCss(css: string): string {
+// getCssPath drops the tag when the element itself carries a stable id (it
+// emits `#main`, not `main#main`), so an id-anchored comment rendered the
+// literal `<element id="main">` in a shipped export — not an HTML tag, and a
+// false grep target for the agent reading it. Recover it from the xpath's last
+// step, which always ends `tag[n]` by construction (getXPath). Template
+// literal, not a bare .split: export.ts is a standalone toolkit hosts may call
+// server-side on data that never passed normalizeComments, so a non-string
+// xpath must not throw. attr() on both — each is stored, therefore untrusted.
+function tagFromCss(css: string, xpath: string): string {
   const last = css.split('>').pop()?.trim() ?? '';
-  const tag = last.split(/[.:#[]/)[0];
+  const tag = last.split(/[.:#[]/)[0] || String(xpath).split('/').pop()?.split('[')[0];
   return attr(tag) || 'element';
 }
 
 function elementLabel(comment: Comment): string {
   const { selectors, textFingerprint } = comment.anchor;
-  const tag = tagFromCss(selectors.css);
+  const tag = tagFromCss(selectors.css, selectors.xpath);
   const ident = selectors.testid
     ? ` data-testid="${attr(selectors.testid)}"`
     : selectors.id
@@ -103,7 +127,24 @@ function elementLabel(comment: Comment): string {
   // positive an agent would then search for. It also makes the fingerprint
   // visually un-confusable with an attribute, which is the confusion that
   // produced a finding in all three review rounds.
-  const text = textFingerprint ? ` (“${attr(textFingerprint)}”)` : '';
+  // A preview at the cap used to read as the element's COMPLETE text. On a
+  // coarse anchor that is actively misleading: it is the first 80 chars of the
+  // whole page.
+  //
+  // The marker means "this element's text is FP_MAX characters or more", NOT
+  // "this was provably cut off". Only the 80-char representation is stored —
+  // the original length is not — so text of exactly 80 characters and text of
+  // 5000 are indistinguishable here and both get the ellipsis. Recording real
+  // truncation provenance would need a persisted flag: new schema surface and
+  // bundle bytes to disambiguate a rare boundary whose worst case is an agent
+  // believing there is slightly more text than there is. Deliberately not
+  // taken; the agent pack states the "or more" reading (review #1).
+  // The ellipsis is folded INSIDE attr() rather than added as a second
+  // interpolation: the label's escaping surface stays one-call-per-slot, which
+  // is what the AST guard enforces and what three review rounds kept losing.
+  const text = textFingerprint
+    ? ` (“${attr(textFingerprint + (textFingerprint.length >= FP_MAX ? '…' : ''))}”)`
+    : '';
   return `\`<${tag}${ident}>\`${text}`;
 }
 
@@ -175,9 +216,29 @@ function visualLines(comment: Comment): string[] {
 
 // Area comments (marquee picker): the drawn region, numbers only — no
 // untrusted text enters this line.
-function areaLine(a: AreaPercent): string {
+// Capture caps each label at this bound, but a source() payload never passes
+// through capture — one hydrated label rendered a 5019-character line. Cap at
+// the render chokepoint too, matching how FP_MAX is re-applied at hydration
+// (review #2).
+const COVER_MAX = 40;
+
+// Split FIRST, then attr() each item: these are raw page strings sitting
+// inside typographic quotes, and inline() strips newlines AFTER the split, so
+// no entry can start a line. **Area covers:** is therefore line-anchored and
+// unforgeable, like Status and Comment ID. slice(0,3) bounds a hostile
+// hydrated value — a source() payload can supply ten thousand newlines.
+function areaLine(a: AreaPercent, covers?: string): string {
   const r = Math.round;
-  return `**Area:** ${r(a.w)}% × ${r(a.h)}% of the element, from ${r(a.x)}%, ${r(a.y)}%`;
+  return (
+    `**Area:** ${r(a.w)}% × ${r(a.h)}% of the element, from ${r(a.x)}%, ${r(a.y)}%` +
+    (covers
+      ? `\n**Area covers:** ${covers
+          .split('\n')
+          .slice(0, 3)
+          .map((c) => `“${attr(c.length > COVER_MAX ? c.slice(0, COVER_MAX) + '…' : c)}”`)
+          .join(', ')}`
+      : '')
+  );
 }
 
 // ── Scope (v4) ────────────────────────────────────────────────────────────
@@ -265,7 +326,9 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
     '**Selector candidates:**',
     selectorLines(comment),
     `**Position:** ${Math.round(pos.x)}% from left, ${Math.round(pos.y)}% from top of element`,
-    ...(comment.anchor.areaPercent ? [areaLine(comment.anchor.areaPercent)] : []),
+    ...(comment.anchor.areaPercent
+      ? [areaLine(comment.anchor.areaPercent, comment.anchor.covers)]
+      : []),
     ...(comment.scope ? scopeLines(comment.scope) : []),
     `**Viewport at time of comment:** ${viewportLabel(comment)}`,
     // The team's "why" — the Status field says WHAT happened, this line says
@@ -286,7 +349,9 @@ function orphanBlock(comment: Comment & { reviewer?: string }, index: number): s
     `**Last known element:** ${elementLabel(comment)}`,
     ...(ctx ? [ctx] : []),
     ...visualLines(comment),
-    ...(comment.anchor.areaPercent ? [areaLine(comment.anchor.areaPercent)] : []),
+    ...(comment.anchor.areaPercent
+      ? [areaLine(comment.anchor.areaPercent, comment.anchor.covers)]
+      : []),
     `**Last known selector:** \`${inline(comment.anchor.selectors.css)}\``,
     `**Route:** ${inline(comment.route)}`,
     '',
@@ -399,11 +464,15 @@ export function exportReviewer(
 ): string {
   const { live, orphaned } = partitionOrphans(store.comments, isOrphaned);
   const groups = groupByRoute(live);
+  // An unnamed reviewer — skipped the name step, or still on a minted handle —
+  // gets no attribution rather than an invented one.
+  const named = attribution(store.reviewer);
+  const who = named ? inline(named) : '';
   const header = [
-    `# Feedback for ${inline(meta.project)} — from ${inline(store.reviewer)}`,
+    `# Feedback for ${inline(meta.project)}${who ? ` — from ${who}` : ''}`,
     '',
     `Generated: ${inline(meta.generatedAt)}`,
-    `Reviewer: ${inline(store.reviewer)}`,
+    ...(who ? [`Reviewer: ${who}`] : []),
     `Total comments: ${store.comments.length}`,
     `Routes covered: ${routesCovered(groups)}`,
     '',
@@ -481,7 +550,9 @@ export function exportBuilder(
   return parts.filter(Boolean).join('\n\n') + '\n';
 }
 
-// `reviewer` doubles as the kind switch: null means the builder aggregate.
+// `reviewer` doubles as the kind switch: null means the builder aggregate,
+// '' means a reviewer who never named themselves — neither borrows the other's
+// label, so an unnamed export is not mistaken for a multi-reviewer roll-up.
 export function exportFilename(
   project: string,
   reviewer: string | null,
@@ -489,7 +560,8 @@ export function exportFilename(
   ext = 'md',
 ): string {
   const ts = timestamp.replace(/[:.]/g, '-');
-  const who = reviewer ? `${reviewer}-${project}` : `${project}-aggregate`;
+  const named = reviewer === null ? null : attribution(reviewer);
+  const who = named === null ? `${project}-aggregate` : named ? `${named}-${project}` : project;
   return `pinflow-feedback-${who}-${ts}.${ext}`;
 }
 
@@ -498,12 +570,21 @@ export function exportFilename(
  * JSON for pipelines). `pinflowExport` shares the storage schema version
  * namespace — "v3" means one thing everywhere. Pure and DOM-free by contract:
  * hosts run it server-side too.
+ *
+ * A single store is one reviewer's export and obeys `attribution()`. An ARRAY
+ * is the builder aggregate, where raw handles are kept deliberately: two
+ * unnamed reviewers have to stay distinguishable, and the audience is the
+ * developer reading their own roll-up, not the reviewer.
  */
 export function exportJSON(stores: ReviewerStore[] | ReviewerStore): string {
-  const list = Array.isArray(stores) ? stores : [stores];
+  const aggregate = Array.isArray(stores);
+  const list = aggregate ? stores : [stores];
   return JSON.stringify({
     pinflowExport: SCHEMA_VERSION,
     generatedAt: now(),
-    comments: list.flatMap((s) => s.comments.map((c) => ({ ...c, reviewer: s.reviewer }))),
+    comments: list.flatMap((s) => {
+      const who = aggregate ? s.reviewer : attribution(s.reviewer);
+      return s.comments.map((c) => ({ ...c, reviewer: who }));
+    }),
   });
 }

@@ -99,14 +99,14 @@ These are the features people will ask for in week one. They are deliberately de
 ### 4.2 Reviewer flow
 
 1. Reviewer receives a link.
-2. Reviewer opens it. If `?reviewer=NAME` is in the URL, identity is set silently. If not, a small unobtrusive prompt asks "What's your name?" exactly once. The name is stored in localStorage.
+2. Reviewer opens it. If `?reviewer=NAME` is in the URL, identity is set silently. If not, nobody is asked anything at load: an anonymous handle (`anon_…`) is minted so the reviewer has a corpus of their own. A name already remembered in localStorage from an earlier visit wins over minting.
 3. A subtle floating control appears (bottom-right) indicating annotation mode is available. Tapping/clicking it enters annotation mode.
 4. Reviewer clicks any element on the page. A pin appears at the click location. An inline comment input appears next to it.
-5. Reviewer types (or taps mic in v2). Input auto-saves on blur or after 2 seconds of inactivity. No submit button.
+5. Reviewer types (or taps mic in v2). Saving is explicit: a Save button or Cmd/Ctrl+Enter persists; Escape or a click outside discards the draft.
 6. Reviewer sees only their own pins. The pin count badge reflects only their comments.
 7. Reviewer can edit or delete their own pins. They cannot see or interact with other reviewers' pins.
 8. Reviewer navigates to other routes within the SPA; their pins persist per route.
-9. When done, the reviewer hits "Export & share" in the floating control. A markdown file containing all their comments is downloaded to their device.
+9. When done, the reviewer hits "Export & share" in the floating control. The export sheet carries an optional name field — the one moment attribution matters and the only one where the reviewer has context for the question. It is prefilled if they have named themselves before, and skippable; an unnamed export claims no author. A markdown file containing all their comments is downloaded to their device.
 10. A confirmation panel appears with simple guidance: "Share this file with the builder however works for you — email, Slack, message, etc." No prescribed channel. No "send" button that the library owns.
 11. Reviewer's localStorage is preserved so they can keep editing or re-export later.
 
@@ -287,7 +287,7 @@ The library has visual surface area in three places: the floating control, the p
 
 **Pins** are circular markers, ~24px on desktop and ~32px on mobile (touch target), with a subtle drop shadow and a clear active state. They animate in with a brief scale-up. They never block clicks on the underlying element when the reviewer is not in annotation mode.
 
-**The comment input** appears inline next to the pin, anchored such that it's always fully visible (auto-flips above/below/left/right of the pin based on viewport). It's a single auto-growing textarea with a placeholder ("What should change?") and no formatting controls. Saving is explicit: a Save button or Cmd/Ctrl+Enter persists the comment; Escape or a click outside discards the draft. A delete affordance is available but de-emphasized.
+**The comment input** appears inline next to the pin, anchored such that it's always fully visible (auto-flips above/below/left/right of the pin based on viewport). It's a single fixed-height textarea (three rows, scrolling past roughly six lines) with a placeholder ("What should change?") and no formatting controls. Saving is explicit: a Save button or Cmd/Ctrl+Enter persists the comment; Escape or a click outside discards the draft. A delete affordance is available but de-emphasized.
 
 **Empty state** for builder mode (no comments yet): minimal, encouraging, includes the share URL ready to copy.
 
