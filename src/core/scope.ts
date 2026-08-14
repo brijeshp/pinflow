@@ -1,5 +1,5 @@
 import { getCssPath, getTestId, getTextFingerprint } from './selector';
-import { EXCLUDED_CAP, LABEL_MAX, MEMBER_CAP } from './scope-limits';
+import { cleanLabel, EXCLUDED_CAP, MEMBER_CAP } from './scope-limits';
 import { validateSourcePath } from './source-path';
 import type { ChangeNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from './types';
 
@@ -67,14 +67,6 @@ const LANDMARK_ROLES = new Set(
   'main navigation banner contentinfo complementary region form search dialog'.split(' '),
 );
 
-// Stripped at CAPTURE, not at render: the value flows into localStorage, the
-// JSON export and the host's `onChange` payload, all of which bypass the
-// markdown escapers entirely. Control chars, zero-width and BOM, bidi
-// overrides and isolates, and the Unicode tag block (invisible instruction
-// smuggling).
-const INVISIBLE =
-  /[\u0000-\u001F\u007F-\u009F\u200B-\u200F\u202A-\u202E\u2060-\u2064\u2066-\u2069\uFEFF]|\uDB40[\uDC00-\uDC7F]/g;
-
 /** A drawn region in viewport coordinates. */
 export interface ScopeRect {
   left: number;
@@ -95,17 +87,11 @@ export interface ScopeResult {
   elements: { boundary: Element; members: Element[]; excluded: Element[] };
 }
 
-function clean(value: string | null | undefined): string | undefined {
-  if (!value) return undefined;
-  const out = value.replace(INVISIBLE, '').replace(/\s+/g, ' ').trim().slice(0, LABEL_MAX);
-  return out || undefined;
-}
-
 function describe(el: Element): ScopeNode {
   const node: ScopeNode = { tag: el.tagName.toLowerCase(), css: getCssPath(el) };
-  const testid = getTestId(el);
+  const testid = cleanLabel(getTestId(el));
   if (testid) node.testid = testid;
-  const label = clean(
+  const label = cleanLabel(
     el.getAttribute('aria-label') ?? el.getAttribute('alt') ?? getTextFingerprint(el),
   );
   if (label) node.label = label;
