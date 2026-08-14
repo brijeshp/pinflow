@@ -1,7 +1,22 @@
+import { isAnonymous } from './identity';
 import { FP_MAX } from './selector';
 import { SCHEMA_VERSION } from './storage';
 import { now } from './time';
 import type { AreaPercent, Comment, ReviewerStore } from './types';
+
+/**
+ * The single rule for who an artifact is attributed to. A minted handle is a
+ * storage key, not a person: `anon_k3f9x` in a heading, a filename, or a JSON
+ * `reviewer` field reads as a name and is not one.
+ *
+ * This lives HERE, not in the annotator, because every public entry point —
+ * `exportReviewer`, `exportFilename`, `exportJSON`, and the toolkit re-exports
+ * hosts run server-side — has to obey it. Normalizing at the one UI call site
+ * left all of those printing the handle (0.7.0 review #1).
+ */
+export function attribution(reviewer: string): string {
+  return isAnonymous(reviewer) ? '' : reviewer;
+}
 
 export interface ExportMeta {
   generatedAt: string;
@@ -329,11 +344,15 @@ export function exportReviewer(
 ): string {
   const { live, orphaned } = partitionOrphans(store.comments, isOrphaned);
   const groups = groupByRoute(live);
+  // An unnamed reviewer — skipped the name step, or still on a minted handle —
+  // gets no attribution rather than an invented one.
+  const named = attribution(store.reviewer);
+  const who = named ? inline(named) : '';
   const header = [
-    `# Feedback for ${inline(meta.project)} — from ${inline(store.reviewer)}`,
+    `# Feedback for ${inline(meta.project)}${who ? ` — from ${who}` : ''}`,
     '',
     `Generated: ${inline(meta.generatedAt)}`,
-    `Reviewer: ${inline(store.reviewer)}`,
+    ...(who ? [`Reviewer: ${who}`] : []),
     `Total comments: ${store.comments.length}`,
     `Routes covered: ${routesCovered(groups)}`,
     '',
@@ -407,7 +426,9 @@ export function exportBuilder(
   return parts.filter(Boolean).join('\n\n') + '\n';
 }
 
-// `reviewer` doubles as the kind switch: null means the builder aggregate.
+// `reviewer` doubles as the kind switch: null means the builder aggregate,
+// '' means a reviewer who never named themselves — neither borrows the other's
+// label, so an unnamed export is not mistaken for a multi-reviewer roll-up.
 export function exportFilename(
   project: string,
   reviewer: string | null,
@@ -415,7 +436,8 @@ export function exportFilename(
   ext = 'md',
 ): string {
   const ts = timestamp.replace(/[:.]/g, '-');
-  const who = reviewer ? `${reviewer}-${project}` : `${project}-aggregate`;
+  const named = reviewer === null ? null : attribution(reviewer);
+  const who = named === null ? `${project}-aggregate` : named ? `${named}-${project}` : project;
   return `pinflow-feedback-${who}-${ts}.${ext}`;
 }
 
@@ -424,12 +446,21 @@ export function exportFilename(
  * JSON for pipelines). `pinflowExport` shares the storage schema version
  * namespace — "v3" means one thing everywhere. Pure and DOM-free by contract:
  * hosts run it server-side too.
+ *
+ * A single store is one reviewer's export and obeys `attribution()`. An ARRAY
+ * is the builder aggregate, where raw handles are kept deliberately: two
+ * unnamed reviewers have to stay distinguishable, and the audience is the
+ * developer reading their own roll-up, not the reviewer.
  */
 export function exportJSON(stores: ReviewerStore[] | ReviewerStore): string {
-  const list = Array.isArray(stores) ? stores : [stores];
+  const aggregate = Array.isArray(stores);
+  const list = aggregate ? stores : [stores];
   return JSON.stringify({
     pinflowExport: SCHEMA_VERSION,
     generatedAt: now(),
-    comments: list.flatMap((s) => s.comments.map((c) => ({ ...c, reviewer: s.reviewer }))),
+    comments: list.flatMap((s) => {
+      const who = aggregate ? s.reviewer : attribution(s.reviewer);
+      return s.comments.map((c) => ({ ...c, reviewer: who }));
+    }),
   });
 }

@@ -6,6 +6,7 @@ import {
   exportFilename,
   exportJSON as exportStoresJSON,
   exportReviewer,
+  attribution,
 } from '../export';
 import { createId } from '../id';
 import { now } from '../time';
@@ -18,9 +19,12 @@ import {
   loadStore,
   mergeComments,
   normalizeComments,
+  renameReviewer,
   saveStore,
+  unionByRecency,
   upsertComment,
 } from '../storage';
+import { rememberedReviewer } from '../identity';
 import type {
   ActivationConfig,
   Anchor,
@@ -122,6 +126,10 @@ export class Annotator {
   private _dockEl: HTMLDivElement | null = null;
   private _armEl: HTMLButtonElement | null = null;
   private _panelEl: HTMLDivElement | null = null;
+  // Lives only while the export sheet is open; read once, on export.
+  private _nameEl: HTMLInputElement | null = null;
+  // Identifies the in-flight source hydration, so a newer one supersedes it.
+  private _hydrationToken: object | null = null;
   // Anytime-export affordance: the count chip, whichever element anchors the
   // open panel (control in toggle mode, chip for the export sheet), which KIND
   // of panel is up (a sheet summon must replace a menu/confirmation, not just
@@ -255,11 +263,16 @@ export class Annotator {
   private _hydrateFromSource(): void {
     const source = this._deps.config.source;
     if (!source || this._deps.mode !== 'reviewer' || this._reviewer === null) return;
-    // Guarded by destruction and IDENTITY, not the route generation: a SPA
-    // navigating during a slow fetch must still receive its server comments
-    // (review #3). Route changes only re-render; they don't invalidate
-    // the corpus the fetch belongs to.
-    const forReviewer = this._reviewer;
+    // Guarded by destruction and by THIS FETCH's token, not the route
+    // generation: a SPA navigating during a slow fetch must still receive its
+    // server comments (review #3). Route changes only re-render; they don't
+    // invalidate the corpus the fetch belongs to.
+    //
+    // The token used to be the reviewer name, which made a rename cancel an
+    // in-flight read (0.7.0 review #7) — but `reviewer` is a display label, and
+    // relabelling does not change whose data was requested. A fresh token per
+    // hydration still supersedes an older one, which is what the guard is for.
+    const token = (this._hydrationToken = {});
     // The host callback is called synchronously (tests and hosts may hand
     // out the resolver immediately) but a synchronous THROW is contained the
     // same as a rejection, and the payload is normalized like any untrusted
@@ -275,7 +288,7 @@ export class Annotator {
     void fetched.then(
       (raw) => {
         if (this._pendingDeletes === tombstones) this._pendingDeletes = null;
-        if (this._destroyed || this._reviewer !== forReviewer) return;
+        if (this._destroyed || this._hydrationToken !== token) return;
         const server = normalizeComments(raw).filter((c) => !tombstones.has(c.id));
         // Two repair cases (review r16): an id the server LACKS re-announces
         // as 'add'; an id the server has but with an older updatedAt (a lost
@@ -437,7 +450,34 @@ export class Annotator {
 
   private _persist(): void {
     this._invalidateViewCaches();
+    this._reconcileIdentity();
     saveStore(this._deps.storage, this._store);
+  }
+
+  /**
+   * Another tab may have renamed this reviewer since our last write. Identity
+   * resolution only ever consults the remembered name, so writing under our
+   * now-retired key resurrects a corpus nobody will ever load again — the
+   * comment simply vanishes on reload (0.7.0 review #3).
+   *
+   * Fold forward instead: move whatever is on disk under the old key into the
+   * remembered one, then union our in-memory store (which holds the write
+   * about to happen) on top.
+   */
+  private _reconcileIdentity(): void {
+    const from = this._reviewer;
+    if (from === null || this._deps.mode !== 'reviewer') return;
+    const { storage, config } = this._deps;
+    const remembered = rememberedReviewer(storage, config.project);
+    if (!remembered || remembered === from) return;
+    renameReviewer(storage, config.project, from, remembered);
+    const landed = loadStore(storage, config.project, remembered);
+    this._reviewer = remembered;
+    this._store = {
+      ...this._store,
+      reviewer: remembered,
+      comments: unionByRecency(landed?.comments ?? [], this._store.comments),
+    };
   }
 
   // A2: notify the host after a persisted mutation. Host exceptions must never
@@ -510,6 +550,7 @@ export class Annotator {
     this._panelEl?.remove();
     this._panelEl = null;
     this._panelKind = null;
+    this._nameEl = null;
     // Every close path keeps the builder chip's disclosure state honest —
     // Clear all closes the drawer without going through the toggle (review r2).
     if (this._chipEl?.hasAttribute('aria-expanded'))
@@ -683,6 +724,20 @@ export class Annotator {
         this._makeButton('Export & clear', () => void this._handleReviewerExport(true)),
       ],
     );
+    // Attribution is asked for HERE and nowhere else: it is the only moment it
+    // matters, and the only one where a reviewer has context for the question.
+    // Optional by design — a skipped name exports fine, just unattributed.
+    const name = el('input', 'name');
+    name.type = 'text';
+    name.placeholder = 'Your name (optional)';
+    name.value = this._displayName();
+    name.setAttribute('aria-label', 'Your name, included in the export');
+    // Enter is "I'm done naming, export" — the primary action of this sheet.
+    name.addEventListener('keydown', (e) => {
+      if ((e as KeyboardEvent).key === 'Enter') void this._handleReviewerExport();
+    });
+    this._nameEl = name;
+    sheet.insertBefore(name, sheet.querySelector('.row'));
     // Host-owned submission channel (0.5.0: lives here since the menu panel
     // is gone; hosts pairing onSubmit with `source` should set exportUi).
     if (this._deps.config.onSubmit) {
@@ -1975,17 +2030,69 @@ export class Annotator {
     void copyToClipboard(md);
   }
 
-  // Single source for the markdown artifact + its filename, mode-aware.
-  private _buildArtifact(): [md: string, filename: string] {
+  /** Attribution from the STORED identity — `attribution()` owns the rule. */
+  private _displayName(): string {
+    return attribution(this._reviewer ?? '');
+  }
+
+  /**
+   * Single source for the markdown artifact + its filename, mode-aware.
+   *
+   * `attributeTo` is the export-scoped override from the sheet. It is passed
+   * explicitly, and the built artifact is then carried to the confirmation
+   * panel, because a rebuild would fall back to the stored identity and undo a
+   * reviewer who deliberately cleared the field (0.7.0 review #5).
+   */
+  private _buildArtifact(attributeTo?: string): [md: string, filename: string] {
     const { project, describeRoute } = this._deps.config;
     const meta = { generatedAt: now(), project };
     const builder = this._deps.mode === 'builder';
+    const who = attributeTo ?? this._displayName();
     return [
       builder
         ? exportBuilder(this._allStores(), meta, this._isOrphaned, describeRoute)
-        : exportReviewer(this._store, meta, this._isOrphaned, describeRoute),
-      exportFilename(project, builder ? null : this._store.reviewer, meta.generatedAt),
+        : exportReviewer({ ...this._store, reviewer: who }, meta, this._isOrphaned, describeRoute),
+      exportFilename(project, builder ? null : who, meta.generatedAt),
     ];
+  }
+
+  /**
+   * Settle identity for a terminal sheet action and report who this artifact
+   * belongs to. Shared by BOTH terminal actions — Send to builder read the
+   * store directly and never saw the typed name (0.7.0 review #4).
+   *
+   * - a typed name renames and attributes to it
+   * - a CLEARED field is an export-scoped opt-out: no rename, no attribution,
+   *   and the corpus keeps the identity it is filed under
+   * - no field at all (no sheet) defers to the stored identity
+   */
+  private _settleName(): string | undefined {
+    const field = this._nameEl;
+    if (!field) return undefined;
+    const typed = field.value.trim();
+    if (!typed) return '';
+    if (typed === this._reviewer) return typed;
+    return this._renameTo(typed) ? typed : undefined;
+  }
+
+  /**
+   * Move the corpus to `name`. The storage key embeds the reviewer, so this is
+   * a key move, not a field edit — and the new identity is committed only if
+   * the move succeeded. A refused write leaves both the name and the comments
+   * where they were: that export goes out unattributed, which is honest, where
+   * remembering a name whose corpus never moved would open empty next visit.
+   */
+  private _renameTo(name: string): boolean {
+    const from = this._reviewer;
+    if (from === null) return false;
+    const { storage, config } = this._deps;
+    if (!renameReviewer(storage, config.project, from, name)) return false;
+    this._reviewer = name;
+    this._store = loadStore(storage, config.project, name) ?? emptyStore(config.project, name);
+    // Folding into an existing corpus changes what belongs on screen; without
+    // this the pins and the chip disagree with the artifact (review #6).
+    this._renderPins();
+    return true;
   }
 
   private async _handleReviewerExport(clear = false): Promise<void> {
@@ -1993,7 +2100,8 @@ export class Annotator {
     // from pinning (0.3.0 review #4). Disarm BEFORE capturing the ownership
     // panel — disarming may rebuild an open menu.
     if (this._annotating) this._exitAnnotateMode();
-    const [md, filename] = this._buildArtifact();
+    // Read the field BEFORE the artifact is built; it decides the attribution.
+    const [md, filename] = this._buildArtifact(this._settleName());
     download(md, filename);
     const startedFrom = this._panelEl;
     const copied = await copyToClipboard(md);
@@ -2005,7 +2113,7 @@ export class Annotator {
     // wipe data behind the reviewer's back. _syncChip may close the sheet at
     // zero; the confirmation is 'confirm'-kind and anchors via the fallback.
     if (clear) this._clearReviewerComments();
-    this._showConfirmation(copied, clear);
+    this._showConfirmation(copied, clear, [md, filename]);
   }
 
   // Spec §5.6: after reviewer export, confirm rather than closing silently.
@@ -2018,7 +2126,11 @@ export class Annotator {
   // reviewer retry the channel that failed, which is the difference between a
   // dead end and a recovery. Only the clipboard result is ever asserted, since
   // it is the only one the widget can observe.
-  private _showConfirmation(copied: boolean, cleared = false): void {
+  private _showConfirmation(
+    copied: boolean,
+    cleared = false,
+    artifact?: [md: string, filename: string],
+  ): void {
     this._closePanel();
     const cleanup = cleared ? ' Comments cleared.' : '';
     const body = copied
@@ -2028,15 +2140,20 @@ export class Annotator {
       // NOT downloadExport(): that also writes the clipboard, which would make
       // this button silently clobber it behind the reviewer's back — the panel
       // offers the two channels separately on purpose.
+      //
+      // Retries re-send the artifact that was ALREADY built. Rebuilding here
+      // would re-derive attribution from the stored identity, after the sheet
+      // and its name field are gone (review #5), and would also re-export
+      // comments that "& clear" has since wiped.
       this._makeButton(
         'Download Feedback Markdown',
         () => {
-          const [md, filename] = this._buildArtifact();
+          const [md, filename] = artifact ?? this._buildArtifact();
           download(md, filename);
         },
         'primary',
       ),
-      this._makeButton('Copy to Clipboard', () => void this._reCopy()),
+      this._makeButton('Copy to Clipboard', () => void this._reCopy(artifact?.[0])),
       this._makeButton('Done', () => this._closePanel()),
     ]);
     this._panelEl = panel;
@@ -2048,9 +2165,9 @@ export class Annotator {
   // Reports only what it can verify. Ownership-checked like the export path
   // (review #23): a slow write must not narrate into a panel the reviewer has
   // already dismissed or replaced.
-  private async _reCopy(): Promise<void> {
+  private async _reCopy(md?: string): Promise<void> {
     const startedFrom = this._panelEl;
-    const ok = await copyToClipboard(this._buildArtifact()[0]);
+    const ok = await copyToClipboard(md ?? this._buildArtifact()[0]);
     if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
     const p = this._panelEl.querySelector('p');
     if (p)
@@ -2067,6 +2184,12 @@ export class Annotator {
   private async _handleOnSubmit(): Promise<void> {
     if (!this._deps.config.onSubmit) return;
     if (this._annotating) this._exitAnnotateMode();
+    // The sheet's OTHER terminal action, and equivalent to Export & share by
+    // contract — so it settles the typed name the same way. Reading the store
+    // directly sent the builder a handle the reviewer had just replaced
+    // (review #4). The payload carries the persisted identity, not the
+    // export-scoped blank: a host storing this needs a real key.
+    this._settleName();
     try {
       await this._deps.config.onSubmit(this._store);
     } catch (err) {
