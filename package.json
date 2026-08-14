@@ -1,6 +1,6 @@
 {
   "name": "@brijeshp/pinflow",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Add a comment layer to any web page, then hand the export to your coding agent. One script tag, 17 kB, and reviewers don't install anything.",
   "keywords": [
     "annotation",
