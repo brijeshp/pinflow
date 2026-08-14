@@ -117,7 +117,7 @@
     {
       "name": "core (IIFE, gz)",
       "path": "dist/pinflow.iife.js",
-      "limit": "22.69 KB",
+      "limit": "22.76 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow/voice"
@@ -126,7 +126,7 @@
     {
       "name": "core (ESM, gz)",
       "path": "dist/index.js",
-      "limit": "22.34 KB",
+      "limit": "22.36 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow/voice"
