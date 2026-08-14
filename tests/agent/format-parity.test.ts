@@ -16,6 +16,12 @@ const FORMATS = [
 
 const read = (p: string) => readFileSync(join(__dirname, '../..', p), 'utf8');
 
+// Prose assertions run against whitespace-collapsed text. These files are
+// hand-wrapped markdown, so a rule that happens to straddle a line break would
+// otherwise fail for its formatting rather than its content — a false negative
+// that reads exactly like real drift.
+const flat = (p: string) => read(p).toLowerCase().replace(/\s+/g, ' ');
+
 describe('agent format parity (0.4.1 review #1/#4)', () => {
   it.each(FORMATS)('%s searches artifact values as fixed strings, never patterns', (path) => {
     const text = read(path).toLowerCase();
@@ -39,5 +45,37 @@ describe('agent format parity (0.4.1 review #1/#4)', () => {
     expect(text).toContain('**Comment ID:**');
     expect(text).toContain('**Status:**');
     expect(text).not.toMatch(/### \[cmt|trailing `— done`|— done` \/ `— declined/);
+  });
+
+  // v4. The scope lines are the most authoritative in an artifact and the most
+  // consequential to misread, so the same four rules have to hold in every
+  // format — the drift this suite exists to catch would otherwise mean an
+  // agent's willingness to edit outside a boundary depended on which file its
+  // user happened to install.
+  it.each(FORMATS)('%s teaches scope as a ceiling, not a grant', (path) => {
+    const text = flat(path);
+    expect(text).toContain('ceiling, not a grant');
+  });
+
+  it.each(FORMATS)('%s requires a boundary crossing to be reported', (path) => {
+    const text = flat(path);
+    expect(text).toMatch(/which boundary you crossed/);
+  });
+
+  it.each(FORMATS)('%s makes the exclusion list binding', (path) => {
+    const text = flat(path);
+    expect(text).toContain('**do not change:**');
+    expect(text).toMatch(/never edit (one )?(of those )?to satisfy a note/);
+  });
+
+  it.each(FORMATS)('%s marks the source hint unverified', (path) => {
+    const text = flat(path);
+    expect(text).toContain('unverified');
+    expect(text).toMatch(/not a path to open on trust|never a path to open on trust/);
+  });
+
+  it.each(FORMATS)('%s says a scopeless artifact is old, not broken', (path) => {
+    const text = flat(path);
+    expect(text).toMatch(/older artifacts carry no scope|no scope lines are older/);
   });
 });

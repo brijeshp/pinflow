@@ -125,7 +125,7 @@ describe('storage v2 migration & hardening', () => {
     expect(loaded?.comments[0]?.modality).toBe('text');
   });
 
-  it('re-saving a migrated store stamps schemaVersion 3 and is idempotent', () => {
+  it('re-saving a migrated store stamps schemaVersion 4 and is idempotent', () => {
     localStorage.setItem(
       'pinflow:c:p:sarah',
       JSON.stringify({
@@ -140,7 +140,7 @@ describe('storage v2 migration & hardening', () => {
     expect(first).not.toBeNull();
     saveStore(localStorage, first!);
     const raw = JSON.parse(localStorage.getItem('pinflow:c:p:sarah') as string);
-    expect(raw.schemaVersion).toBe(3);
+    expect(raw.schemaVersion).toBe(4);
     // Loading again yields a structurally stable result.
     expect(loadStore(localStorage, 'p', 'sarah')).toEqual(first);
   });
@@ -148,7 +148,7 @@ describe('storage v2 migration & hardening', () => {
   it('saveStore persists v3', () => {
     saveStore(localStorage, emptyStore('p', 'sarah'));
     const raw = JSON.parse(localStorage.getItem('pinflow:c:p:sarah') as string);
-    expect(raw.schemaVersion).toBe(3);
+    expect(raw.schemaVersion).toBe(4);
   });
 
   it('discards a corrupt blob on load', () => {

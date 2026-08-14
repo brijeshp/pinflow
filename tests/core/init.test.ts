@@ -95,7 +95,7 @@ describe('init / destroy', () => {
     localStorage.setItem('pinflow:r:hnd', 'Hana');
     const handle = init({ project: 'hnd' });
     expect(handle.exportMarkdown()).toContain('# Feedback for hnd — from Hana');
-    expect(JSON.parse(handle.exportJSON()).pinflowExport).toBe(3);
+    expect(JSON.parse(handle.exportJSON()).pinflowExport).toBe(4);
     handle.destroy();
   });
 

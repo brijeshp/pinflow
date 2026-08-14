@@ -5,7 +5,7 @@ host outgrows that, it brings its own backend by implementing **three verbs**
 over the pinflow comment schema. Pinflow never ships or hosts storage — this
 document is the entire contract between the library and any backend.
 
-Versioned with the schema: this document describes **v3**.
+Versioned with the schema: this document describes **v4**.
 
 ## The data unit: `Comment`
 
@@ -22,6 +22,7 @@ table is a summary.
 | `fullUrl`    | `string`                          |                                                                                                 |
 | `text`       | `string`                          | The comment body (or voice transcript).                                                         |
 | `anchor`     | `Anchor`                          | Selectors + position + element context (name/role/heading, computed-style snapshot, image src). |
+| `scope`      | `Scope?`                          | v4. The derived edit boundary: what a fix may change, and what it may not leave. See below.     |
 | `modality`   | `'text' \| 'voice'`               |                                                                                                 |
 | `voice`      | `VoiceMeta?`                      | Present iff `modality === 'voice'`.                                                             |
 | `status`     | `'open' \| 'done' \| 'declined'?` | **Server-owned.** Absent = open.                                                                |
@@ -98,6 +99,34 @@ can't have deleted it (backends have no member-comment delete in v3; the team
 sets disposition, not existence). Backends need nothing new: a reconcile
 `add` is indistinguishable from a slow first sync.
 
+## The derived lane (`scope`, v4)
+
+`scope` is **content, not disposition**. It follows the same rule as `text`
+and `anchor`: the copy with the higher `updatedAt` wins whole-comment. A
+server does not own it and must not invent one.
+
+Three consequences a conformant backend has to get right:
+
+- **Store and return it unchanged.** It is client-derived at creation and
+  never re-resolved — re-deriving against a later DOM would attribute a
+  boundary to a reviewer who never saw it.
+- **A v4 field on a v3 backend is not an error.** Fields are additive and
+  readers are forward-tolerant, so a backend that has never heard of `scope`
+  simply round-trips it. What it must NOT do is echo a stale copy that strips
+  it: the merge is whole-comment on `updatedAt`, so a stale server copy loses
+  and the local scope survives.
+- **Never accept `scope.source` on trust.** It originates as a page attribute
+  (`data-pinflow-source`) and names a path an agent will open. The client
+  validates it at capture, at hydration and at export; a backend rendering
+  artifacts itself must validate too, or drop the field. The client-side
+  validator is `validateSourcePath` in
+  [`src/core/source-path.ts`](./src/core/source-path.ts).
+
+Structure is total and there is no `kind` discriminator: `between` present
+means an insertion, `members` present means a region, neither means a point.
+No empty collection is ever written — **do not normalise `[]` to absent or
+absent to `[]`**, because either rewrite changes what the annotation IS.
+
 ## Scope rules
 
 - **`reviewer` is a display label, never authentication.** Which human owns a
@@ -124,7 +153,7 @@ show sensitive data.
 One namespace, one number: the `schemaVersion` stamped on localStorage blobs,
 the `pinflowExport` field on JSON exports, and the version of this protocol
 are the **same value** (`SCHEMA_VERSION` in
-[`src/core/storage.ts`](./src/core/storage.ts), currently `3`). "v3" means one
+[`src/core/storage.ts`](./src/core/storage.ts), currently `4`). "v4" means one
 thing everywhere. Versions are additive; readers are forward-tolerant (a newer
 blob is read for its stable core fields, never wiped).
 

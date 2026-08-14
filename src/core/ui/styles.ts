@@ -64,6 +64,18 @@ export const STYLES =
   '.area{position:fixed;pointer-events:none;z-index:-1;opacity:.7;color:var(--pf-accent,#2563eb);background:repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 8px) 0 0/100% 1px no-repeat,repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 8px) 0 100%/100% 1px no-repeat,repeating-linear-gradient(0deg,currentColor 0 4px,transparent 4px 8px) 0 0/1px 100% no-repeat,repeating-linear-gradient(0deg,currentColor 0 4px,transparent 4px 8px) 100% 0/1px 100% no-repeat;background-color:color-mix(in oklab,currentColor 5%,transparent);animation:march 1s linear infinite}' +
   '.area[data-status]{color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
   '@keyframes march{to{background-position:8px 0,-8px 100%,0 -8px,100% 8px}}' +
+  // Scope outline (v4): one container, N boxes, four composable channels.
+  // Default is the CONTEXT treatment (1px, no wash) — the boundary, and any
+  // member big enough that a wash would read as "page disabled". [data-m] is a
+  // target the note may change; [data-d] is uncertain; [data-seam] is an
+  // insertion point, which is a bar rather than a box because there is no
+  // element there. No entrance animation: the marquee dim dropping is already
+  // a large instantaneous change that reads as "resolved", and a fade competes
+  // with it for a keyframe plus a reduced-motion override.
+  '.so>i{position:fixed;pointer-events:none;border:1px solid var(--pf-accent,#2563eb);border-radius:4px}' +
+  '.so>i[data-m]{border-width:2px;background:color-mix(in oklab,var(--pf-accent,#2563eb) 8%,transparent)}' +
+  '.so>i[data-d]{border-style:dashed}' +
+  '.so>i[data-seam]{border:0;border-radius:0;background:var(--pf-accent,#2563eb)}' +
   // Drag-to-marquee: the same box, plus a page-dimming "hole" — one huge
   // box-shadow spread instead of an overlay element. Must track the pointer
   // with zero lag, so the hover transition is dropped while dragging.
