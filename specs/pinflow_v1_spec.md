@@ -28,7 +28,7 @@ These are the rules that govern every design and engineering decision. When in d
 
 **Three-second feedback bar.** A non-technical reviewer on a phone, mid-meeting, must be able to leave a useful comment in three seconds. Every interaction is measured against this.
 
-**The reviewer never logs in.** Identity is captured via URL param or a one-time prompt. There is no account system, ever, in this library.
+**The reviewer never logs in.** Identity is captured via URL param, or an anonymous handle is minted silently; naming yourself is optional and happens at export. There is no account system, ever, in this library.
 
 **Beautiful by default.** Design is a distribution asset. The library should look like it belongs inside a Linear or Vercel product, not inside a 2014 bug tracker. Screenshots of it should be tweet-worthy.
 
@@ -49,7 +49,7 @@ These are the rules that govern every design and engineering decision. When in d
 - Click-to-pin annotation on any DOM element
 - Inline comment input (no modal)
 - localStorage persistence per origin + route
-- Reviewer identity via URL param or one-time prompt
+- Reviewer identity via URL param or a silently minted anonymous handle, named optionally at export
 - Mobile-responsive pin and input UX
 - SPA route change detection
 - Element selector generation that survives minor re-renders
@@ -88,7 +88,7 @@ These are the features people will ask for in week one. They are deliberately de
 1. Builder finishes a prototype iteration in Claude Code, Cursor, Lovable, Bolt, etc.
 2. Builder adds one line to the prototype (script tag or component import).
 3. Builder deploys (Vercel preview, Replit, localhost tunnel, etc.).
-4. Builder shares a URL with stakeholders. URL includes `?reviewer=NAME` per stakeholder, or stakeholders are prompted on first pin.
+4. Builder shares a URL with stakeholders. URL includes `?reviewer=NAME` per stakeholder, or stakeholders stay anonymous until they choose to name themselves at export.
 5. Stakeholders leave comments asynchronously over hours or days.
 6. Builder opens the same URL with `?mode=builder` (or a builder-specific link with a token in the hash).
 7. Builder sees all pins from all reviewers, can filter by reviewer, can click any pin to read the comment.
@@ -215,7 +215,7 @@ Identity resolution, in priority order:
 
 1. `?reviewer=NAME` in URL → stored in localStorage, name is locked for this session
 2. Existing localStorage value → reused silently
-3. None of the above → minimal prompt on first pin attempt: "What's your name?" (one input, one submit). Result stored in localStorage.
+3. None of the above → an anonymous handle (`anon_…`) is minted silently and stored in localStorage, so the reviewer has a corpus of their own without ever being asked who they are. The handle is a storage key, never a display name: it is gated out of the export, and the reviewer claims attribution by filling the optional name field on the export sheet.
 
 Names are not validated, not unique, not authenticated. This is intentional. The library trusts the reviewer to enter their name correctly. Bad data here is the builder's problem to clean up at export time, not a problem to solve at the library level.
 
