@@ -218,11 +218,16 @@ function visualLines(comment: Comment): string[] {
 
 // Area comments (marquee picker): the drawn region, numbers only — no
 // untrusted text enters this line.
-// Capture caps each label at this bound, but a source() payload never passes
+// Capture bounds each label at FP_MAX, but a source() payload never passes
 // through capture — one hydrated label rendered a 5019-character line. Cap at
 // the render chokepoint too, matching how FP_MAX is re-applied at hydration
 // (review #2).
-const COVER_MAX = 40;
+//
+// Raised 40 → FP_MAX in 0.9.0. The 40 was defensible while `Area covers` could
+// name the wrong element — more characters of a wrong quote is worse, not
+// better — but that defect is fixed, and `covers` is the field an agent
+// actually locates with. It stays a hard cap; only the number moved.
+const COVER_MAX = FP_MAX;
 
 // Split FIRST, then attr() each item: these are raw page strings sitting
 // inside typographic quotes, and inline() strips newlines AFTER the split, so

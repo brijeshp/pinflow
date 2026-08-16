@@ -223,8 +223,20 @@ function validScope(v: unknown): Scope | undefined {
   // `sibs % 1 === 0` subsumes both finiteness checks — NaN % 1 and Infinity % 1
   // are both NaN, which fails the comparison — so it is shorter than
   // finite() && Number.isInteger() and rejects exactly the same values.
+  //
+  // The tag check mirrors capture, which sets `siblings` only when every member
+  // shares one parent AND one tag. Export labels the sentence from
+  // members[0].tag, so a mixed-tag payload renders "2 of 9 `<li>`" over a set
+  // containing a `<section>` — a claim about a set that does not exist.
   const sibs = v['siblings'];
-  if (members && typeof sibs === 'number' && sibs % 1 === 0 && sibs > members.length && sibs < 1e4)
+  if (
+    members &&
+    typeof sibs === 'number' &&
+    sibs % 1 === 0 &&
+    sibs > members.length &&
+    sibs < 1e4 &&
+    members.every((m) => m.tag === members[0]!.tag)
+  )
     scope.siblings = sibs;
 
   const excluded = nodeList<ScopeNode>(v['excluded'], EXCLUDED_CAP, (node) => node);

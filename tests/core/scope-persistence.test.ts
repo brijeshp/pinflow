@@ -114,6 +114,22 @@ describe('schema v4 — scope persists, softly', () => {
     expect(out!.scope!.siblings).toBeUndefined();
   });
 
+  // Capture only ever sets `siblings` when every member shares one parent AND
+  // one tag, because the export labels the sentence from members[0].tag. A
+  // source() payload, an imported export or a tampered blob can break that,
+  // and the result asserts a set of `<li>` that does not exist.
+  it('drops siblings when the members do not all share one tag', () => {
+    const out = normalizeOne({
+      scope: {
+        ...SCOPE,
+        members: [SCOPE.members![0], { ...SCOPE.members![1], tag: 'section' }],
+        siblings: 9,
+      },
+    });
+    expect(out!.scope!.members).toHaveLength(2);
+    expect(out!.scope!.siblings).toBeUndefined();
+  });
+
   it('drops siblings when there are no members to slice', () => {
     const { members: _members, ...noMembers } = SCOPE;
     const out = normalizeOne({ scope: { ...noMembers, siblings: 5 } });

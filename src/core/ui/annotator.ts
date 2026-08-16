@@ -1303,7 +1303,9 @@ export class Annotator {
     climb(left + width / 6, top + height / 6);
     climb(left + (width * 5) / 6, top + (height * 5) / 6);
     const covers = subjects
-      .map((e) => getTextFingerprint(e).slice(0, 40) || e.tagName.toLowerCase())
+      // No second slice: getTextFingerprint already bounds at FP_MAX (80), and
+      // capping again at 40 threw away half of the field an agent locates with.
+      .map((e) => getTextFingerprint(e) || e.tagName.toLowerCase())
       .join('\n');
     // buildAnchor canonicalizes to the nearest data-testid ancestor — the
     // rect must be measured against THAT element, or areaPercent and the

@@ -182,11 +182,23 @@ Capture can never produce this; a backend, imported export or tampered blob can.
 
 **Clean:** no secrets, no `console.*`, no TODO/FIXME, no mutation of inputs, escaping unchanged (AST guard green), `_`-prefix rules respected (`box`/`pct` correctly unprefixed; `scope.ts` zero-underscore test green). Coverage 97.25% stmts / **92.07% branch** (up from 91.96%). 818 tests, e2e 51.
 
-## 8. Open questions
+## 8. Decisions (resolved 2026-08-16)
 
-1. **F1** — fix now on this branch, or after your review?
-2. **The clamp trade (§4.1)** — right call?
-3. **Motion capture** — accepted as unserved, or worth a follow-up with its own budget?
-4. **~21 kB follow-up (§6.5)** — worth scoping?
-5. **`COVER_MAX` 40→80** — now that D1 is fixed, lengthening `Area covers` is no longer harmful and was measured as roughly free. Take it?
-6. **`MAX_VIEWPORT_SHARE`** — still used by the point-pin branch, where it over-fires for the same reason it was wrong for marquees. Note 4's missing `Change` block is downstream of it. Retune against document height rather than viewport?
+| #   | Question                                    | Decision                                                                                                                                                                                                                                                                                              |
+| --- | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | F1 — `siblings` tag uniformity at hydration | **Fixed on this branch.** Mirrors capture's parent+tag rule.                                                                                                                                                                                                                                          |
+| 2   | The inline clamp trade (§4.1)               | **Stands.** 76 B against 50 B of headroom; the wrong-edit generator was D1 and D1 is fixed. Characterization test keeps it visible.                                                                                                                                                                   |
+| 3   | Motion capture                              | **Deferred, and the evidence downgraded.** "3 of 5 notes" is one page with two tilt animations — not a rate. Gather more real exports before spending several hundred bytes; if taken, it needs its own design (nearest animated ancestor, own export line, own validation), not a field on `styles`. |
+| 4   | ~21 kB follow-up                            | **Open** — see §6.6.                                                                                                                                                                                                                                                                                  |
+| 5   | `COVER_MAX` 40→80                           | **Taken.** The amplification objection died with D1. Capture stops double-slicing; the render chokepoint still caps, at `FP_MAX`.                                                                                                                                                                     |
+| 6   | `MAX_VIEWPORT_SHARE` retune                 | **Taken, inside the gen-2 window.** Now share-of-document-area. Restores note 4's `**Change:**` block.                                                                                                                                                                                                |
+
+### 8.1 On question 6
+
+The old constant divided an element's **full scroll box** by **one viewport**, which asks "is this taller than the display" — true of nearly every section on a content page. R4 asks whether a candidate is really _the page_, and the page is the document. Same predicate, right denominator (`documentElement.scrollHeight`, falling back to viewport height, which reads 0 before layout).
+
+The pinned test `'a landmark covering the whole viewport is demoted by area alone'` was **re-derived from intent rather than edited to pass** — it now asserts a landmark covering the whole _document_ is demoted, and a second test pins the regression it caused: a section two viewports tall but a small share of its document keeps its rung and seeds the pinned element as the change.
+
+## 9. Open question: the ~21 kB follow-up
+
+See §6.6.

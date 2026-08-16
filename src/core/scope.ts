@@ -53,7 +53,13 @@ const SIBLING_SCAN = 40;
 // SHARES, never an element-name blocklist: `<div id="root">` wraps the whole
 // app and passes any name test.
 const MAX_DESCENDANT_SHARE = 0.5;
-const MAX_VIEWPORT_SHARE = 0.9;
+// Share of the DOCUMENT, not of one screen. Measuring against the viewport made
+// this "is this element taller than the display", which is true of almost every
+// section on a content page — measured at 1.97 viewports for a section holding
+// 18.7% of its document — so R4 fired on ordinary boundaries and collapsed them
+// onto the pinned element. The question R4 asks is "is this candidate really
+// the page", and the page is the document.
+const MAX_DOC_SHARE = 0.9;
 
 // Tags that can never be a pin target. Matched against an uppercased tagName
 // so SVG and XHTML documents are covered too.
@@ -260,23 +266,24 @@ function tooManyDescendants(el: Element): boolean {
 }
 
 // A boundary this large is the page, not a boundary. Share of the document's
-// elements OR share of the viewport — either alone is defeatable for a POINT
-// PIN, whose boundary is picked by the ladder and can be a sparse hero the
-// descendant test misses.
+// elements OR share of the document's area — either alone is defeatable for a
+// POINT PIN, whose boundary is picked by the ladder and can be a sparse hero
+// the descendant test misses.
 //
-// The viewport half is NOT a page-ness test: it compares an element's full
-// scroll box against ONE screen, so on any content page it reads "taller than
-// the screen". A marquee's boundary comes from `containerFor`, which already
-// bounds it to something containing the drawn rect, so applying this half
-// there demoted ordinary `<section>`s — measured at 1.97 viewports for a
-// section holding 18.7% of the document — and flattened every note in an
-// export to `low`. A field that is always `low` is worse than one that is
-// sometimes wrong: the agent pack tells agents to verify at low confidence,
-// so it manufactures a round-trip per note.
+// Marquees use `tooManyDescendants` alone: their boundary comes from
+// `containerFor`, which already bounds it to something containing the drawn
+// rect, so the area half adds nothing there and its old viewport form flattened
+// every note in an export to `low`. A field that is always `low` is worse than
+// one that is sometimes wrong — the agent pack tells agents to verify at low
+// confidence, so it manufactures a round-trip per note.
+//
+// `scrollHeight` falls back to the viewport height: it reads 0 in happy-dom and
+// in a document that has not laid out, and a 0 denominator would make every
+// element infinitely large.
 function tooWide(el: Element): boolean {
   if (tooManyDescendants(el)) return true;
-  const viewport = window.innerWidth * window.innerHeight;
-  return viewport > 0 && area(boxOf(el)) / viewport > MAX_VIEWPORT_SHARE;
+  const doc = window.innerWidth * (document.documentElement.scrollHeight || window.innerHeight);
+  return doc > 0 && area(boxOf(el)) / doc > MAX_DOC_SHARE;
 }
 
 interface Walk {

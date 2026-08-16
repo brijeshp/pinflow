@@ -30,6 +30,16 @@ function mount(html: string): HTMLElement {
   return document.body;
 }
 
+// R4's area half measures against the DOCUMENT, not the viewport. happy-dom
+// reports 0 for scrollHeight, so every test that exercises that half states the
+// document height it means, the same way `rect()` states element geometry.
+function docHeight(px: number): void {
+  Object.defineProperty(document.documentElement, 'scrollHeight', {
+    value: px,
+    configurable: true,
+  });
+}
+
 // The canonical case the whole release exists for: three cards in a grid.
 function grid(): { grid: HTMLElement; cards: HTMLElement[] } {
   mount(`
@@ -445,16 +455,51 @@ describe('scope — the never-<body> predicate (R4)', () => {
     expect(result.scope.confidence).toBe('low');
   });
 
-  it('a landmark covering the whole viewport is demoted by area alone', () => {
+  // Re-derived in 0.9.0. This was "a landmark covering the whole viewport is
+  // demoted by area alone", and it encoded the wrong rule: an element's box is
+  // its FULL SCROLL height, so "bigger than one screen" is true of almost every
+  // section on a content page — a section holding 18.7% of the document
+  // measured 1.97 viewports. The intent was "this candidate is really the
+  // page", and the page is the DOCUMENT, not the screen. Same predicate, right
+  // denominator.
+  it('a landmark covering the whole document is demoted by area alone', () => {
     // Two elements in the document, so descendant share cannot be what fires.
     mount('<main id="m"><span id="s">x</span></main>');
     const m = document.querySelector('#m') as HTMLElement;
     const s = document.querySelector('#s') as Element;
-    rect(m, 0, 0, 1000, 800);
+    rect(m, 0, 0, 1000, 8000);
     rect(s, 0, 0, 10, 10);
+    docHeight(8000);
     Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
     Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
     expect(resolveScope(s)!.scope.confidence).toBe('low');
+  });
+
+  // The regression the old rule caused: note 4 of the audited export. A point
+  // pin inside a tall section resolved its boundary correctly at rung
+  // `repeated`, then R4 fired SOLELY because the section was 1.97 viewports
+  // tall — collapsing the boundary onto the pinned element and emitting no
+  // Change block at all.
+  it('a section taller than the screen but small in the document keeps its rung', () => {
+    const filler = Array.from({ length: 20 }, (_, i) => `<p id="f${i}">x</p>`).join('');
+    mount(
+      `<main id="m"><section id="sec"><pre id="p">code</pre></section><div>${filler}</div></main>`,
+    );
+    const sec = document.querySelector('#sec') as HTMLElement;
+    const p = document.querySelector('#p') as Element;
+    rect(document.querySelector('#m')!, 0, 0, 1000, 9000);
+    // Two viewports tall, but a small share of a 9000px document.
+    rect(sec, 0, 0, 1000, 1600);
+    rect(p, 10, 10, 200, 100);
+    docHeight(9000);
+    Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
+    const result = resolveScope(p)!;
+    expect((result.elements.boundary as HTMLElement).id).toBe('sec');
+    expect(result.scope.confidence).toBe('medium');
+    // boundary !== target, so the pinned element is seeded as the change.
+    expect(result.scope.members).toHaveLength(1);
+    expect(result.scope.members![0]!.tag).toBe('pre');
   });
 
   // R4 says EVERY rung is size-checked. The marquee branch assigns a rung via
