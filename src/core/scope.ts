@@ -453,7 +453,17 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
   if (w.truncated) confidence = 'low';
 
   const scope: Scope = { gen: SCOPE_GEN, rung, confidence, boundary: describe(boundary) };
-  const src = sourceOf(boundary);
+  // A HINT, not a boundary — so it does not have to BE the boundary element.
+  // A marquee picks its boundary by containment, which is almost never a
+  // component root, so reading the attribute off the boundary alone delivered
+  // a hint on virtually nothing: on the audited page, instrumenting every
+  // section component would still have reached one note out of five.
+  // `climb` already records the nearest `source` rung and it is the strongest,
+  // so it wins whenever one exists anywhere above — no second walk. A point
+  // pin whose boundary already carries the attribute finds itself first, so
+  // this is a superset of the previous behaviour, never a change to it.
+  const found = climb(boundary);
+  const src = found.rung === 'source' ? sourceOf(found.el) : null;
   if (src) scope.source = src;
   if (w.truncated) scope.truncated = true;
 

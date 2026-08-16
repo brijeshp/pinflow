@@ -326,6 +326,30 @@ describe('scope — the ladder (R2, R3)', () => {
     expect(rung).toBe('source');
   });
 
+  // The source hint is a HINT, not a boundary. A marquee picks its boundary by
+  // containment, which is almost never a component root, so reading the
+  // attribute off the boundary alone delivered a hint on virtually nothing —
+  // on the audited page, on one note out of five even after instrumenting it.
+  it('finds the source hint on an ancestor of a marquee boundary', () => {
+    mount(`
+      <div data-pinflow-source="src/components/Artifact.astro">
+        <div id="wrap"><p id="a">one</p><p id="b">two</p></div>
+      </div>`);
+    rect(document.querySelector('[data-pinflow-source]')!, 0, 0, 900, 500);
+    rect(document.querySelector('#wrap')!, 0, 0, 900, 400);
+    rect(document.querySelector('#a')!, 10, 10, 880, 180);
+    rect(document.querySelector('#b')!, 10, 200, 880, 180);
+    const result = resolveScope(document.querySelector('#a') as Element, {
+      left: 5,
+      top: 5,
+      width: 890,
+      height: 390,
+    })!;
+    // The boundary is the plain wrapper; the hint comes from above it.
+    expect((result.elements.boundary as HTMLElement).id).toBe('wrap');
+    expect(result.scope.source).toBe('src/components/Artifact.astro');
+  });
+
   it('rung (b): the nearest data-testid ancestor', () => {
     mount(
       '<section data-testid="pricing"><button id="b"><span id="s">Go</span></button></section>',
