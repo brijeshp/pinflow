@@ -1265,22 +1265,32 @@ export class Annotator {
       const r = elm.getBoundingClientRect();
       return r.left <= left && r.top <= top && r.right >= left + width && r.bottom >= top + height;
     };
-    // The climb's LAST element before it stopped is the block the rect sits
-    // on — the card, not the page container. 0.6.0 computed it and threw it
-    // away, which is why an area spanning siblings exported the container's
-    // opening text. Keep it, and sample two more points down the diagonal so a
-    // rect over a row of cards can name all of them. Runs ONCE, on pointerup:
-    // nothing here touches the per-frame reflow path.
+    // The element the sample LANDED on is the block the rect sits on. Recording
+    // the climb's last element instead — the highest child below the containing
+    // ancestor — meant a rect drawn a little wider than its block walked past
+    // that block and quoted a sibling's opening text, while `positionPercent`
+    // still pointed at the right place. Nothing in the artifact could reveal
+    // the disagreement, so the agent read the prose and edited the wrong thing.
+    //
+    // `hit !== e` preserves the do-nothing case: a rect already contained by
+    // the element under the pointer names nothing, rather than naming its own
+    // container. Sample two more points down the diagonal so a rect over a row
+    // of cards can name all of them. Runs ONCE, on pointerup: nothing here
+    // touches the per-frame reflow path.
     const subjects: Element[] = [];
     const climb = (x: number, y: number): Element | null => {
       let e: Element | null = document.elementFromPoint?.(x, y) ?? null;
       if (e && this._ui.host.contains(e)) e = null; // a pin under the sample
-      let sub: Element | null = null;
-      while (e && !contains(e)) {
-        sub = e;
-        e = e.parentElement;
-      }
-      if (sub && subjects.length < 3 && !subjects.includes(sub)) subjects.push(sub);
+      const hit = e;
+      while (e && !contains(e)) e = e.parentElement;
+      // KNOWN LIMITATION, measured and accepted: the hit is NOT clamped up to
+      // its nearest block, so a sample landing mid-sentence can quote an inline
+      // fragment. Clamping cost 76 B gz on ESM, and the budget had room for
+      // exactly one of that or the N-of-M sibling note — which prevents an
+      // actual wrong edit rather than an occasionally confusing quote. Revisit
+      // when the budget allows; `annotator-marquee.test.ts` pins the current
+      // behaviour so the change is visible when it happens.
+      if (hit && hit !== e && subjects.length < 3 && !subjects.includes(hit)) subjects.push(hit);
       return e;
     };
     // Centre first, so subjects[0] shares positionPercent's provenance WHEN the

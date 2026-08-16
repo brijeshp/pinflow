@@ -753,6 +753,65 @@ describe('area comments record the blocks they cover (0.6.1)', () => {
     expect(a.areaPercent!['h']).toBeCloseTo((200 / 800) * 100, 1);
   });
 
+  // The note-3 failure, reduced. The climb recorded the HIGHEST child below
+  // the containing ancestor, so a rect drawn a little wider than the block it
+  // sits on walked straight past that block and quoted a sibling's opening
+  // text instead. On the real export all three human-readable fields named the
+  // code card while the region was over the callouts 85% down the page — and
+  // nothing in the artefact could reveal the disagreement.
+  it('names the block the sample actually hit, not the highest child above it', () => {
+    annotator = makeAnnotator();
+    arm();
+    const list = document.createElement('ul');
+    const outer = document.createElement('li');
+    const head = document.createElement('div');
+    head.textContent = 'section heading nobody commented on';
+    const deep = document.createElement('div');
+    deep.textContent = 'the bullets that need work';
+    outer.append(head, deep);
+    list.appendChild(outer);
+    document.body.appendChild(list);
+    mockRect(list, { left: 0, top: 0, width: 800, height: 800 });
+    // Both too small to contain the rect, so the climb must pass through them.
+    mockRect(outer, { left: 100, top: 100, width: 40, height: 40 });
+    mockRect(deep, { left: 100, top: 100, width: 40, height: 40 });
+    hitTest([[200, 200, deep]], list);
+
+    drag(list, [100, 100], [300, 300]);
+
+    expect(comments()[0]!.anchor.covers).toBe('the bullets that need work');
+  });
+
+  // CHARACTERIZATION, not an endorsement. `Area covers` ought to name the BLOCK
+  // a region crosses, but an unclamped hit can land mid-sentence on an <em> —
+  // and on a page that talks about feedback, the quoted fragment reads like
+  // reviewer prose inside the feedback file itself. Clamping to the nearest
+  // block measured 76 B gz on ESM, and the budget had room for exactly one of
+  // that or the N-of-M sibling note; the latter prevents a wrong edit, this
+  // prevents a confusing quote, so this one waits. Pinned so that when someone
+  // adds the clamp back, this test fails loudly and gets rewritten as an
+  // assertion of the good behaviour rather than the tolerated one.
+  it('currently quotes a text-level hit verbatim (clamp deferred on budget)', () => {
+    annotator = makeAnnotator();
+    arm();
+    const list = document.createElement('ul');
+    const para = document.createElement('li');
+    para.append(document.createTextNode('Feedback that says '));
+    const em = document.createElement('em');
+    em.textContent = 'make this button clearer';
+    para.append(em, document.createTextNode(' costs a round trip'));
+    list.appendChild(para);
+    document.body.appendChild(list);
+    mockRect(list, { left: 0, top: 0, width: 800, height: 800 });
+    mockRect(para, { left: 100, top: 100, width: 40, height: 40 });
+    mockRect(em, { left: 100, top: 100, width: 20, height: 20 });
+    hitTest([[200, 200, em]], list);
+
+    drag(list, [100, 100], [300, 300]);
+
+    expect(comments()[0]!.anchor.covers).toBe('make this button clearer');
+  });
+
   it('records nothing when the drag only crosses the container itself', () => {
     annotator = makeAnnotator();
     arm();
