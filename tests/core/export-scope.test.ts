@@ -236,6 +236,24 @@ describe('scope fields are untrusted input like every other field', () => {
   // The preamble is the artifact's most authoritative sentence. Making a bare
   // coverage ratio absolute there is what turned a ~1% overhang past a grid
   // gutter into a prohibition on the only coherent fix.
+  // Scope labels are capped at 80 and were cut silently, so an agent rewriting
+  // a member worked from text it had no reason to distrust. The Element line
+  // has marked this since 0.4.1; the scope lines never did.
+  it('marks a label that hit the cap, like the Element line already does', () => {
+    const long = 'x'.repeat(80);
+    const md = render({
+      ...REGION,
+      boundary: { ...REGION.boundary, label: long },
+    });
+    expect(md).toContain(`${long}…`);
+  });
+
+  it('leaves a short label unmarked', () => {
+    const md = render(REGION);
+    expect(md).toContain('Choose a plan”');
+    expect(md).not.toContain('Choose a plan…');
+  });
+
   it('does not tell an agent a grazed element may never be edited', () => {
     const md = render(REGION);
     expect(md).not.toContain('Never edit anything under');

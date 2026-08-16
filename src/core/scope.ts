@@ -342,7 +342,12 @@ function visit(el: Element, clip: ScopeRect, region: ScopeRect, depth: number, w
     w.bands.set(el, 'partial');
     return true;
   }
+  // The member cap sets `truncated` and demotes; this one silently dropped the
+  // overflow, so a busy marquee published a 12-item list that read as the whole
+  // set — the same "the counts are a complete accounting" misreading the N-of-M
+  // note closes from the other end.
   if (w.excluded.length < EXCLUDED_CAP) w.excluded.push(el);
+  else w.truncated = true;
   return false;
 }
 

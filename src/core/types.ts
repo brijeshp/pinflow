@@ -156,7 +156,7 @@ export interface Scope {
   between?: { before?: ScopeNode; after?: ScopeNode };
   /** Host-declared source path — validated against a format allowlist, never merely escaped. */
   source?: string;
-  /** The change set hit its cap; the named nodes are a prefix, not the whole set. */
+  /** A node list hit its cap; the named nodes are a prefix, not the whole set. */
   truncated?: true;
   /** A heal moved the anchor, so the derived node sets no longer describe today's DOM. */
   stale?: true;

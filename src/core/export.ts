@@ -1,4 +1,5 @@
 import { isAnonymous } from './identity';
+import { LABEL_MAX } from './scope-limits';
 import { FP_MAX } from './selector';
 import { validateSourcePath } from './source-path';
 import { SCHEMA_VERSION } from './storage';
@@ -251,7 +252,14 @@ function areaLine(a: AreaPercent, covers?: string): string {
 // everywhere else.
 function scopeNodeLabel(node: ScopeNode): string {
   const ident = node.testid ? ` data-testid="${attr(node.testid)}"` : '';
-  const text = node.label ? ` (“${attr(node.label)}”)` : '';
+  // Same marker, same reading and the same one-escape-call-per-slot discipline
+  // as the Element line's FP_MAX ellipsis: "this label is LABEL_MAX characters
+  // or more", NOT "this was provably cut off" — only the capped form is stored.
+  // Without it an agent rewrites a member from text it has no reason to
+  // distrust. Folded INSIDE attr() so the AST guard still sees one call.
+  const text = node.label
+    ? ` (“${attr(node.label + (node.label.length >= LABEL_MAX ? '…' : ''))}”)`
+    : '';
   return `\`<${attr(node.tag)}${ident}>\`${text}`;
 }
 

@@ -561,6 +561,31 @@ describe('scope — members that are a slice of a repeated set', () => {
 });
 
 describe('scope — caps and skips', () => {
+  // The member cap announces itself and demotes; the exclusion cap did neither,
+  // so a busy marquee published a 12-item list that looked like the whole set.
+  // That is the same "the counts are a complete accounting" misreading the
+  // N-of-M note closes from the other end.
+  it('announces and demotes when the exclusion cap trips', () => {
+    const grazed = Array.from({ length: 14 }, (_, i) => `<div id="g${i}"></div>`).join('');
+    mount(`<div id="row"><div id="m"></div>${grazed}</div>`);
+    rect(document.querySelector('#row')!, 0, 0, 1600, 200);
+    // Fully covered, so this is a region with members rather than an insertion.
+    rect(document.querySelector('#m')!, 0, 90, 100, 12);
+    // 12% covered each — grazed, and there are more of them than the cap.
+    for (let i = 0; i < 14; i++)
+      rect(document.querySelector(`#g${i}`)!, 100 + i * 100, 0, 100, 100);
+    const result = resolveScope(document.querySelector('#m') as Element, {
+      left: 0,
+      top: 90,
+      width: 1600,
+      height: 12,
+    })!;
+    expect(result.scope.members).toHaveLength(1);
+    expect(result.scope.excluded).toHaveLength(12);
+    expect(result.scope.truncated).toBe(true);
+    expect(result.scope.confidence).toBe('low');
+  });
+
   it('data-pinflow-ignore skips the whole subtree', () => {
     mount(
       '<div id="row"><div id="keep"></div><div id="skip" data-pinflow-ignore><i id="in"></i></div></div>',
