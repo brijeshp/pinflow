@@ -489,6 +489,53 @@ describe('scope — the never-<body> predicate (R4)', () => {
   });
 });
 
+// A rect that slices one column of a grid partitions a semantically single
+// list: some cells become members, the grazed column becomes exclusions, and an
+// untouched column is recorded nowhere at all. The geometry is right and the
+// artifact still reads as a precise permission list over a set the reviewer
+// meant as a whole. One number restores the missing context.
+describe('scope — members that are a slice of a repeated set', () => {
+  function fiveInAList(): HTMLElement[] {
+    mount(`
+      <div id="wrap">
+        <ul id="callouts">
+          <li>one</li><li>two</li><li>three</li><li>four</li><li>five</li>
+        </ul>
+      </div>`);
+    rect(document.querySelector('#wrap')!, 0, 0, 900, 400);
+    rect(document.querySelector('#callouts')!, 0, 0, 900, 400);
+    const items = Array.from(document.querySelectorAll('li')) as HTMLElement[];
+    // Three columns, two rows — column 1 is {1,4}, column 2 is {2,5}, column 3
+    // is {3}. Exactly the layout that produced the audited 2-of-5 split.
+    const col = [0, 1, 2, 0, 1];
+    const row = [0, 0, 0, 1, 1];
+    items.forEach((li, i) => rect(li, 20 + col[i]! * 300, 20 + row[i]! * 180, 280, 160));
+    return items;
+  }
+
+  it('reports how many same-tag siblings the members are a slice of', () => {
+    const items = fiveInAList();
+    // Column 1 only: covers li 1 and li 4, grazes nothing else.
+    const result = resolveScope(items[0]!, { left: 15, top: 15, width: 290, height: 350 })!;
+    expect(result.scope.members).toHaveLength(2);
+    expect(result.scope.siblings).toBe(5);
+  });
+
+  it('says nothing when the members ARE the whole set', () => {
+    const items = fiveInAList();
+    const result = resolveScope(items[0]!, { left: 10, top: 10, width: 880, height: 380 })!;
+    expect(result.scope.members).toHaveLength(5);
+    expect(result.scope.siblings).toBeUndefined();
+  });
+
+  it('says nothing when the members do not share one parent and tag', () => {
+    const { cards } = grid();
+    const result = resolveScope(cards[0]!, OVER_ALL_THREE)!;
+    // All three cards ARE the whole set, so there is no slice to report.
+    expect(result.scope.siblings).toBeUndefined();
+  });
+});
+
 describe('scope — caps and skips', () => {
   it('data-pinflow-ignore skips the whole subtree', () => {
     mount(

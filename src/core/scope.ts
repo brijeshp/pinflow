@@ -29,7 +29,11 @@ import type { ChangeNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from '.
  * cap, or confidence rule changes — records carry it so a later reader can
  * tell which tuning produced a given `confidence`.
  */
-export const SCOPE_GEN = 1;
+// Bumped to 2 in 0.9.0: marquee boundaries are now size-checked (so
+// `confidence` means something different for a region than it did under gen 1),
+// and `siblings` did not exist. A gen-1 record must not be read as if either
+// were true of it.
+export const SCOPE_GEN = 2;
 
 // Coverage bands. `inside` matches Miro's "Precise selection" (the only
 // production tool shipping an area ratio at all); `partial` is the ambiguity
@@ -463,6 +467,21 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
       (el): ChangeNode => ({ ...describe(el), band: w.bands.get(el) ?? 'partial' }),
     );
     scope.members = nodes as [ChangeNode, ...ChangeNode[]];
+    // A rect that slices one column of a grid emits some cells as members, the
+    // grazed column as exclusions, and an untouched column NOWHERE — three
+    // states, of which the artifact renders two. The counts then read as a
+    // deliberate permission list over a set the reviewer meant as a whole.
+    // One number restores the context, without widening the scope to the
+    // parent (which is the bug the covered-set model exists to prevent).
+    const first = w.members[0]!;
+    const parent = first.parentElement;
+    const tag = first.tagName;
+    if (parent && w.members.every((m) => m.parentElement === parent && m.tagName === tag)) {
+      let total = 0;
+      const kids = parent.children;
+      for (let i = 0; i < kids.length; i++) if (kids[i]!.tagName === tag) total++;
+      if (total > w.members.length) scope.siblings = total;
+    }
   } else if (region) {
     // Nothing covered: the reviewer drew a gap, which is an insertion rather
     // than a failure. Never reachable from a point pin.

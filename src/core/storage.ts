@@ -216,6 +216,17 @@ function validScope(v: unknown): Scope | undefined {
   }));
   if (members) scope.members = members as [ChangeNode, ...ChangeNode[]];
 
+  // Only meaningful alongside members, and only when it exceeds them — a wire
+  // value claiming "2 of 1" or "2 of 2" is either corrupt or says nothing, and
+  // it renders into a sentence an agent acts on. Integer-bounded because the
+  // renderer prints it raw: 1e21 would arrive as "1e+21 <li>".
+  // `sibs % 1 === 0` subsumes both finiteness checks — NaN % 1 and Infinity % 1
+  // are both NaN, which fails the comparison — so it is shorter than
+  // finite() && Number.isInteger() and rejects exactly the same values.
+  const sibs = v['siblings'];
+  if (members && typeof sibs === 'number' && sibs % 1 === 0 && sibs > members.length && sibs < 1e4)
+    scope.siblings = sibs;
+
   const excluded = nodeList<ScopeNode>(v['excluded'], EXCLUDED_CAP, (node) => node);
   if (excluded) scope.excluded = excluded as [ScopeNode, ...ScopeNode[]];
 

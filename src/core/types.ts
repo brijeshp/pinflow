@@ -142,6 +142,14 @@ export interface Scope {
   boundary: ScopeNode;
   /** The changed node set. Non-empty tuple: "a region with no members" is unrepresentable. */
   members?: [ChangeNode, ...ChangeNode[]];
+  /**
+   * Total same-tag children of the members' shared parent, when the members are
+   * only SOME of them. Present means the region sliced a repeated set — which
+   * is honest geometry but reads as a deliberate permission list unless the
+   * artifact says how many were left out. Absent when the members are the whole
+   * set, or do not share one parent and tag.
+   */
+  siblings?: number;
   /** Grazed neighbours the agent must not edit to satisfy the note. */
   excluded?: [ScopeNode, ...ScopeNode[]];
   /** Insertion point: the siblings bracketing the drawn region, in document order. */

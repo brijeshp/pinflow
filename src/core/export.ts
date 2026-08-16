@@ -292,7 +292,18 @@ function scopeLines(scope: Scope): string[] {
   if (src) lines.push(`**Source hint (page-supplied, unverified):** \`${inline(src)}\``);
 
   if (scope.members) {
-    lines.push(`**Change — ${scope.members.length} element(s) this note may alter:**`);
+    // "2 of 5 `<li>`" replaces "2 element(s)" rather than adding a sentence
+    // after it: the count alone reads as a census of the whole set, and an
+    // agent rewrites 2 of 5 parallel items and ships a visibly split list.
+    // Reusing the surrounding words keeps this to a few bytes — the earlier
+    // spelled-out version cost 178 B gz, which the budget did not have.
+    // `siblings` is integer-bounded at hydration and `tag` is escaped by
+    // describe(), so neither can carry markup here.
+    const n = scope.members.length;
+    const head = scope.siblings
+      ? `${n} of ${scope.siblings} \`<${inline(scope.members[0].tag)}>\``
+      : `${n} element(s)`;
+    lines.push(`**Change — ${head} this note may alter:**`);
     for (const m of scope.members) lines.push(scopeNodeLine(m, m.band === 'partial'));
   } else if (scope.between) {
     // An insertion names a GAP. The container is deliberately not offered as

@@ -231,6 +231,20 @@ describe('scope fields are untrusted input like every other field', () => {
     expect(md).not.toContain('**Do not change:** everything');
   });
 
+  // Without this the "2 element(s)" heading reads as a census of the whole set,
+  // and an agent rewrites 2 of 5 parallel items and ships a visibly split list.
+  it('says the members are a slice when the region cut a repeated set', () => {
+    const md = render({ ...REGION, siblings: 5 });
+    const line = md.split('\n').find((l) => l.startsWith('**Change'));
+    expect(line).toBe('**Change — 2 of 5 `<article>` this note may alter:**');
+  });
+
+  it('stays silent when the members are the whole set', () => {
+    const md = render(REGION);
+    const line = md.split('\n').find((l) => l.startsWith('**Change'));
+    expect(line).toBe('**Change — 2 element(s) this note may alter:**');
+  });
+
   it('cannot smuggle a tag that terminates the pseudo-element early', () => {
     const md = render({
       ...REGION,
