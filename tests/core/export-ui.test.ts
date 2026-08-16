@@ -112,12 +112,16 @@ describe('export UI — count chip gating (exportUi config)', () => {
     expect(chip()).not.toBeNull();
   });
 
-  it("builder mode's chip summons the drawer, never the export sheet", () => {
+  // Builder mode has no on-page export surface: `_exportUiEnabled()` has always
+  // excluded it, and 0.9.0 removed the drawer that used to stand in. The
+  // aggregate is reached through the handle, which is what a host embedding
+  // builder mode already owns — `exportUi: 'always'` cannot conjure one.
+  it('builder mode shows no chip; its aggregate is reached through the handle', () => {
     seedStore([makeComment('c1', 'hello')]);
     annotator = makeAnnotator({ mode: 'builder', exportUi: 'always' });
-    chip()!.click();
-    expect(shadow().querySelector('.drawer')).not.toBeNull();
-    expect(shadow().querySelector('.panel')).toBeNull(); // no sheet in builder
+    expect(chip()).toBeNull();
+    expect(shadow().querySelector('.drawer')).toBeNull();
+    expect(JSON.parse(annotator.exportJSON()).comments).toHaveLength(1);
   });
 });
 

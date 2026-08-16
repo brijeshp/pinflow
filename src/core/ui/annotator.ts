@@ -15,7 +15,6 @@ import { createId } from '../id';
 import { now } from '../time';
 import { routeKey } from '../route-key';
 import {
-  clearProject,
   deleteComment as deleteCommentFromStore,
   emptyStore,
   loadAllStores,
@@ -140,7 +139,7 @@ export class Annotator {
   // toggle it away — review #4), and the sheet's outside-dismiss teardown.
   private _chipEl: HTMLButtonElement | null = null;
   private _panelAnchor: HTMLElement | null = null;
-  private _panelKind: 'menu' | 'sheet' | 'confirm' | null = null;
+  private _panelKind: 'sheet' | 'confirm' | null = null;
   private _sheetDismiss: (() => void) | null = null;
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
   private _prevBodyCursor = '';
@@ -539,20 +538,6 @@ export class Annotator {
     a.setAttribute('aria-label', this._annotating ? 'Stop annotating' : 'Annotate this page');
   }
 
-  // Builder-only: toggle the aggregate drawer (_closePanel resets aria-expanded).
-  private _togglePanel(): void {
-    if (this._panelEl) {
-      this._closePanel();
-      return;
-    }
-    this._panelAnchor = this._chipEl;
-    this._panelKind = 'menu';
-    this._panelEl = this._renderBuilderPanel();
-    this._ui.root.appendChild(this._panelEl);
-    this._positionPanel();
-    this._chipEl?.setAttribute('aria-expanded', 'true');
-  }
-
   private _closePanel(): void {
     this._sheetDismiss?.();
     this._sheetDismiss = null;
@@ -670,23 +655,6 @@ export class Annotator {
   }
 
   private _syncChip(): void {
-    // Builder: the chip is the drawer summon and always exists — count shows
-    // what is visible on this screen (reviewer filters applied).
-    if (this._deps.mode === 'builder') {
-      if (!this._chipEl) {
-        const chip = el('button', 'chip');
-        chip.type = 'button';
-        chip.setAttribute('aria-expanded', 'false');
-        chip.setAttribute('aria-controls', 'pf-drawer');
-        chip.addEventListener('click', () => this._togglePanel());
-        this._dockEl?.appendChild(chip);
-        this._chipEl = chip;
-      }
-      this._chipEl.textContent = String(this._visibleComments().length);
-      this._chipEl.setAttribute('aria-label', 'Pinflow builder drawer');
-      this._chipEl.title = 'Pinflow builder';
-      return;
-    }
     const count = this._exportUiEnabled() ? this._store.comments.length : 0;
     if (count === 0) {
       if (this._chipEl) {
@@ -792,51 +760,6 @@ export class Annotator {
   }
 
   // Built imperatively to keep reviewer names out of innerHTML.
-  private _renderBuilderPanel(): HTMLDivElement {
-    const drawer = el('div', 'drawer');
-    drawer.id = 'pf-drawer'; // aria-controls target (ids are shadow-scoped)
-    const stores = this._allStores();
-    drawer.appendChild(el('h3', undefined, 'Builder mode'));
-
-    if (stores.length === 0) {
-      const empty = el('p', undefined, 'No comments yet.');
-      empty.style.opacity = '0.7';
-      drawer.appendChild(empty);
-    } else {
-      for (const s of stores) {
-        const label = el('label');
-        const cb = el('input');
-        cb.type = 'checkbox';
-        cb.checked = true;
-        cb.dataset['reviewer'] = s.reviewer;
-        cb.checked = !this._builderHidden.has(s.reviewer);
-        cb.addEventListener('change', () => {
-          if (cb.checked) this._builderHidden.delete(s.reviewer);
-          else this._builderHidden.add(s.reviewer);
-          this._renderPins();
-        });
-        label.appendChild(cb);
-        label.appendChild(document.createTextNode(` ${s.reviewer} (${s.comments.length})`));
-        drawer.appendChild(label);
-      }
-    }
-
-    const bar = el('div', 'bar');
-    bar.append(
-      this._makeButton('Export all', () => this.downloadExport()),
-      this._makeButton('JSON', () =>
-        download(
-          this.exportJSON(),
-          exportFilename(this._deps.config.project, null, now(), 'json'),
-          'application/json',
-        ),
-      ),
-      this._makeButton('Clear all', () => this._handleBuilderClear(), 'danger'),
-    );
-    drawer.appendChild(bar);
-    return drawer;
-  }
-
   private _makeButton(
     label: string,
     onClick: () => void,
@@ -1620,21 +1543,19 @@ export class Annotator {
     };
   }
 
-  // Memoized: the builder branch does a full localStorage key scan + parse of
-  // every reviewer corpus — far too expensive for the per-frame reflow path.
+  // Memoized because `_renderPins` and `_syncChip` both ask on the same tick.
+  //
+  // Builder mode renders NOTHING. It aggregates at export, and the reviewer it
+  // resolved to is incidental: `resolveReviewer` reads persisted identity
+  // before the `__builder__` fallback is reached, so opening `?mode=builder` in
+  // a browser that has been used for reviewing lands on the LAST reviewer's
+  // store. Drawing that person's pins under "builder" is worse than drawing
+  // none — it looks like an aggregate and is one arbitrary reviewer.
   private _visibleComments(): Array<Comment & { reviewer?: string }> {
     if (this._visibleCache) return this._visibleCache;
     const route = this._routeKey();
     this._visibleCache =
-      this._deps.mode === 'builder'
-        ? this._allStores()
-            .filter((s) => !this._builderHidden.has(s.reviewer))
-            .flatMap((s) =>
-              s.comments
-                .filter((c) => c.route === route)
-                .map((c) => ({ ...c, reviewer: s.reviewer })),
-            )
-        : this._store.comments.filter((c) => c.route === route);
+      this._deps.mode === 'builder' ? [] : this._store.comments.filter((c) => c.route === route);
     return this._visibleCache;
   }
 
@@ -1673,10 +1594,6 @@ export class Annotator {
         // Opening an existing comment takes over from armed placement — leave
         // annotate mode so the next outside click can't place a spurious pin.
         if (this._annotating) this._exitAnnotateMode();
-        if (this._deps.mode === 'builder') {
-          this._openBuilderView(c);
-          return;
-        }
         this._openInput(c.id);
       });
       // Every comment gets a footprint element: drawn areas show the drawn
@@ -2242,13 +2159,6 @@ export class Annotator {
     const p = this._panelEl.querySelector('p');
     if (p)
       p.textContent = ok ? 'Copied to your clipboard.' : 'Copy failed — use the download instead.';
-  }
-
-  private _handleBuilderClear(): void {
-    if (!window.confirm('Clear all comments for this project?')) return;
-    clearProject(this._deps.storage, this._deps.config.project);
-    this._renderPins();
-    this._closePanel();
   }
 
   private async _handleOnSubmit(): Promise<void> {

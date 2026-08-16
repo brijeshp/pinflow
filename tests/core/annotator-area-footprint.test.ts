@@ -234,10 +234,16 @@ describe('area footprint (marching ants)', () => {
     expect(shadow().querySelector<HTMLElement>('.area')!.dataset['status']).toBe('done');
   });
 
-  it('builder mode renders footprints for aggregated area comments', () => {
+  // Was "builder mode renders footprints for aggregated area comments". Since
+  // 0.9.0 builder mode renders nothing on the page — it aggregates in the
+  // artifact — so a footprint there would be one arbitrary reviewer's region
+  // dressed up as an aggregate. The pin and its footprint stay in lockstep,
+  // which is the invariant this file exists to protect: neither is drawn.
+  it('builder mode renders no footprints, matching its pins', () => {
     seed([makeComment('a1', { area: { x: 5, y: 5, w: 20, h: 20 } })]);
     annotator = makeAnnotator('builder');
-    expect(shadow().querySelector('.area')).not.toBeNull();
+    expect(shadow().querySelector('.area')).toBeNull();
+    expect(shadow().querySelector('.pin')).toBeNull();
   });
 
   it('a live marquee release leaves its footprint behind immediately', () => {

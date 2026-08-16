@@ -199,6 +199,44 @@ The old constant divided an element's **full scroll box** by **one viewport**, w
 
 The pinned test `'a landmark covering the whole viewport is demoted by area alone'` was **re-derived from intent rather than edited to pass** — it now asserts a landmark covering the whole _document_ is demoted, and a second test pins the regression it caused: a section two viewports tall but a small share of its document keeps its rung and seeds the pinned element as the change.
 
-## 9. Open question: the ~21 kB follow-up
+## 9. Builder mode: removed, and what a paid tier should keep
 
-See §6.6.
+Decided 2026-08-16 and landed in this release rather than deferred, so one changeset and one
+version PR cover it.
+
+**What it was.** `mode: 'builder'` drew a drawer listing every reviewer with a checkbox that
+filtered pins live, rendered other reviewers' comments as read-only pins with attribution and
+disposition, and offered Export all / JSON / Clear all.
+
+**Why it went.** `_allStores()` reads `localStorage`, so it aggregated one **browser**, never a
+team — the guide already said "not an administrative or authenticated area". A real
+multi-reviewer tier is backend-shaped and would not reuse that data layer, so the UI could only
+ever be rewritten, not extended. Nothing used it. Confirmed by searching the downstream hosts;
+the one thing a code search cannot rule out is a human opening `?mode=builder` by hand.
+
+**What survived, deliberately.** The DOM-free aggregation toolkit is the paid-tier substrate and
+is untouched: `exportBuilder()`, `exportJSON`'s builder arm, `exportFilename(project, null, …)` →
+`{project}-aggregate`, `_allStores()`, and `mode: 'builder'` itself. No `.d.ts` break; the mode
+still resolves and still aggregates.
+
+**What a paid tier should take from it** — the decisions, not the DOM:
+
+- Reviewer filtering is a _display_ concern, not an export concern. The old drawer filtered pins
+  but exported everything; that asymmetry was right and worth keeping.
+- A foreign comment must open read-only with attribution and disposition. The removed
+  `_openBuilderView` is the reference for what that surface needs to show.
+- The aggregate filename is `{project}-aggregate`, distinct from `{reviewer}-{project}` — a
+  roll-up must never be mistaken for one person's export.
+- Two unnamed reviewers must stay distinguishable in an aggregate, which is why `exportJSON`
+  keeps raw handles there and applies `attribution()` only to single-reviewer exports.
+
+**Retrieval:** `git show builder-mode-final:src/core/ui/annotator.ts`.
+
+**Measured:** −582 B gz IIFE / −593 B ESM. Less than the audit's −1094 estimate because that
+figure assumed the annotator stops calling `exportBuilder` entirely, letting DCE drop it; keeping
+aggregation — which the audit itself required — costs roughly 500 B of the difference.
+
+## 10. Open question: the remaining ~21 kB levers
+
+See §6.4. With builder UI taken, the next candidates are the scope outline (−404 B, argued
+against in §6.5) and the post-export confirmation panel (−235 B, which spec 5.6 requires).

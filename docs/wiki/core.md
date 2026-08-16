@@ -1,6 +1,6 @@
 # Core engine
 
-The Pinflow core engine (`src/core/`) is a framework-agnostic annotation layer that wires together gesture input, element anchoring, localStorage persistence, and UI rendering. It powers both reviewer (single-user pin collection) and builder (aggregate view) modes via a singleton lifecycle pattern initiated by `src/core/index.ts` `init()`.
+The Pinflow core engine (`src/core/`) is a framework-agnostic annotation layer that wires together gesture input, element anchoring, localStorage persistence, and UI rendering. It powers both reviewer (single-user pin collection) and builder (chrome-less aggregate export) modes via a singleton lifecycle pattern initiated by `src/core/index.ts` `init()`.
 
 ## Module map
 

@@ -119,46 +119,17 @@ describe('bottom-left dock (0.5.0 — the bottom-right control is gone)', () => 
     expect(countChip()?.textContent).toBe('1');
   });
 
-  it('builder mode: the dock chip shows the count and toggles the drawer, no crosshair', () => {
+  // 0.9.0 removed builder mode's bespoke chrome. It is now an EXPORT switch:
+  // no drawer, no reviewer filter, no read-only pin view, no disclosure state
+  // on the chip — the aggregate lives in exportJSON/exportMarkdown, which are
+  // not UI. Anything that reintroduces `.drawer` should fail here.
+  it('builder mode renders no chrome at all', () => {
     seed([makeComment('c1', 'one')]);
     annotator = makeAnnotator({ mode: 'builder' });
-    expect(armBtn()).toBeNull(); // builder never arms
-    const chip = countChip()!;
-    expect(chip.textContent).toBe('1');
-    chip.click();
-    expect(shadow().querySelector('.drawer')).not.toBeNull();
+    expect(armBtn()).toBeNull(); // builder still never arms
+    expect(countChip()).toBeNull(); // the drawer summon went with the drawer
+    expect(shadow().querySelector('.drawer')).toBeNull();
     expect(document.body.style.cursor).toBe('');
-    chip.click();
-    expect(shadow().querySelector('.drawer')).toBeNull();
-  });
-
-  it('builder chip announces its drawer state (aria-expanded/controls)', () => {
-    seed([makeComment('c1', 'one')]);
-    annotator = makeAnnotator({ mode: 'builder' });
-    const chip = countChip()!;
-    expect(chip.getAttribute('aria-expanded')).toBe('false');
-    chip.click();
-    expect(chip.getAttribute('aria-expanded')).toBe('true');
-    const drawer = shadow().querySelector('.drawer')!;
-    expect(chip.getAttribute('aria-controls')).toBe(drawer.id);
-    expect(drawer.id).toBeTruthy();
-    chip.click();
-    expect(chip.getAttribute('aria-expanded')).toBe('false');
-  });
-
-  it('closing the drawer through ANY path resets aria-expanded (builder Clear all)', () => {
-    seed([makeComment('c1', 'one')]);
-    annotator = makeAnnotator({ mode: 'builder' });
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
-    const chip = countChip()!;
-    chip.click();
-    expect(chip.getAttribute('aria-expanded')).toBe('true');
-    const clear = [...shadow().querySelectorAll('button')].find(
-      (b) => b.textContent === 'Clear all',
-    )!;
-    clear.click(); // closes the drawer via _closePanel, not the chip toggle
-    expect(shadow().querySelector('.drawer')).toBeNull();
-    expect(chip.getAttribute('aria-expanded')).toBe('false');
   });
 
   it('the arm glyph is geometric: centered bar pseudo-element, 45° rotation when armed, motion-safe', async () => {

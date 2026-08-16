@@ -102,10 +102,10 @@ export const STYLES =
   '.input .save:hover{filter:brightness(.95)}' +
   // Positioned by _positionPanel (anchored above the dock chip) — no static
   // corner offsets, or top+bottom would fight and stretch the drawer.
-  '.drawer{position:fixed;pointer-events:auto;background:#0f172a;color:#f8fafc;border-radius:12px;padding:14px;min-width:240px;max-width:320px;box-shadow:0 16px 48px rgba(0,0,0,.25);font-size:12px}' +
-  '.drawer h3{margin:0 0 8px;font-size:13px;font-weight:600}' +
-  '.drawer label{display:flex;align-items:center;gap:6px;margin:4px 0}' +
-  '.drawer .bar{display:flex;gap:6px;margin-top:10px}' +
-  '.drawer button{flex:1;padding:6px 10px;border-radius:6px;border:1px solid color-mix(in oklab,currentColor 18%,transparent);background:color-mix(in oklab,currentColor 8%,transparent);color:inherit;font:inherit;cursor:pointer}' +
-  '.drawer button.danger{background:var(--pf-danger,#dc2626);color:var(--pf-accent-contrast,#fff)}' +
+  '' +
+  '' +
+  '' +
+  '' +
+  '' +
+  '' +
   '';
