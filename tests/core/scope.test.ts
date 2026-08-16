@@ -30,6 +30,16 @@ function mount(html: string): HTMLElement {
   return document.body;
 }
 
+// R4's area half measures against the DOCUMENT, not the viewport. happy-dom
+// reports 0 for scrollHeight, so every test that exercises that half states the
+// document height it means, the same way `rect()` states element geometry.
+function docHeight(px: number): void {
+  Object.defineProperty(document.documentElement, 'scrollHeight', {
+    value: px,
+    configurable: true,
+  });
+}
+
 // The canonical case the whole release exists for: three cards in a grid.
 function grid(): { grid: HTMLElement; cards: HTMLElement[] } {
   mount(`
@@ -326,6 +336,30 @@ describe('scope — the ladder (R2, R3)', () => {
     expect(rung).toBe('source');
   });
 
+  // The source hint is a HINT, not a boundary. A marquee picks its boundary by
+  // containment, which is almost never a component root, so reading the
+  // attribute off the boundary alone delivered a hint on virtually nothing —
+  // on the audited page, on one note out of five even after instrumenting it.
+  it('finds the source hint on an ancestor of a marquee boundary', () => {
+    mount(`
+      <div data-pinflow-source="src/components/Artifact.astro">
+        <div id="wrap"><p id="a">one</p><p id="b">two</p></div>
+      </div>`);
+    rect(document.querySelector('[data-pinflow-source]')!, 0, 0, 900, 500);
+    rect(document.querySelector('#wrap')!, 0, 0, 900, 400);
+    rect(document.querySelector('#a')!, 10, 10, 880, 180);
+    rect(document.querySelector('#b')!, 10, 200, 880, 180);
+    const result = resolveScope(document.querySelector('#a') as Element, {
+      left: 5,
+      top: 5,
+      width: 890,
+      height: 390,
+    })!;
+    // The boundary is the plain wrapper; the hint comes from above it.
+    expect((result.elements.boundary as HTMLElement).id).toBe('wrap');
+    expect(result.scope.source).toBe('src/components/Artifact.astro');
+  });
+
   it('rung (b): the nearest data-testid ancestor', () => {
     mount(
       '<section data-testid="pricing"><button id="b"><span id="s">Go</span></button></section>',
@@ -421,20 +455,182 @@ describe('scope — the never-<body> predicate (R4)', () => {
     expect(result.scope.confidence).toBe('low');
   });
 
-  it('a landmark covering the whole viewport is demoted by area alone', () => {
+  // Re-derived in 0.9.0. This was "a landmark covering the whole viewport is
+  // demoted by area alone", and it encoded the wrong rule: an element's box is
+  // its FULL SCROLL height, so "bigger than one screen" is true of almost every
+  // section on a content page — a section holding 18.7% of the document
+  // measured 1.97 viewports. The intent was "this candidate is really the
+  // page", and the page is the DOCUMENT, not the screen. Same predicate, right
+  // denominator.
+  it('a landmark covering the whole document is demoted by area alone', () => {
     // Two elements in the document, so descendant share cannot be what fires.
     mount('<main id="m"><span id="s">x</span></main>');
     const m = document.querySelector('#m') as HTMLElement;
     const s = document.querySelector('#s') as Element;
-    rect(m, 0, 0, 1000, 800);
+    rect(m, 0, 0, 1000, 8000);
     rect(s, 0, 0, 10, 10);
+    docHeight(8000);
     Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
     Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
     expect(resolveScope(s)!.scope.confidence).toBe('low');
   });
+
+  // The regression the old rule caused: note 4 of the audited export. A point
+  // pin inside a tall section resolved its boundary correctly at rung
+  // `repeated`, then R4 fired SOLELY because the section was 1.97 viewports
+  // tall — collapsing the boundary onto the pinned element and emitting no
+  // Change block at all.
+  it('a section taller than the screen but small in the document keeps its rung', () => {
+    const filler = Array.from({ length: 20 }, (_, i) => `<p id="f${i}">x</p>`).join('');
+    mount(
+      `<main id="m"><section id="sec"><pre id="p">code</pre></section><div>${filler}</div></main>`,
+    );
+    const sec = document.querySelector('#sec') as HTMLElement;
+    const p = document.querySelector('#p') as Element;
+    rect(document.querySelector('#m')!, 0, 0, 1000, 9000);
+    // Two viewports tall, but a small share of a 9000px document.
+    rect(sec, 0, 0, 1000, 1600);
+    rect(p, 10, 10, 200, 100);
+    docHeight(9000);
+    Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
+    const result = resolveScope(p)!;
+    expect((result.elements.boundary as HTMLElement).id).toBe('sec');
+    expect(result.scope.confidence).toBe('medium');
+    // boundary !== target, so the pinned element is seeded as the change.
+    expect(result.scope.members).toHaveLength(1);
+    expect(result.scope.members![0]!.tag).toBe('pre');
+  });
+
+  // R4 says EVERY rung is size-checked. The marquee branch assigns a rung via
+  // rungOf() and then published CONFIDENCE[rung] unchecked, so a region that
+  // resolved to the page shipped at `medium` while a tightly-scoped point pin
+  // shipped at `low` — the field was anti-correlated with usefulness.
+  it('a marquee boundary holding most of the document is demoted', () => {
+    mount(`
+      <main id="m">
+        <section id="a"><p>one</p><p>two</p></section>
+        <section id="b"><p>three</p><p>four</p></section>
+      </main>`);
+    const m = document.querySelector('#m') as HTMLElement;
+    rect(m, 0, 0, 1000, 600);
+    rect(document.querySelector('#a')!, 0, 0, 1000, 300);
+    rect(document.querySelector('#b')!, 0, 300, 1000, 300);
+    document.querySelectorAll('p').forEach((p, i) => rect(p, 0, i * 100, 1000, 90));
+    // Disarm the area half: the boundary is well under one viewport, so only
+    // share-of-descendants can fire.
+    Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 1200, configurable: true });
+    const target = document.querySelector('#a p') as Element;
+    // Spans both sections, so the smallest containing ancestor is <main>.
+    const result = resolveScope(target, { left: 10, top: 250, width: 980, height: 100 })!;
+    expect((result.elements.boundary as HTMLElement).id).toBe('m');
+    expect(result.scope.confidence).toBe('low');
+  });
+
+  // The guard on the fix above. Reusing tooWide() wholesale here would demote
+  // on VIEWPORT SHARE, which compares an element's full scroll box against one
+  // screen — on a content page that is a "taller than the screen" test, not a
+  // page-ness test, and it would flatten every marquee on the page to `low`.
+  it('a marquee boundary taller than the viewport keeps its rung confidence', () => {
+    const filler = Array.from({ length: 12 }, () => '<p>x</p>').join('');
+    mount(
+      `<main id="m"><section id="tall"><p id="t">one</p></section><div id="f">${filler}</div></main>`,
+    );
+    const tall = document.querySelector('#tall') as HTMLElement;
+    const t = document.querySelector('#t') as Element;
+    rect(document.querySelector('#m')!, 0, 0, 1000, 7000);
+    rect(tall, 0, 0, 1000, 5000);
+    // Deliberately too small to contain the region: containerFor starts at the
+    // target, so a roomy target would BE the boundary and prove nothing.
+    rect(t, 10, 10, 100, 40);
+    Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
+    // State the precondition rather than trusting it: the boundary really does
+    // exceed one viewport, so this test is only green because the area
+    // predicate is NOT consulted on this branch.
+    const viewportShare = (1000 * 5000) / (window.innerWidth * window.innerHeight);
+    expect(viewportShare).toBeGreaterThan(1);
+    const result = resolveScope(t, { left: 20, top: 20, width: 400, height: 400 })!;
+    expect((result.elements.boundary as HTMLElement).id).toBe('tall');
+    expect(result.scope.rung).toBe('landmark');
+    expect(result.scope.confidence).toBe('medium');
+  });
+});
+
+// A rect that slices one column of a grid partitions a semantically single
+// list: some cells become members, the grazed column becomes exclusions, and an
+// untouched column is recorded nowhere at all. The geometry is right and the
+// artifact still reads as a precise permission list over a set the reviewer
+// meant as a whole. One number restores the missing context.
+describe('scope — members that are a slice of a repeated set', () => {
+  function fiveInAList(): HTMLElement[] {
+    mount(`
+      <div id="wrap">
+        <ul id="callouts">
+          <li>one</li><li>two</li><li>three</li><li>four</li><li>five</li>
+        </ul>
+      </div>`);
+    rect(document.querySelector('#wrap')!, 0, 0, 900, 400);
+    rect(document.querySelector('#callouts')!, 0, 0, 900, 400);
+    const items = Array.from(document.querySelectorAll('li')) as HTMLElement[];
+    // Three columns, two rows — column 1 is {1,4}, column 2 is {2,5}, column 3
+    // is {3}. Exactly the layout that produced the audited 2-of-5 split.
+    const col = [0, 1, 2, 0, 1];
+    const row = [0, 0, 0, 1, 1];
+    items.forEach((li, i) => rect(li, 20 + col[i]! * 300, 20 + row[i]! * 180, 280, 160));
+    return items;
+  }
+
+  it('reports how many same-tag siblings the members are a slice of', () => {
+    const items = fiveInAList();
+    // Column 1 only: covers li 1 and li 4, grazes nothing else.
+    const result = resolveScope(items[0]!, { left: 15, top: 15, width: 290, height: 350 })!;
+    expect(result.scope.members).toHaveLength(2);
+    expect(result.scope.siblings).toBe(5);
+  });
+
+  it('says nothing when the members ARE the whole set', () => {
+    const items = fiveInAList();
+    const result = resolveScope(items[0]!, { left: 10, top: 10, width: 880, height: 380 })!;
+    expect(result.scope.members).toHaveLength(5);
+    expect(result.scope.siblings).toBeUndefined();
+  });
+
+  it('says nothing when the members do not share one parent and tag', () => {
+    const { cards } = grid();
+    const result = resolveScope(cards[0]!, OVER_ALL_THREE)!;
+    // All three cards ARE the whole set, so there is no slice to report.
+    expect(result.scope.siblings).toBeUndefined();
+  });
 });
 
 describe('scope — caps and skips', () => {
+  // The member cap announces itself and demotes; the exclusion cap did neither,
+  // so a busy marquee published a 12-item list that looked like the whole set.
+  // That is the same "the counts are a complete accounting" misreading the
+  // N-of-M note closes from the other end.
+  it('announces and demotes when the exclusion cap trips', () => {
+    const grazed = Array.from({ length: 14 }, (_, i) => `<div id="g${i}"></div>`).join('');
+    mount(`<div id="row"><div id="m"></div>${grazed}</div>`);
+    rect(document.querySelector('#row')!, 0, 0, 1600, 200);
+    // Fully covered, so this is a region with members rather than an insertion.
+    rect(document.querySelector('#m')!, 0, 90, 100, 12);
+    // 12% covered each — grazed, and there are more of them than the cap.
+    for (let i = 0; i < 14; i++)
+      rect(document.querySelector(`#g${i}`)!, 100 + i * 100, 0, 100, 100);
+    const result = resolveScope(document.querySelector('#m') as Element, {
+      left: 0,
+      top: 90,
+      width: 1600,
+      height: 12,
+    })!;
+    expect(result.scope.members).toHaveLength(1);
+    expect(result.scope.excluded).toHaveLength(12);
+    expect(result.scope.truncated).toBe(true);
+    expect(result.scope.confidence).toBe('low');
+  });
+
   it('data-pinflow-ignore skips the whole subtree', () => {
     mount(
       '<div id="row"><div id="keep"></div><div id="skip" data-pinflow-ignore><i id="in"></i></div></div>',

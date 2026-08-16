@@ -156,6 +156,17 @@ describe('visual context capture (agent blast radius)', () => {
     const styles = anchor.context?.styles ?? {};
     expect(styles).not.toHaveProperty('background'); // transparent default
     expect(styles).not.toHaveProperty('radius'); // 0px default
+    expect(styles).not.toHaveProperty('textAlign'); // `start` initial value
+  });
+
+  // Alignment is the second-largest thing reviewers actually comment on after
+  // motion, and "Left align" is ambiguous between text alignment and
+  // un-centring a `margin-inline: auto` block. Capturing the computed value
+  // says which one the reviewer was looking at.
+  it('captures a non-default text-align', () => {
+    document.body.innerHTML = '<h2 id="head" style="text-align: center">Heading</h2>';
+    const anchor = buildAnchor(document.getElementById('head')!, 5, 5);
+    expect(anchor.context?.styles?.textAlign).toBe('center');
   });
 
   it('caps the accessible name at 80 chars even for CMS-length alt text (review r18)', () => {

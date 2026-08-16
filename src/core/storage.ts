@@ -61,6 +61,14 @@ function optStr(v: unknown): boolean {
   return v === null || v === undefined || typeof v === 'string';
 }
 
+// A 0-100 percentage leaf. The same three-term chain appeared inline six times
+// across `hasValidAnchor` and `validArea`; the comparisons are pure, so
+// factoring them out reorders nothing observable. NaN and +/-Infinity fail on
+// `finite` exactly as before, and both bounds stay inclusive.
+function pct(v: unknown): boolean {
+  return finite(v) && v >= 0 && v <= 100;
+}
+
 function validContext(v: unknown): boolean {
   if (v === undefined) return true;
   if (!isObject(v)) return false;
@@ -76,10 +84,7 @@ function validContext(v: unknown): boolean {
 function validArea(v: unknown): boolean {
   if (v === undefined) return true;
   if (!isObject(v)) return false;
-  return (['x', 'y', 'w', 'h'] as const).every((k) => {
-    const n = v[k];
-    return finite(n) && n >= 0 && n <= 100;
-  });
+  return (['x', 'y', 'w', 'h'] as const).every((k) => pct(v[k]));
 }
 
 function validVoice(v: unknown): boolean {
@@ -112,12 +117,8 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     optStr(selectors['id']) &&
     typeof selectors['xpath'] === 'string' &&
     isObject(pos) &&
-    finite(pos['x']) &&
-    finite(pos['y']) &&
-    pos['x'] >= 0 &&
-    pos['x'] <= 100 &&
-    pos['y'] >= 0 &&
-    pos['y'] <= 100 &&
+    pct(pos['x']) &&
+    pct(pos['y']) &&
     isObject(vp) &&
     finite(vp['width']) &&
     finite(vp['height']) &&
@@ -214,6 +215,29 @@ function validScope(v: unknown): Scope | undefined {
     band: isObject(raw) && raw['band'] === 'inside' ? 'inside' : 'partial',
   }));
   if (members) scope.members = members as [ChangeNode, ...ChangeNode[]];
+
+  // Only meaningful alongside members, and only when it exceeds them — a wire
+  // value claiming "2 of 1" or "2 of 2" is either corrupt or says nothing, and
+  // it renders into a sentence an agent acts on. Integer-bounded because the
+  // renderer prints it raw: 1e21 would arrive as "1e+21 <li>".
+  // `sibs % 1 === 0` subsumes both finiteness checks — NaN % 1 and Infinity % 1
+  // are both NaN, which fails the comparison — so it is shorter than
+  // finite() && Number.isInteger() and rejects exactly the same values.
+  //
+  // The tag check mirrors capture, which sets `siblings` only when every member
+  // shares one parent AND one tag. Export labels the sentence from
+  // members[0].tag, so a mixed-tag payload renders "2 of 9 `<li>`" over a set
+  // containing a `<section>` — a claim about a set that does not exist.
+  const sibs = v['siblings'];
+  if (
+    members &&
+    typeof sibs === 'number' &&
+    sibs % 1 === 0 &&
+    sibs > members.length &&
+    sibs < 1e4 &&
+    members.every((m) => m.tag === members[0]!.tag)
+  )
+    scope.siblings = sibs;
 
   const excluded = nodeList<ScopeNode>(v['excluded'], EXCLUDED_CAP, (node) => node);
   if (excluded) scope.excluded = excluded as [ScopeNode, ...ScopeNode[]];

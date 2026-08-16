@@ -92,6 +92,50 @@ describe('schema v4 — scope persists, softly', () => {
     expect(out!.scope).toBeUndefined();
   });
 
+  // `siblings` renders into a sentence an agent acts on ("2 of 5 <li> under one
+  // parent"), so a wire value has to be an integer that actually exceeds the
+  // member count. "2 of 2" says nothing and "2 of 1e21" prints as "1e+21".
+  it('keeps a siblings count that exceeds the members', () => {
+    const out = normalizeOne({ scope: { ...SCOPE, siblings: 5 } });
+    expect(out!.scope!.siblings).toBe(5);
+  });
+
+  it.each([
+    ['not greater than the member count', 2],
+    ['zero', 0],
+    ['negative', -3],
+    ['fractional', 4.5],
+    ['absurd', 1e21],
+    ['a string', '5'],
+  ])('drops a siblings count that is %s, keeping the rest of the scope', (_why, siblings) => {
+    const out = normalizeOne({ scope: { ...SCOPE, siblings } });
+    expect(out!.scope).toBeDefined();
+    expect(out!.scope!.members).toHaveLength(2);
+    expect(out!.scope!.siblings).toBeUndefined();
+  });
+
+  // Capture only ever sets `siblings` when every member shares one parent AND
+  // one tag, because the export labels the sentence from members[0].tag. A
+  // source() payload, an imported export or a tampered blob can break that,
+  // and the result asserts a set of `<li>` that does not exist.
+  it('drops siblings when the members do not all share one tag', () => {
+    const out = normalizeOne({
+      scope: {
+        ...SCOPE,
+        members: [SCOPE.members![0], { ...SCOPE.members![1], tag: 'section' }],
+        siblings: 9,
+      },
+    });
+    expect(out!.scope!.members).toHaveLength(2);
+    expect(out!.scope!.siblings).toBeUndefined();
+  });
+
+  it('drops siblings when there are no members to slice', () => {
+    const { members: _members, ...noMembers } = SCOPE;
+    const out = normalizeOne({ scope: { ...noMembers, siblings: 5 } });
+    expect(out!.scope!.siblings).toBeUndefined();
+  });
+
   it('drops a malformed member rather than the whole scope', () => {
     const out = normalizeOne({
       scope: { ...SCOPE, members: [SCOPE.members![0], { tag: 'article' }] },

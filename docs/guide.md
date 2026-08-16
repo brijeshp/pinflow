@@ -122,20 +122,20 @@ const pinflow = init({
 });
 ```
 
-| Option          | Purpose                                                                      |
-| --------------- | ---------------------------------------------------------------------------- |
-| `project`       | Required storage namespace for the reviewed experience.                      |
-| `reviewer`      | Sets the display name instead of reading `?reviewer=` or prompting.          |
-| `mode`          | Uses reviewer mode by default; set `'builder'` for the local aggregate view. |
-| `activation`    | Chooses the visible control, gestures, or both.                              |
-| `exportUi`      | Controls the reviewer's export controls: `'auto'`, `'always'`, or `'never'`. |
-| `onSubmit`      | Sends the current reviewer's full store through a host-provided function.    |
-| `source`        | Loads this reviewer's saved comments from your backend.                      |
-| `onChange`      | Reports each saved add, update, and delete to your backend.                  |
-| `routeKey`      | Identifies the current screen when the URL is not enough.                    |
-| `describeRoute` | Gives route keys readable names in exported feedback.                        |
-| `theme`         | Applies Pinflow's optional visual design tokens.                             |
-| `voice`         | Enables voice comments through a short-lived token provider.                 |
+| Option          | Purpose                                                                                                                         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `project`       | Required storage namespace for the reviewed experience.                                                                         |
+| `reviewer`      | Sets the display name instead of reading `?reviewer=` or prompting.                                                             |
+| `mode`          | Uses reviewer mode by default; `'builder'` makes the handle's exports aggregate every store in this browser (no UI of its own). |
+| `activation`    | Chooses the visible control, gestures, or both.                                                                                 |
+| `exportUi`      | Controls the reviewer's export controls: `'auto'`, `'always'`, or `'never'`.                                                    |
+| `onSubmit`      | Sends the current reviewer's full store through a host-provided function.                                                       |
+| `source`        | Loads this reviewer's saved comments from your backend.                                                                         |
+| `onChange`      | Reports each saved add, update, and delete to your backend.                                                                     |
+| `routeKey`      | Identifies the current screen when the URL is not enough.                                                                       |
+| `describeRoute` | Gives route keys readable names in exported feedback.                                                                           |
+| `theme`         | Applies Pinflow's optional visual design tokens.                                                                                |
+| `voice`         | Enables voice comments through a short-lived token provider.                                                                    |
 
 See the [API reference](https://github.com/brijeshp/pinflow/blob/main/docs/wiki/api.md) for
 complete types, wrapper behavior, and the returned handle.
@@ -421,16 +421,26 @@ the token flow and failure behavior.
 
 ## Builder mode
 
-Open the reviewed page with `?mode=builder` to inspect all reviewer stores available in the
-current browser:
+Builder mode is an **export switch, not a screen**. `init({ mode: 'builder' })` makes
+`exportMarkdown()`, `exportJSON()` and `downloadExport()` span _every_ reviewer store in the
+current browser instead of just yours. It renders no chrome of its own — no chip, no drawer,
+no pins from other reviewers — so you reach the aggregate through the handle:
 
-```text
-https://preview.example.com/checkout?mode=builder
+```js
+const pinflow = init({ project: 'checkout', mode: 'builder' });
+pinflow.downloadExport(); // one artifact, every reviewer in this browser
 ```
 
-Builder mode provides reviewer filters, read-only pins, aggregate export, and local clearing.
-It is a convenience for backend-free reviews, not an administrative or authenticated area.
-Treat the URL as a soft secret and do not rely on it for access control.
+It aggregates one **browser**, never a team: reviewers on other machines have their own
+localStorage and never appear here. It is a convenience for backend-free reviews, not an
+administrative or authenticated area.
+
+> Before 0.9.0 this mode also drew a drawer with reviewer checkboxes, read-only foreign pins
+> and a Clear all button. Nobody used it, and its data layer — one browser's localStorage —
+> is not the one a real multi-reviewer tier would be built on, so the UI was removed rather
+> than maintained. The aggregation it wrapped is untouched. The last commit containing it is
+> tagged `builder-mode-final`.
+> Treat the URL as a soft secret and do not rely on it for access control.
 
 ## Privacy and security
 

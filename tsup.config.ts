@@ -44,6 +44,14 @@ export default defineConfig([
   {
     entry: { pinflow: 'src/core/iife.ts' },
     format: ['iife'],
+    // The other two configs already treeshake; this entry was the sole omission.
+    // Because `@brijeshp/pinflow/voice` is an external DYNAMIC import in iife
+    // format, esbuild emits its `__require`/`__toESM` CJS-interop preamble
+    // unconditionally — dead here, and rollup's post-pass is what drops it.
+    // NEVER `'smallest'`: that preset sets `propertyReadSideEffects: false`,
+    // licensing rollup to delete the layout-forcing `.offsetHeight`/
+    // `.offsetWidth` reads in `annotator.ts` that exist to flush style.
+    treeshake: true,
     globalName: 'Pinflow',
     minify: true,
     sourcemap: true,

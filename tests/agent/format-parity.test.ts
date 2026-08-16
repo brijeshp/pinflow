@@ -62,10 +62,20 @@ describe('agent format parity (0.4.1 review #1/#4)', () => {
     expect(text).toMatch(/which boundary you crossed/);
   });
 
-  it.each(FORMATS)('%s makes the exclusion list binding', (path) => {
+  // Was "makes the exclusion list binding". An exclusion is a bare coverage
+  // ratio against a hand-drawn rectangle — geometry, not intent — while the
+  // boundary beside it comes from a real containment test and gets an explicit
+  // override clause. Making the weaker evidence absolute is backwards, and on
+  // a region that sliced a repeated set it forbids the only coherent fix.
+  // Every format must now scope it to its own note and give a DETERMINISTIC
+  // default: "confirm first" has no addressee in a no-round-trip pipeline.
+  it.each(FORMATS)('%s scopes the exclusion list to its own note, with a default', (path) => {
     const text = flat(path);
     expect(text).toContain('**do not change:**');
-    expect(text).toMatch(/never edit (one )?(of those )?to satisfy a note/);
+    expect(text).toMatch(/grazed/);
+    expect(text).toMatch(/this note alone|for that note alone|only for the note/);
+    expect(text).toMatch(/prefer leaving/);
+    expect(text).not.toMatch(/never edit (one )?(of those )?to satisfy a note/);
   });
 
   it.each(FORMATS)('%s marks the source hint unverified', (path) => {

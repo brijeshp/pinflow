@@ -503,21 +503,9 @@ describe('Annotator export API (L1.5)', () => {
     expect(parsed.comments).toHaveLength(2);
   });
 
-  it('builder drawer has a JSON button that downloads application/json', () => {
-    seedStore(makeComment('mine'));
-    annotator = makeBuilder();
-    let blobType = '';
-    vi.spyOn(URL, 'createObjectURL').mockImplementation((b) => {
-      blobType = (b as Blob).type;
-      return 'blob:mock';
-    });
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
-    shadow().querySelector<HTMLButtonElement>('button.chip')!.click();
-    const jsonBtn = [...shadow().querySelectorAll('button')].find((b) => b.textContent === 'JSON');
-    expect(jsonBtn).toBeTruthy();
-    jsonBtn!.click();
-    expect(blobType).toContain('json');
-  });
+  // The drawer's JSON button went with the drawer in 0.9.0. Its aggregation
+  // guarantee is the test directly above, which reaches exportJSON through the
+  // handle — where a host gets it now. Nothing else here was chrome.
 });
 
 describe('Annotator submission moment (L1.6)', () => {
@@ -1146,35 +1134,29 @@ describe('builder mode is functional (review #14)', () => {
     });
   }
 
-  it('reviewer checkboxes actually filter pins', () => {
+  // 0.9.0 made builder mode an EXPORT switch. It aggregates in the artifact,
+  // not on the page — so there are no foreign pins on screen, and therefore no
+  // reviewer filter and no read-only foreign-comment view to need. What the
+  // deleted tests were really protecting was that a builder can never mutate
+  // another reviewer's store; that is now structural rather than guarded.
+  it('renders no other reviewer’s pins on the page', () => {
     seedTwoReviewers();
     annotator = makeBuilder();
-    expect(shadow().querySelectorAll('.pin')).toHaveLength(2);
-
-    shadow().querySelector<HTMLButtonElement>('button.chip')!.click(); // open drawer
-    const alice = shadow().querySelector<HTMLInputElement>('input[data-reviewer="Alice"]')!;
-    alice.checked = false;
-    alice.dispatchEvent(new Event('change'));
-    expect(shadow().querySelectorAll('.pin')).toHaveLength(1);
-
-    alice.checked = true;
-    alice.dispatchEvent(new Event('change'));
-    expect(shadow().querySelectorAll('.pin')).toHaveLength(2);
+    expect(shadow().querySelectorAll('.pin')).toHaveLength(0);
   });
 
-  it('a builder pin opens a read-only view with attribution and disposition', () => {
+  it('still aggregates every reviewer in the markdown artifact', () => {
     seedTwoReviewers();
     annotator = makeBuilder();
-    const pins = Array.from(shadow().querySelectorAll<HTMLButtonElement>('.pin'));
-    pins[0]!.click();
-    const ta = shadow().querySelector<HTMLTextAreaElement>('.input textarea');
-    expect(ta).not.toBeNull();
-    expect(ta!.readOnly).toBe(true);
-    const res = shadow().querySelector('.input .res')?.textContent ?? '';
-    expect(res === 'Alice' || res.startsWith('Bob')).toBe(true);
-    // Escape closes; nothing was mutated anywhere.
-    ta!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(shadow().querySelector('.input')).toBeNull();
+    const md = annotator.exportMarkdown();
+    expect(md).toContain('from alice');
+    expect(md).toContain('from bob');
+  });
+
+  it('leaves every other reviewer’s store untouched', () => {
+    seedTwoReviewers();
+    annotator = makeBuilder();
+    annotator.exportMarkdown();
     expect(loadStore(localStorage, PROJECT, 'Alice')?.comments[0]?.text).toBe('from alice');
     expect(loadStore(localStorage, PROJECT, 'Bob')?.comments[0]?.text).toBe('from bob');
   });

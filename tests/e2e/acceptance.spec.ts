@@ -100,10 +100,22 @@ test('AC6: builder mode aggregates', async ({ page }) => {
   await page.locator(SAVE_BUTTON).click();
   await page.waitForTimeout(300);
 
-  // Builder
+  // Builder. Since 0.9.0 this mode renders no chrome of its own — the aggregate
+  // IS the artifact, so that is what the acceptance criterion checks. The old
+  // form asserted two pins on the page, which measured the drawer rather than
+  // the guarantee.
   await page.goto('/?mode=builder');
   await page.waitForTimeout(500);
-  await expect(page.locator(PIN)).toHaveCount(2);
+  await expect(page.locator(PIN)).toHaveCount(0);
+
+  const md = await page.evaluate(() => {
+    const P = (
+      window as unknown as { Pinflow: { init: (c: unknown) => { exportMarkdown(): string } } }
+    ).Pinflow;
+    return P.init({ project: 'e2e-test', mode: 'builder' }).exportMarkdown();
+  });
+  expect(md).toContain('Alice says hi');
+  expect(md).toContain('Bob says hi');
 });
 
 // §11.8 — Markdown is agent-readable

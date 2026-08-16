@@ -1075,23 +1075,26 @@ describe('0.6.1 review round: bounded and honest label rendering', () => {
     );
   }
 
-  // Capture caps each label at 40 chars, but a source() payload never passes
+  // Capture bounds each label at FP_MAX, but a source() payload never passes
   // through capture. Without a cap at the render chokepoint one hydrated label
-  // produced a 5019-character line in the artifact.
+  // produced a 5019-character line in the artifact. Asserts the cap EXACTLY —
+  // a loose upper bound passed unchanged when the cap moved 40 → 80, which is
+  // a test that stops noticing the thing it exists to watch.
   it('bounds a hydrated label that never passed through capture', () => {
     const line = areaMd('A'.repeat(5000))
       .split('\n')
       .find((l) => l.startsWith('**Area covers:**'))!;
-    expect(line.length).toBeLessThan(120);
-    expect(line).toContain('…');
+    expect(line).toContain(`“${'A'.repeat(80)}…”`);
+    expect(line).not.toContain('A'.repeat(81));
   });
 
-  it('leaves a label at the documented 40-char bound untouched', () => {
-    const label = 'B'.repeat(40);
+  it('leaves a label at the documented 80-char bound untouched', () => {
+    const label = 'B'.repeat(80);
     const line = areaMd(label)
       .split('\n')
       .find((l) => l.startsWith('**Area covers:**'))!;
     expect(line).toContain(`“${label}”`);
+    expect(line).not.toContain('…');
   });
 });
 

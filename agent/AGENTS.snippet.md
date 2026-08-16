@@ -44,8 +44,10 @@ page.
 
 - `**Scope:**` is a ceiling, not a grant — it narrows what a fix may touch and
   never authorises one. `**Change:**` is what the note may alter;
-  `(partial)` means confirm before rewriting. `**Do not change:**` is
-  binding: never edit one of those to satisfy a note.
+  `(partial)` means confirm before rewriting. `**Do not change:**` is what the
+  region only grazed, for this note alone — geometry, not intent — so prefer
+  leaving those; if a coherent fix needs one, change it and say so. Watch for
+  `**Change — 2 of 5 `<li>`**`: the reviewer likely meant the whole set.
 - Crossing the boundary is allowed; crossing it silently is not. Make the
   change and say which boundary you crossed and why.
 - `**Insertion point:**` means nothing exists there yet — add between the two

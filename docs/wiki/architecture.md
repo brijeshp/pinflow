@@ -59,4 +59,4 @@ Voice must cost text-only users **0 bytes**. `@brijeshp/pinflow/voice` is marked
 ## Modes
 
 - **reviewer** (default): one person's pins, scoped to their name.
-- **builder**: aggregates all reviewers' stores read-only, with a per-reviewer drawer filter and combined export.
+- **builder**: the handle's exports aggregate every reviewer store in the browser. Renders no chrome and no foreign pins — the drawer, reviewer filter and read-only pin view were removed in 0.9.0 (tag `builder-mode-final`); the aggregation they wrapped is untouched.

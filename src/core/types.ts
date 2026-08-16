@@ -72,6 +72,8 @@ export interface Anchor {
       fontSize?: string;
       /** First family only, quotes stripped. */
       fontFamily?: string;
+      /** Omitted at the `start` initial value; present means someone chose it. */
+      textAlign?: string;
       radius?: string;
     };
   };
@@ -140,13 +142,21 @@ export interface Scope {
   boundary: ScopeNode;
   /** The changed node set. Non-empty tuple: "a region with no members" is unrepresentable. */
   members?: [ChangeNode, ...ChangeNode[]];
+  /**
+   * Total same-tag children of the members' shared parent, when the members are
+   * only SOME of them. Present means the region sliced a repeated set — which
+   * is honest geometry but reads as a deliberate permission list unless the
+   * artifact says how many were left out. Absent when the members are the whole
+   * set, or do not share one parent and tag.
+   */
+  siblings?: number;
   /** Grazed neighbours the agent must not edit to satisfy the note. */
   excluded?: [ScopeNode, ...ScopeNode[]];
   /** Insertion point: the siblings bracketing the drawn region, in document order. */
   between?: { before?: ScopeNode; after?: ScopeNode };
   /** Host-declared source path — validated against a format allowlist, never merely escaped. */
   source?: string;
-  /** The change set hit its cap; the named nodes are a prefix, not the whole set. */
+  /** A node list hit its cap; the named nodes are a prefix, not the whole set. */
   truncated?: true;
   /** A heal moved the anchor, so the derived node sets no longer describe today's DOM. */
   stale?: true;

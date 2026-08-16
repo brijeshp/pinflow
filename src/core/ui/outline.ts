@@ -1,5 +1,5 @@
 import type { ScopeRect, ScopeResult } from '../scope';
-import { el } from './dom';
+import { box, el } from './dom';
 
 // The scope outline: what the reviewer sees resolved, before the composer
 // opens. Four orthogonal channels, one meaning each, composable — which is how
@@ -82,10 +82,10 @@ export class ScopeOutline {
 
     this._paint(wrap, result.elements.boundary, false, uncertain);
     for (const member of result.elements.members) {
-      const box = boxOf(member);
+      const b = boxOf(member);
       // A member the size of the page gets the context treatment instead.
-      const loud = !box || !viewport || (box.w * box.h) / viewport <= QUIET_ABOVE;
-      this._paint(wrap, member, loud, uncertain || false, box);
+      const loud = !b || !viewport || (b.w * b.h) / viewport <= QUIET_ABOVE;
+      this._paint(wrap, member, loud, uncertain || false, b);
     }
 
     if (result.scope.between && region) {
@@ -121,20 +121,16 @@ export class ScopeOutline {
     dashed: boolean,
     known?: Box | null,
   ): void {
-    const box = known === undefined ? boxOf(target) : known;
-    if (!box) return;
+    const b = known === undefined ? boxOf(target) : known;
+    if (!b) return;
     const node = el('i');
     if (member) node.dataset['m'] = '';
     if (dashed) node.dataset['d'] = '';
-    this._place(node, box);
+    this._place(node, b);
     wrap.appendChild(node);
   }
 
-  private _place(node: HTMLElement, box: Box): void {
-    const s = node.style;
-    s.left = `${box.l}px`;
-    s.top = `${box.t}px`;
-    s.width = `${box.w}px`;
-    s.height = `${box.h}px`;
+  private _place(node: HTMLElement, b: Box): void {
+    box(node, b.l, b.t, b.w, b.h);
   }
 }

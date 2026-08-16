@@ -29,7 +29,11 @@ import type { ChangeNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from '.
  * cap, or confidence rule changes — records carry it so a later reader can
  * tell which tuning produced a given `confidence`.
  */
-export const SCOPE_GEN = 1;
+// Bumped to 2 in 0.9.0: marquee boundaries are now size-checked (so
+// `confidence` means something different for a region than it did under gen 1),
+// and `siblings` did not exist. A gen-1 record must not be read as if either
+// were true of it.
+export const SCOPE_GEN = 2;
 
 // Coverage bands. `inside` matches Miro's "Precise selection" (the only
 // production tool shipping an area ratio at all); `partial` is the ambiguity
@@ -49,23 +53,33 @@ const SIBLING_SCAN = 40;
 // SHARES, never an element-name blocklist: `<div id="root">` wraps the whole
 // app and passes any name test.
 const MAX_DESCENDANT_SHARE = 0.5;
-const MAX_VIEWPORT_SHARE = 0.9;
+// Share of the DOCUMENT, not of one screen. Measuring against the viewport made
+// this "is this element taller than the display", which is true of almost every
+// section on a content page — measured at 1.97 viewports for a section holding
+// 18.7% of its document — so R4 fired on ordinary boundaries and collapsed them
+// onto the pinned element. The question R4 asks is "is this candidate really
+// the page", and the page is the document.
+const MAX_DOC_SHARE = 0.9;
 
 // Tags that can never be a pin target. Matched against an uppercased tagName
 // so SVG and XHTML documents are covered too.
-const SKIP_TAGS = new Set(
-  'SCRIPT STYLE HEAD META LINK TITLE NOSCRIPT TEMPLATE BR WBR OPTION SOURCE TRACK PARAM COL DEFS'.split(
-    ' ',
-  ),
-);
+// Anchored alternations rather than Sets, in the shape `selector.ts` already
+// uses. Exactly equivalent to `Set.has` here: every entry is a single
+// space-free token of fixed case, and JS `$` (no `m` flag) is strict
+// end-of-input — unlike Perl/Python, it does NOT match before a trailing
+// newline, so a `role="dialog\n"` still misses both ways.
+//
+// Both ends MUST stay anchored, there must be no `/g` (`lastIndex` is stateful
+// across `.test`, so alternate calls would return false), and the two TAG
+// patterns must NOT gain `/i` — SVG reports `tagName` in its literal case, so
+// `/i` would silently start matching `defs` where `DEFS` does not today.
+const SKIP_TAG_RE =
+  /^(SCRIPT|STYLE|HEAD|META|LINK|TITLE|NOSCRIPT|TEMPLATE|BR|WBR|OPTION|SOURCE|TRACK|PARAM|COL|DEFS)$/;
 
-const LANDMARK_TAGS = new Set(
-  'MAIN NAV HEADER FOOTER ASIDE SECTION ARTICLE FORM DIALOG FIGURE'.split(' '),
-);
+const LANDMARK_TAG_RE = /^(MAIN|NAV|HEADER|FOOTER|ASIDE|SECTION|ARTICLE|FORM|DIALOG|FIGURE)$/;
 
-const LANDMARK_ROLES = new Set(
-  'main navigation banner contentinfo complementary region form search dialog'.split(' '),
-);
+const LANDMARK_ROLE_RE =
+  /^(main|navigation|banner|contentinfo|complementary|region|form|search|dialog)$/;
 
 /** A drawn region in viewport coordinates. */
 export interface ScopeRect {
@@ -120,16 +134,16 @@ function boxOf(el: Element): ScopeRect {
 
 function skip(el: Element): boolean {
   return (
-    SKIP_TAGS.has(el.tagName) ||
+    SKIP_TAG_RE.test(el.tagName) ||
     el.hasAttribute('data-pinflow-ignore') ||
     el.hasAttribute('data-pinflow-root')
   );
 }
 
 function isLandmark(el: Element): boolean {
-  if (LANDMARK_TAGS.has(el.tagName)) return true;
+  if (LANDMARK_TAG_RE.test(el.tagName)) return true;
   const role = el.getAttribute('role');
-  return role !== null && LANDMARK_ROLES.has(role.toLowerCase());
+  return role !== null && LANDMARK_ROLE_RE.test(role.toLowerCase());
 }
 
 // The structural signature is the primary test and reads no classes at all,
@@ -222,10 +236,20 @@ export function climb(el: Element): { el: Element; rung: ScopeRung } {
   for (let cur: Element | null = el; !isRoot(cur) && depth < DEPTH_CAP; cur = cur.parentElement) {
     depth++;
     if (skip(cur)) continue;
-    if (!hits.has('source') && sourceOf(cur)) hits.set('source', cur);
-    if (!hits.has('testid') && getTestId(cur)) hits.set('testid', cur);
-    if (!hits.has('repeated') && isRepeated(cur)) hits.set('repeated', cur);
-    if (!hits.has('landmark') && isLandmark(cur)) hits.set('landmark', cur);
+    // Record each level under its STRONGEST rung only, rather than under every
+    // rung it satisfies. The winner is provably unchanged: for the strongest
+    // rung W present anywhere in the chain, no element carries anything
+    // stronger than W, so every element satisfying W has `rungOf() === W` and
+    // the nearest one still lands in `hits[W]`. Weaker entries can now name a
+    // different (further) element than before, but a weaker entry is only ever
+    // read when no stronger one exists — in which case it IS the winner and
+    // the argument above applies to it instead.
+    //
+    // Knowingly a touch slower, not faster: `rungOf` re-runs `isRepeated` at
+    // every level where the old form short-circuited once the rung was filled.
+    // Negligible at DEPTH_CAP 12; recorded so it is not mistaken for a win.
+    const rung = rungOf(cur);
+    if (rung !== 'anchor' && !hits.has(rung)) hits.set(rung, cur);
   }
   for (const rung of ['source', 'testid', 'repeated', 'landmark'] as const) {
     const hit = hits.get(rung);
@@ -234,15 +258,32 @@ export function climb(el: Element): { el: Element; rung: ScopeRung } {
   return { el, rung: 'anchor' };
 }
 
-// A boundary this large is the page, not a boundary. Share of the document's
-// elements OR share of the viewport — either alone is defeatable (a tall
-// scrolling list fails the viewport test; a sparse hero fails the descendant
-// test).
-function tooWide(el: Element): boolean {
+// Share of the document's elements. This is the page-ness half of R4 and the
+// only half a MARQUEE may use — see `tooWide`.
+function tooManyDescendants(el: Element): boolean {
   const total = document.getElementsByTagName('*').length;
-  if (total && el.getElementsByTagName('*').length / total > MAX_DESCENDANT_SHARE) return true;
-  const viewport = window.innerWidth * window.innerHeight;
-  return viewport > 0 && area(boxOf(el)) / viewport > MAX_VIEWPORT_SHARE;
+  return total > 0 && el.getElementsByTagName('*').length / total > MAX_DESCENDANT_SHARE;
+}
+
+// A boundary this large is the page, not a boundary. Share of the document's
+// elements OR share of the document's area — either alone is defeatable for a
+// POINT PIN, whose boundary is picked by the ladder and can be a sparse hero
+// the descendant test misses.
+//
+// Marquees use `tooManyDescendants` alone: their boundary comes from
+// `containerFor`, which already bounds it to something containing the drawn
+// rect, so the area half adds nothing there and its old viewport form flattened
+// every note in an export to `low`. A field that is always `low` is worse than
+// one that is sometimes wrong — the agent pack tells agents to verify at low
+// confidence, so it manufactures a round-trip per note.
+//
+// `scrollHeight` falls back to the viewport height: it reads 0 in happy-dom and
+// in a document that has not laid out, and a 0 denominator would make every
+// element infinitely large.
+function tooWide(el: Element): boolean {
+  if (tooManyDescendants(el)) return true;
+  const doc = window.innerWidth * (document.documentElement.scrollHeight || window.innerHeight);
+  return doc > 0 && area(boxOf(el)) / doc > MAX_DOC_SHARE;
 }
 
 interface Walk {
@@ -308,7 +349,12 @@ function visit(el: Element, clip: ScopeRect, region: ScopeRect, depth: number, w
     w.bands.set(el, 'partial');
     return true;
   }
+  // The member cap sets `truncated` and demotes; this one silently dropped the
+  // overflow, so a busy marquee published a 12-item list that read as the whole
+  // set — the same "the counts are a complete accounting" misreading the N-of-M
+  // note closes from the other end.
   if (w.excluded.length < EXCLUDED_CAP) w.excluded.push(el);
+  else w.truncated = true;
   return false;
 }
 
@@ -379,7 +425,9 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
     if (!found) return null;
     boundary = found;
     rung = rungOf(boundary);
-    confidence = CONFIDENCE[rung];
+    // R4 applies to every rung, including one a marquee derived. Descendant
+    // share only — the viewport half is wrong for this branch (see `tooWide`).
+    confidence = tooManyDescendants(boundary) ? 'low' : CONFIDENCE[rung];
   } else {
     // A point pin's boundary must be a STRICT ancestor of what it changes, so
     // the climb starts at the parent. Starting at the element collapses the
@@ -417,7 +465,17 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
   if (w.truncated) confidence = 'low';
 
   const scope: Scope = { gen: SCOPE_GEN, rung, confidence, boundary: describe(boundary) };
-  const src = sourceOf(boundary);
+  // A HINT, not a boundary — so it does not have to BE the boundary element.
+  // A marquee picks its boundary by containment, which is almost never a
+  // component root, so reading the attribute off the boundary alone delivered
+  // a hint on virtually nothing: on the audited page, instrumenting every
+  // section component would still have reached one note out of five.
+  // `climb` already records the nearest `source` rung and it is the strongest,
+  // so it wins whenever one exists anywhere above — no second walk. A point
+  // pin whose boundary already carries the attribute finds itself first, so
+  // this is a superset of the previous behaviour, never a change to it.
+  const found = climb(boundary);
+  const src = found.rung === 'source' ? sourceOf(found.el) : null;
   if (src) scope.source = src;
   if (w.truncated) scope.truncated = true;
 
@@ -431,6 +489,21 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
       (el): ChangeNode => ({ ...describe(el), band: w.bands.get(el) ?? 'partial' }),
     );
     scope.members = nodes as [ChangeNode, ...ChangeNode[]];
+    // A rect that slices one column of a grid emits some cells as members, the
+    // grazed column as exclusions, and an untouched column NOWHERE — three
+    // states, of which the artifact renders two. The counts then read as a
+    // deliberate permission list over a set the reviewer meant as a whole.
+    // One number restores the context, without widening the scope to the
+    // parent (which is the bug the covered-set model exists to prevent).
+    const first = w.members[0]!;
+    const parent = first.parentElement;
+    const tag = first.tagName;
+    if (parent && w.members.every((m) => m.parentElement === parent && m.tagName === tag)) {
+      let total = 0;
+      const kids = parent.children;
+      for (let i = 0; i < kids.length; i++) if (kids[i]!.tagName === tag) total++;
+      if (total > w.members.length) scope.siblings = total;
+    }
   } else if (region) {
     // Nothing covered: the reviewer drew a gap, which is an insertion rather
     // than a failure. Never reachable from a point pin.
