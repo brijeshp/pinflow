@@ -19,15 +19,20 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 | Entry         | Budget (gz) |
 | ------------- | ----------- |
-| core IIFE     | 22.8 KB     |
-| core ESM      | 22.6 KB     |
+| core IIFE     | 22.22 KB    |
+| core ESM      | 22.04 KB    |
 | voice ESM     | 4.45 KB     |
 | react wrapper | 0.47 KB     |
 | vue wrapper   | 0.61 KB     |
 
 `pnpm size` gates CI (`verify` job) and publishing (`prepublishOnly` runs build + test + size). Policy: budgets only ratchet **down** between features — kept razor-thin over actuals so regressions surface immediately. Raises happen only as deliberate, changeset-documented trades, and are re-ratcheted to actuals afterwards: once for the v3 lifecycle features, again for the 0.4.1 reliability fixes (CSP-safe stylesheet adoption, heal-ladder correctness), again for the 0.5.0 direct-manipulation arc, and again for the 0.6.1 coarse-container-anchor fix (see each changeset). Ceilings are set from **linux CI actuals**, which run a few bytes above a local macOS measurement. Check budget impact after any core change.
 
-**The two core entries can move in opposite directions, and 0.9.0 is the case that proved it.** The same golf pass freed 278 B on IIFE and only 91 B on ESM — treeshaking recovered a CJS-interop preamble that only the IIFE build emitted — so the artifact-quality fixes that followed fitted inside the IIFE ratchet and did not fit inside ESM's. IIFE ratcheted down; ESM rose as an approved trade. Never reason about "the core budget" as one number, and never assume a saving measured on one entry transfers to the other.
+**The two core entries can move in opposite directions, and 0.9.0 is the case that proved it.** The same golf pass freed 278 B on IIFE and only 91 B on ESM — treeshaking recovered a CJS-interop preamble that only the IIFE build emitted — so the artifact-quality fixes that followed fitted inside the IIFE ratchet and did not fit inside ESM's. ESM's ceiling was raised mid-release as an approved trade and then ratcheted back **below** its starting point once builder-mode UI was removed later in the same release — 22.42 → 22.6 → 22.04. Never reason about "the core budget" as one number, never assume a saving measured on one entry transfers to the other, and do not treat a mid-release raise as final: the number that matters is the one on the merge commit.
+
+**The local↔CI gap scales with bundle size**, measured twice in 0.9.0 on the same machine and
+runner: **103 B IIFE at 22.65 kB**, then **74 B IIFE at 22.17 kB** after the bundle shrank. ESM
+sat at ~70 B both times, above the ~50 B this repo previously assumed. Never predict it; push,
+read the figure CI prints, ratchet to that + ~50 B.
 
 **Per-item byte estimates are not reliable at this size**, in either direction: in 0.9.0 one fix estimated at ~50 B measured 155 B, while two estimated at ~60 B together measured 5 B because both reused patterns already in the bundle. Land related cuts as ONE commit and quote the bundle figure, never the line items.
 
