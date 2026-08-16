@@ -248,13 +248,29 @@ export function climb(el: Element): { el: Element; rung: ScopeRung } {
   return { el, rung: 'anchor' };
 }
 
-// A boundary this large is the page, not a boundary. Share of the document's
-// elements OR share of the viewport — either alone is defeatable (a tall
-// scrolling list fails the viewport test; a sparse hero fails the descendant
-// test).
-function tooWide(el: Element): boolean {
+// Share of the document's elements. This is the page-ness half of R4 and the
+// only half a MARQUEE may use — see `tooWide`.
+function tooManyDescendants(el: Element): boolean {
   const total = document.getElementsByTagName('*').length;
-  if (total && el.getElementsByTagName('*').length / total > MAX_DESCENDANT_SHARE) return true;
+  return total > 0 && el.getElementsByTagName('*').length / total > MAX_DESCENDANT_SHARE;
+}
+
+// A boundary this large is the page, not a boundary. Share of the document's
+// elements OR share of the viewport — either alone is defeatable for a POINT
+// PIN, whose boundary is picked by the ladder and can be a sparse hero the
+// descendant test misses.
+//
+// The viewport half is NOT a page-ness test: it compares an element's full
+// scroll box against ONE screen, so on any content page it reads "taller than
+// the screen". A marquee's boundary comes from `containerFor`, which already
+// bounds it to something containing the drawn rect, so applying this half
+// there demoted ordinary `<section>`s — measured at 1.97 viewports for a
+// section holding 18.7% of the document — and flattened every note in an
+// export to `low`. A field that is always `low` is worse than one that is
+// sometimes wrong: the agent pack tells agents to verify at low confidence,
+// so it manufactures a round-trip per note.
+function tooWide(el: Element): boolean {
+  if (tooManyDescendants(el)) return true;
   const viewport = window.innerWidth * window.innerHeight;
   return viewport > 0 && area(boxOf(el)) / viewport > MAX_VIEWPORT_SHARE;
 }
@@ -393,7 +409,9 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
     if (!found) return null;
     boundary = found;
     rung = rungOf(boundary);
-    confidence = CONFIDENCE[rung];
+    // R4 applies to every rung, including one a marquee derived. Descendant
+    // share only — the viewport half is wrong for this branch (see `tooWide`).
+    confidence = tooManyDescendants(boundary) ? 'low' : CONFIDENCE[rung];
   } else {
     // A point pin's boundary must be a STRICT ancestor of what it changes, so
     // the climb starts at the parent. Starting at the element collapses the

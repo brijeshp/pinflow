@@ -432,6 +432,59 @@ describe('scope — the never-<body> predicate (R4)', () => {
     Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
     expect(resolveScope(s)!.scope.confidence).toBe('low');
   });
+
+  // R4 says EVERY rung is size-checked. The marquee branch assigns a rung via
+  // rungOf() and then published CONFIDENCE[rung] unchecked, so a region that
+  // resolved to the page shipped at `medium` while a tightly-scoped point pin
+  // shipped at `low` — the field was anti-correlated with usefulness.
+  it('a marquee boundary holding most of the document is demoted', () => {
+    mount(`
+      <main id="m">
+        <section id="a"><p>one</p><p>two</p></section>
+        <section id="b"><p>three</p><p>four</p></section>
+      </main>`);
+    const m = document.querySelector('#m') as HTMLElement;
+    rect(m, 0, 0, 1000, 600);
+    rect(document.querySelector('#a')!, 0, 0, 1000, 300);
+    rect(document.querySelector('#b')!, 0, 300, 1000, 300);
+    document.querySelectorAll('p').forEach((p, i) => rect(p, 0, i * 100, 1000, 90));
+    // Disarm the area half: the boundary is well under one viewport, so only
+    // share-of-descendants can fire.
+    Object.defineProperty(window, 'innerWidth', { value: 1600, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 1200, configurable: true });
+    const target = document.querySelector('#a p') as Element;
+    // Spans both sections, so the smallest containing ancestor is <main>.
+    const result = resolveScope(target, { left: 10, top: 250, width: 980, height: 100 })!;
+    expect((result.elements.boundary as HTMLElement).id).toBe('m');
+    expect(result.scope.confidence).toBe('low');
+  });
+
+  // The guard on the fix above. Reusing tooWide() wholesale here would demote
+  // on VIEWPORT SHARE, which compares an element's full scroll box against one
+  // screen — on a content page that is a "taller than the screen" test, not a
+  // page-ness test, and it would flatten every marquee on the page to `low`.
+  it('a marquee boundary taller than the viewport keeps its rung confidence', () => {
+    const filler = Array.from({ length: 12 }, () => '<p>x</p>').join('');
+    mount(`<main id="m"><section id="tall"><p id="t">one</p></section><div id="f">${filler}</div></main>`);
+    const tall = document.querySelector('#tall') as HTMLElement;
+    const t = document.querySelector('#t') as Element;
+    rect(document.querySelector('#m')!, 0, 0, 1000, 7000);
+    rect(tall, 0, 0, 1000, 5000);
+    // Deliberately too small to contain the region: containerFor starts at the
+    // target, so a roomy target would BE the boundary and prove nothing.
+    rect(t, 10, 10, 100, 40);
+    Object.defineProperty(window, 'innerWidth', { value: 1000, configurable: true });
+    Object.defineProperty(window, 'innerHeight', { value: 800, configurable: true });
+    // State the precondition rather than trusting it: the boundary really does
+    // exceed one viewport, so this test is only green because the area
+    // predicate is NOT consulted on this branch.
+    const viewportShare = (1000 * 5000) / (window.innerWidth * window.innerHeight);
+    expect(viewportShare).toBeGreaterThan(1);
+    const result = resolveScope(t, { left: 20, top: 20, width: 400, height: 400 })!;
+    expect((result.elements.boundary as HTMLElement).id).toBe('tall');
+    expect(result.scope.rung).toBe('landmark');
+    expect(result.scope.confidence).toBe('medium');
+  });
 });
 
 describe('scope — caps and skips', () => {
