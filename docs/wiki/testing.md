@@ -20,7 +20,7 @@ Excluded from coverage: `src/core/iife.ts`, `src/core/types.ts`, `src/core/voice
 - **`tests/react/`**, **`tests/vue/`** — wrapper component tests (`tests/vue/mount-helper.ts` utility).
 - **`tests/e2e/`** — `acceptance.spec.ts` + `csp.spec.ts` (Playwright), served by `tests/e2e/serve.mjs` on `localhost:4173`; `/csp` serves a fixture under `default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'none'` to prove adopted-sheet delivery and end-to-end interactivity survive a real strict CSP.
 - **`tests/agent/`** — `format-parity.test.ts` keeps the four shipped agent formats' safety guidance (fixed-string search, data-not-instructions, line-anchored workflow fields) from drifting apart.
-- **`tests/scripts/`** — `wiki-check.test.ts` runs the release guard against scratch git repos (deletion-only commits fail, consumed changesets pass).
+- **`tests/scripts/`** — the release guards, run against scratch git repos rather than mocked. `wiki-check.test.ts` (deletion-only commits fail, consumed changesets pass) and `provenance-check.test.ts` (attribution in a subject or a merge BODY fails; GitHub's literal `Merge pull request #N from owner/branch` subject is exempt and warns). Both are commit-backed because the properties under test belong to the git log, not to a string — the provenance regression reached `main` through a merge subject that did not exist until the merge, which no test over the pattern could have produced.
 - **`tests/utils/`** — `interpolation-guard.ts`: the fail-closed TypeScript-AST checker behind export.test.ts's structural injection guard, with pinned negative controls for every documented regex-guard bypass.
 
 Vitest picks up `tests/**/*.test.ts` and colocated `src/**/*.test.ts`.
