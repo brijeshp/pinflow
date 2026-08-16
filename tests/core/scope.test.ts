@@ -465,7 +465,9 @@ describe('scope — the never-<body> predicate (R4)', () => {
   // page-ness test, and it would flatten every marquee on the page to `low`.
   it('a marquee boundary taller than the viewport keeps its rung confidence', () => {
     const filler = Array.from({ length: 12 }, () => '<p>x</p>').join('');
-    mount(`<main id="m"><section id="tall"><p id="t">one</p></section><div id="f">${filler}</div></main>`);
+    mount(
+      `<main id="m"><section id="tall"><p id="t">one</p></section><div id="f">${filler}</div></main>`,
+    );
     const tall = document.querySelector('#tall') as HTMLElement;
     const t = document.querySelector('#t') as Element;
     rect(document.querySelector('#m')!, 0, 0, 1000, 7000);

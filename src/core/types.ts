@@ -72,6 +72,8 @@ export interface Anchor {
       fontSize?: string;
       /** First family only, quotes stripped. */
       fontFamily?: string;
+      /** Omitted at the `start` initial value; present means someone chose it. */
+      textAlign?: string;
       radius?: string;
     };
   };

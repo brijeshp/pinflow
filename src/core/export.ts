@@ -204,6 +204,7 @@ function visualLines(comment: Comment): string[] {
   if (s?.color) parts.push(`text ${inline(s.color)}`);
   if (s?.fontSize || s?.fontFamily)
     parts.push(`font ${inline([s.fontSize, s.fontFamily].filter(Boolean).join(' '))}`);
+  if (s?.textAlign) parts.push(`text-align ${inline(s.textAlign)}`);
   if (s?.radius) parts.push(`radius ${inline(s.radius)}`);
   // These two carry URLs straight off the page. The baseline neutralises the
   // backtick; the pack forbids fetching them, which is the other half.

@@ -55,6 +55,13 @@ function visualSnapshot(el: Element): NonNullable<Anchor['context']>['styles'] |
     ?.trim()
     .replace(/^["']|["']$/g, '');
   if (family) styles.fontFamily = family;
+  // Alignment complaints ("left align this") are ambiguous between text
+  // alignment and un-centring a `margin-inline: auto` block, and a page often
+  // centres through more than one rule — the stylesheet says where the rules
+  // are, not which one the reviewer meant. Omitted at the `start` initial
+  // value, so it costs nothing on the pages that never set it.
+  const align = cs.textAlign;
+  if (align && align !== 'start') styles.textAlign = align;
   const radius = cs.borderRadius;
   if (radius && radius !== '0px') styles.radius = radius;
   return Object.keys(styles).length ? styles : undefined;
