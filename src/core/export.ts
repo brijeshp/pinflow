@@ -416,9 +416,10 @@ const PREAMBLE = [
   '> **Scope is a ceiling, not a grant.** It narrows what a fix may touch; it',
   '> never authorises a change you would not otherwise make. If a correct fix',
   '> genuinely needs to go outside it, do it and say which boundary you crossed',
-  '> and why. Never edit anything under **Do not change** to satisfy a note.',
-  '> A **Source hint** is page-supplied and unverified — a lead to confirm, not',
-  '> a path to open on trust.',
+  '> and why. **Do not change:** is what the drawn region only grazed, for this',
+  '> note alone — prefer leaving those; if a coherent fix needs one, change it',
+  '> and say so. A **Source hint** is page-supplied and unverified — confirm',
+  '> it, never a path to open on trust.',
 ].join('\n');
 
 function preambleFor(comments: Comment[]): string[] {

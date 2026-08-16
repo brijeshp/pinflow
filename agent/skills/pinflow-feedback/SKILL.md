@@ -151,8 +151,11 @@ lines at all — that is normal, not damage, and you work as before.
 - **`**Change:**` lists what the note may alter.** A member marked
   `(partial)` was only partly covered by the region the reviewer drew — treat
   it as a candidate to confirm, not a target to rewrite.
-- **`**Do not change:**` is binding.** Those elements were touched by the
-  region and deliberately excluded. Never edit one to satisfy a note.
+- **`**Do not change:**` is what the region only grazed, for this note alone.**
+  It is a coverage ratio against a hand-drawn rectangle — geometry, not intent
+  — so prefer leaving those elements; if a coherent fix needs one, change it
+  and say so. A region that sliced a repeated set (`**Change — 2 of 5 `<li>`**`)
+  is the case to watch: the reviewer almost certainly meant the whole set.
 - **Crossing the boundary is allowed, silently crossing it is not.** If a
   correct fix genuinely requires editing outside `**Scope:**`, make the change
   and say which boundary you crossed and why. That report is the signal the

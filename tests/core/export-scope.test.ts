@@ -233,6 +233,17 @@ describe('scope fields are untrusted input like every other field', () => {
 
   // Without this the "2 element(s)" heading reads as a census of the whole set,
   // and an agent rewrites 2 of 5 parallel items and ships a visibly split list.
+  // The preamble is the artifact's most authoritative sentence. Making a bare
+  // coverage ratio absolute there is what turned a ~1% overhang past a grid
+  // gutter into a prohibition on the only coherent fix.
+  it('does not tell an agent a grazed element may never be edited', () => {
+    const md = render(REGION);
+    expect(md).not.toContain('Never edit anything under');
+    expect(md).toContain('only grazed');
+    expect(md).toContain('for this');
+    expect(md).toMatch(/prefer leaving those/);
+  });
+
   it('says the members are a slice when the region cut a repeated set', () => {
     const md = render({ ...REGION, siblings: 5 });
     const line = md.split('\n').find((l) => l.startsWith('**Change'));
