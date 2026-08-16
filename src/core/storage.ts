@@ -61,6 +61,14 @@ function optStr(v: unknown): boolean {
   return v === null || v === undefined || typeof v === 'string';
 }
 
+// A 0-100 percentage leaf. The same three-term chain appeared inline six times
+// across `hasValidAnchor` and `validArea`; the comparisons are pure, so
+// factoring them out reorders nothing observable. NaN and +/-Infinity fail on
+// `finite` exactly as before, and both bounds stay inclusive.
+function pct(v: unknown): boolean {
+  return finite(v) && v >= 0 && v <= 100;
+}
+
 function validContext(v: unknown): boolean {
   if (v === undefined) return true;
   if (!isObject(v)) return false;
@@ -76,10 +84,7 @@ function validContext(v: unknown): boolean {
 function validArea(v: unknown): boolean {
   if (v === undefined) return true;
   if (!isObject(v)) return false;
-  return (['x', 'y', 'w', 'h'] as const).every((k) => {
-    const n = v[k];
-    return finite(n) && n >= 0 && n <= 100;
-  });
+  return (['x', 'y', 'w', 'h'] as const).every((k) => pct(v[k]));
 }
 
 function validVoice(v: unknown): boolean {
@@ -112,12 +117,8 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     optStr(selectors['id']) &&
     typeof selectors['xpath'] === 'string' &&
     isObject(pos) &&
-    finite(pos['x']) &&
-    finite(pos['y']) &&
-    pos['x'] >= 0 &&
-    pos['x'] <= 100 &&
-    pos['y'] >= 0 &&
-    pos['y'] <= 100 &&
+    pct(pos['x']) &&
+    pct(pos['y']) &&
     isObject(vp) &&
     finite(vp['width']) &&
     finite(vp['height']) &&

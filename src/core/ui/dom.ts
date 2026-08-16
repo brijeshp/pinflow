@@ -106,6 +106,28 @@ export function place(node: HTMLElement, pos: { left: number; top: number }): vo
   node.style.top = `${pos.top}px`;
 }
 
+/**
+ * Position AND size an absolutely-positioned box, in px. Three call sites write
+ * the same five properties in the same order (hover outline, area footprint,
+ * scope outline); five template literals each is the single most duplicated
+ * shape in the UI layer.
+ *
+ * `display` is cleared first because two callers reuse a node they may have
+ * hidden earlier. On the freshly-created `el('i')` the scope outline passes it
+ * is a no-op, so one order serves all three.
+ *
+ * UNPREFIXED deliberately: this is a module-level export crossing a boundary,
+ * and `tsup` mangles `/^_/`. Callers with a local named `box` must rename it.
+ */
+export function box(node: HTMLElement, l: number, t: number, w: number, h: number): void {
+  const s = node.style;
+  s.display = '';
+  s.left = `${l}px`;
+  s.top = `${t}px`;
+  s.width = `${w}px`;
+  s.height = `${h}px`;
+}
+
 export function flipPosition(
   anchor: { left: number; top: number },
   size: { width: number; height: number },

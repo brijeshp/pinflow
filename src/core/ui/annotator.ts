@@ -43,7 +43,7 @@ import { GestureController } from '../gesture/controller';
 import { acquireSelectionGuard } from './selection-guard';
 import type { Logger, VoiceHost, VoiceModule, VoiceSession } from '../voice-contract';
 import { loadVoice as defaultLoadVoice } from '../voice-loader';
-import { contrastFor, createUIRoot, el, flipPosition, place, type UIRoot } from './dom';
+import { box, contrastFor, createUIRoot, el, flipPosition, place, type UIRoot } from './dom';
 
 // Not publicly configurable (P4.4). GestureController keeps its internal
 // option for tests.
@@ -1010,12 +1010,7 @@ export class Annotator {
   }
 
   private _sizeHoverEl(left: number, top: number, width: number, height: number): void {
-    const s = this._hoverEl!.style;
-    s.display = '';
-    s.left = `${left}px`;
-    s.top = `${top}px`;
-    s.width = `${width}px`;
-    s.height = `${height}px`;
+    box(this._hoverEl!, left, top, width, height);
   }
 
   // Mouse/pen only: a passive listener cannot preventDefault, so a touch
@@ -1705,23 +1700,18 @@ export class Annotator {
     // Element-anchored comments footprint the captured element itself, except
     // degenerate anchors: collapsed boxes, or near-viewport ones (a click on
     // empty space anchors <body> — ants around the whole page are noise).
-    const box = a
+    const bx = a
       ? this._areaRect(a, r)
       : r.width >= 1 &&
           r.height >= 1 &&
           (r.width < window.innerWidth * 0.9 || r.height < window.innerHeight * 0.9)
         ? r
         : null;
-    if (!box) {
+    if (!bx) {
       area.style.display = 'none';
       return;
     }
-    const s = area.style;
-    s.display = '';
-    s.left = `${box.left}px`;
-    s.top = `${box.top}px`;
-    s.width = `${box.width}px`;
-    s.height = `${box.height}px`;
+    box(area, bx.left, bx.top, bx.width, bx.height);
   }
 
   // The RENDERED footprint rect, shared by the footprint and its pin (the pin

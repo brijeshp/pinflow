@@ -53,19 +53,23 @@ const MAX_VIEWPORT_SHARE = 0.9;
 
 // Tags that can never be a pin target. Matched against an uppercased tagName
 // so SVG and XHTML documents are covered too.
-const SKIP_TAGS = new Set(
-  'SCRIPT STYLE HEAD META LINK TITLE NOSCRIPT TEMPLATE BR WBR OPTION SOURCE TRACK PARAM COL DEFS'.split(
-    ' ',
-  ),
-);
+// Anchored alternations rather than Sets, in the shape `selector.ts` already
+// uses. Exactly equivalent to `Set.has` here: every entry is a single
+// space-free token of fixed case, and JS `$` (no `m` flag) is strict
+// end-of-input — unlike Perl/Python, it does NOT match before a trailing
+// newline, so a `role="dialog\n"` still misses both ways.
+//
+// Both ends MUST stay anchored, there must be no `/g` (`lastIndex` is stateful
+// across `.test`, so alternate calls would return false), and the two TAG
+// patterns must NOT gain `/i` — SVG reports `tagName` in its literal case, so
+// `/i` would silently start matching `defs` where `DEFS` does not today.
+const SKIP_TAG_RE =
+  /^(SCRIPT|STYLE|HEAD|META|LINK|TITLE|NOSCRIPT|TEMPLATE|BR|WBR|OPTION|SOURCE|TRACK|PARAM|COL|DEFS)$/;
 
-const LANDMARK_TAGS = new Set(
-  'MAIN NAV HEADER FOOTER ASIDE SECTION ARTICLE FORM DIALOG FIGURE'.split(' '),
-);
+const LANDMARK_TAG_RE = /^(MAIN|NAV|HEADER|FOOTER|ASIDE|SECTION|ARTICLE|FORM|DIALOG|FIGURE)$/;
 
-const LANDMARK_ROLES = new Set(
-  'main navigation banner contentinfo complementary region form search dialog'.split(' '),
-);
+const LANDMARK_ROLE_RE =
+  /^(main|navigation|banner|contentinfo|complementary|region|form|search|dialog)$/;
 
 /** A drawn region in viewport coordinates. */
 export interface ScopeRect {
@@ -120,16 +124,16 @@ function boxOf(el: Element): ScopeRect {
 
 function skip(el: Element): boolean {
   return (
-    SKIP_TAGS.has(el.tagName) ||
+    SKIP_TAG_RE.test(el.tagName) ||
     el.hasAttribute('data-pinflow-ignore') ||
     el.hasAttribute('data-pinflow-root')
   );
 }
 
 function isLandmark(el: Element): boolean {
-  if (LANDMARK_TAGS.has(el.tagName)) return true;
+  if (LANDMARK_TAG_RE.test(el.tagName)) return true;
   const role = el.getAttribute('role');
-  return role !== null && LANDMARK_ROLES.has(role.toLowerCase());
+  return role !== null && LANDMARK_ROLE_RE.test(role.toLowerCase());
 }
 
 // The structural signature is the primary test and reads no classes at all,
@@ -222,10 +226,20 @@ export function climb(el: Element): { el: Element; rung: ScopeRung } {
   for (let cur: Element | null = el; !isRoot(cur) && depth < DEPTH_CAP; cur = cur.parentElement) {
     depth++;
     if (skip(cur)) continue;
-    if (!hits.has('source') && sourceOf(cur)) hits.set('source', cur);
-    if (!hits.has('testid') && getTestId(cur)) hits.set('testid', cur);
-    if (!hits.has('repeated') && isRepeated(cur)) hits.set('repeated', cur);
-    if (!hits.has('landmark') && isLandmark(cur)) hits.set('landmark', cur);
+    // Record each level under its STRONGEST rung only, rather than under every
+    // rung it satisfies. The winner is provably unchanged: for the strongest
+    // rung W present anywhere in the chain, no element carries anything
+    // stronger than W, so every element satisfying W has `rungOf() === W` and
+    // the nearest one still lands in `hits[W]`. Weaker entries can now name a
+    // different (further) element than before, but a weaker entry is only ever
+    // read when no stronger one exists — in which case it IS the winner and
+    // the argument above applies to it instead.
+    //
+    // Knowingly a touch slower, not faster: `rungOf` re-runs `isRepeated` at
+    // every level where the old form short-circuited once the rung was filled.
+    // Negligible at DEPTH_CAP 12; recorded so it is not mistaken for a win.
+    const rung = rungOf(cur);
+    if (rung !== 'anchor' && !hits.has(rung)) hits.set(rung, cur);
   }
   for (const rung of ['source', 'testid', 'repeated', 'landmark'] as const) {
     const hit = hits.get(rung);
