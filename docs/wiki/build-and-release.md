@@ -34,6 +34,8 @@ runner: **103 B IIFE at 22.65 kB**, then **74 B IIFE at 22.17 kB** after the bun
 sat at ~70 B both times, above the ~50 B this repo previously assumed. Never predict it; push,
 read the figure CI prints, ratchet to that + ~50 B.
 
+**Two measurement traps, both hit in practice.** Deleting source that is ALREADY tree-shaken out can GROW gz — removing the unused `clearProject` export cost +2 B on ESM, because the bundle bytes never contained it and the only effect was perturbing gzip's dictionary. And **comment-level changes to `dist` can never move the gate**: `size-limit` re-bundles and re-minifies with its own esbuild pass before gzipping, so stripping a duplicate `sourceMappingURL` measured exactly 0 B. For the same reason the gate figure is not the gzip of the shipped file — a hand-rolled `gzipSync(dist/...)` read 133 B lower than `pnpm size`. Never substitute one for the other.
+
 **Per-item byte estimates are not reliable at this size**, in either direction: in 0.9.0 one fix estimated at ~50 B measured 155 B, while two estimated at ~60 B together measured 5 B because both reused patterns already in the bundle. Land related cuts as ONE commit and quote the bundle figure, never the line items.
 
 ## Release flow
