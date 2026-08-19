@@ -55,6 +55,17 @@ import { box, contrastFor, createUIRoot, el, flipPosition, place, type UIRoot } 
 const LONG_PRESS_MS = 400;
 const MOVE_THRESHOLD_PX = 10;
 
+// Text-level tags an area sample can land inside. A hit is clamped up past
+// these because `**Area covers:**` names the block a region crosses: an <em> or
+// <a> quotes a fragment mid-sentence, and on a page that is ABOUT feedback that
+// fragment reads like reviewer prose inside the artifact itself — the exact
+// confusion the field exists to prevent.
+//
+// Anchored both ends, no /g (lastIndex is stateful across .test), no /i
+// (tagName is uppercase for HTML and literal-case for SVG, so /i would start
+// matching SVG elements this list does not mean).
+const INLINE_TAG_RE = /^(A|B|CODE|EM|I|KBD|SMALL|SPAN|STRONG|U)$/;
+
 // Matches GestureController's SWALLOW_WINDOW_MS. This used to clear on the next
 // task, on the reasoning that "a mouse click follows its pointerup
 // synchronously" — true for mouse, false for touch, where iOS still applies a
@@ -1200,7 +1211,14 @@ export class Annotator {
       if (e && this._ui.host.contains(e)) e = null; // a pin under the sample
       const hit = e;
       while (e && !contains(e)) e = e.parentElement;
-      if (hit && hit !== e && subjects.length < 3 && !subjects.includes(hit)) subjects.push(hit);
+      if (hit && hit !== e) {
+        // `**Area covers:**` promises the BLOCK a region crosses. Deduping on
+        // the CLAMPED element matters as much as the clamp: two samples landing
+        // on different words of one paragraph are one subject, not two.
+        let b: Element = hit;
+        while (INLINE_TAG_RE.test(b.tagName) && b.parentElement) b = b.parentElement;
+        if (subjects.length < 3 && !subjects.includes(b)) subjects.push(b);
+      }
       return e;
     };
     // Centre first, so subjects[0] shares positionPercent's provenance WHEN the
