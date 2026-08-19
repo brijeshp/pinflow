@@ -141,13 +141,7 @@ export function getXPath(el: Element): string {
     current.tagName !== 'HTML' &&
     current.tagName !== 'BODY'
   ) {
-    let idx = 1;
-    let sibling = current.previousElementSibling;
-    while (sibling) {
-      if (sibling.tagName === current.tagName) idx++;
-      sibling = sibling.previousElementSibling;
-    }
-    parts.unshift(`${current.tagName.toLowerCase()}[${idx}]`);
+    parts.unshift(`${current.tagName.toLowerCase()}[${nthOfType(current)}]`);
     current = current.parentElement;
   }
   return `/html/body/${parts.join('/')}`;
@@ -167,9 +161,10 @@ export function getTextFingerprint(el: Element): string {
   // did not yield enough. When it did, the first 80 characters are provably
   // identical to the full computation's, because normalisation is
   // left-to-right and the truncation boundary lies beyond character 80.
-  if (raw.length <= FP_SCAN_LIMIT) return raw.replace(/\s+/g, ' ').trim().slice(0, FP_MAX);
   const head = raw.slice(0, FP_SCAN_LIMIT).replace(/\s+/g, ' ').trim();
-  return (head.length >= FP_MAX ? head : raw.replace(/\s+/g, ' ').trim()).slice(0, FP_MAX);
+  return (
+    head.length >= FP_MAX || raw.length <= FP_SCAN_LIMIT ? head : raw.replace(/\s+/g, ' ').trim()
+  ).slice(0, FP_MAX);
 }
 
 // Healing-only extraction. `textContent` materialises the COMPLETE descendant

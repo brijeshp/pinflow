@@ -52,8 +52,7 @@ export function validateSourcePath(value: unknown): string | null {
   for (const s of segments) {
     // Empty ("a//b"), current, parent, hidden (.env, .git, .ssh, .claude),
     // argv-shaped (-rf), or trailing-dot (a Windows short-name trick).
-    if (!s || s === '.' || s === '..' || s.startsWith('.') || s.startsWith('-') || s.endsWith('.'))
-      return null;
+    if (!s || s.startsWith('.') || s.startsWith('-') || s.endsWith('.')) return null;
   }
   const file = segments[segments.length - 1]!;
   const dot = file.lastIndexOf('.');

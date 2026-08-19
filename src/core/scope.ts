@@ -128,8 +128,7 @@ function intersect(a: ScopeRect, b: ScopeRect): ScopeRect {
 }
 
 function boxOf(el: Element): ScopeRect {
-  const r = el.getBoundingClientRect();
-  return { left: r.left, top: r.top, width: r.width, height: r.height };
+  return el.getBoundingClientRect();
 }
 
 function skip(el: Element): boolean {
@@ -161,16 +160,12 @@ function signature(el: Element): string {
 }
 
 function classOverlap(a: Element, b: Element): number {
-  const left = new Set(Array.from(a.classList));
-  const right = Array.from(b.classList);
+  const left = new Set(a.classList);
+  const right = b.classList;
   if (!left.size || !right.length) return 0;
   let shared = 0;
-  const union = new Set(left);
-  for (const token of right) {
-    if (left.has(token)) shared++;
-    union.add(token);
-  }
-  return shared / union.size;
+  for (const token of right) if (left.has(token)) shared++;
+  return shared / (left.size + right.length - shared);
 }
 
 // Two OTHER matching siblings, not one: a header/main pair shares a wrapper
@@ -361,7 +356,10 @@ function visit(el: Element, clip: ScopeRect, region: ScopeRect, depth: number, w
 // The siblings bracketing an empty region, in document order. An insertion
 // names a gap, so the container is deliberately NOT outlined and NOT claimed
 // as changed — asserting a boundary the reviewer did not draw.
-function bracket(boundary: Element, region: ScopeRect): { before?: Element; after?: Element } {
+function bracket(
+  boundary: Element,
+  region: ScopeRect,
+): { before?: Element | undefined; after?: Element | undefined } {
   const bottom = region.top + region.height;
   let before: Element | undefined;
   let after: Element | undefined;
@@ -374,10 +372,7 @@ function bracket(boundary: Element, region: ScopeRect): { before?: Element; afte
     if (box.top + box.height <= region.top) before = kid;
     else if (!after && box.top >= bottom) after = kid;
   }
-  const out: { before?: Element; after?: Element } = {};
-  if (before) out.before = before;
-  if (after) out.after = after;
-  return out;
+  return { before, after };
 }
 
 // The smallest ancestor whose box fully contains the drawn region.
@@ -395,10 +390,6 @@ function containerFor(target: Element, region: ScopeRect): Element | null {
       return cur;
   }
   return null;
-}
-
-function demote(c: ScopeConfidence): ScopeConfidence {
-  return c === 'high' ? 'medium' : 'low';
 }
 
 /**
@@ -512,7 +503,7 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
     if (ends.before) between.before = describe(ends.before);
     if (ends.after) between.after = describe(ends.after);
     scope.between = between;
-    scope.confidence = demote(confidence);
+    scope.confidence = confidence === 'high' ? 'medium' : 'low';
     return { scope, elements: { boundary, members: [], excluded: w.excluded } };
   }
 

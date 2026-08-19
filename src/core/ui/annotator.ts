@@ -139,7 +139,7 @@ export class Annotator {
   // toggle it away — review #4), and the sheet's outside-dismiss teardown.
   private _chipEl: HTMLButtonElement | null = null;
   private _panelAnchor: HTMLElement | null = null;
-  private _panelKind: 'sheet' | 'confirm' | null = null;
+  private _sheetOpen = false;
   private _sheetDismiss: (() => void) | null = null;
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
   private _prevBodyCursor = '';
@@ -188,8 +188,6 @@ export class Annotator {
   } | null = null;
   private _reflowFrame = 0;
   private _orphanRetryAt = 0;
-  // Builder-mode reviewer filter: unchecked reviewers' pins hide (review #14).
-  private readonly _builderHidden = new Set<string>();
   private _gesture: GestureController | null = null;
   // Bumped on every teardown (destroy/route change) so in-flight async voice
   // work resolving into a stale world can detect it and self-cancel.
@@ -248,7 +246,7 @@ export class Annotator {
     if (!(k.metaKey || k.ctrlKey) || !k.shiftKey || k.key.toLowerCase() !== 'e') return;
     // The chord stays the HOST'S unless pinflow will actually act (review #11):
     // an open sheet toggles closed; otherwise there must be something to export.
-    if (this._panelKind !== 'sheet' && this._store.comments.length === 0) return;
+    if (!this._sheetOpen && this._store.comments.length === 0) return;
     k.preventDefault();
     this._toggleSheet();
   };
@@ -543,12 +541,8 @@ export class Annotator {
     this._sheetDismiss = null;
     this._panelEl?.remove();
     this._panelEl = null;
-    this._panelKind = null;
+    this._sheetOpen = false;
     this._nameEl = null;
-    // Every close path keeps the builder chip's disclosure state honest —
-    // Clear all closes the drawer without going through the toggle (review r2).
-    if (this._chipEl?.hasAttribute('aria-expanded'))
-      this._chipEl.setAttribute('aria-expanded', 'false');
   }
 
   // Anchor the panel above whatever summoned it (control bottom-right, chip
@@ -663,7 +657,7 @@ export class Annotator {
         // The sheet is meaningless without comments; menus/confirmations stay
         // (the confirmation must survive its own export — review #6 anchors it
         // through the connectivity fallback instead).
-        if (this._panelKind === 'sheet') this._closePanel();
+        if (this._sheetOpen) this._closePanel();
       }
       return;
     }
@@ -681,7 +675,7 @@ export class Annotator {
     this._chipEl.title = label;
     // An open sheet tracks the corpus live (hydration merge, voice commit,
     // deletes) — Export always uses the store, so the label must too (review #5).
-    if (this._panelKind === 'sheet' && this._panelEl) {
+    if (this._sheetOpen && this._panelEl) {
       const h = this._panelEl.querySelector('h3');
       if (h) h.textContent = this._sheetTitle();
     }
@@ -692,7 +686,7 @@ export class Annotator {
     // summon over an ARMED menu left the crosshair live and the next host
     // click planted a spurious comment (verification round, reproduced).
     if (this._annotating) this._exitAnnotateMode();
-    if (this._panelKind === 'sheet') {
+    if (this._sheetOpen) {
       this._closePanel();
       return;
     }
@@ -736,7 +730,7 @@ export class Annotator {
       sheet.appendChild(row);
     }
     this._panelAnchor = this._chipEl;
-    this._panelKind = 'sheet';
+    this._sheetOpen = true;
     this._panelEl = sheet;
     this._ui.root.appendChild(sheet);
     this._positionPanel();
@@ -1206,13 +1200,6 @@ export class Annotator {
       if (e && this._ui.host.contains(e)) e = null; // a pin under the sample
       const hit = e;
       while (e && !contains(e)) e = e.parentElement;
-      // KNOWN LIMITATION, measured and accepted: the hit is NOT clamped up to
-      // its nearest block, so a sample landing mid-sentence can quote an inline
-      // fragment. Clamping cost 76 B gz on ESM, and the budget had room for
-      // exactly one of that or the N-of-M sibling note — which prevents an
-      // actual wrong edit rather than an occasionally confusing quote. Revisit
-      // when the budget allows; `annotator-marquee.test.ts` pins the current
-      // behaviour so the change is visible when it happens.
       if (hit && hit !== e && subjects.length < 3 && !subjects.includes(hit)) subjects.push(hit);
       return e;
     };
@@ -1721,7 +1708,7 @@ export class Annotator {
       if (area) this._placeArea(area, c, target, rect);
     }
     // Orphan state may have flipped either way — keep an open sheet honest.
-    if (this._panelKind === 'sheet' && this._panelEl) {
+    if (this._sheetOpen && this._panelEl) {
       const h = this._panelEl.querySelector('h3');
       if (h) h.textContent = this._sheetTitle();
     }
@@ -1840,41 +1827,6 @@ export class Annotator {
       commentId,
       cleanup: disarm,
       save: () => (frozen ? this._closeActiveInput() : save()),
-    };
-  }
-
-  // Builder pins open a READ-ONLY view (review #14): the aggregate is the
-  // team's record, so text is selectable/copyable but never editable here,
-  // with the reviewer attribution and any disposition beneath. Same dismiss
-  // semantics as every other surface.
-  private _openBuilderView(c: Comment & { reviewer?: string }): void {
-    this._closeActiveInput(false);
-    const wrap = el('div', 'input');
-    const ta = el('textarea');
-    ta.value = c.text;
-    ta.readOnly = true;
-    ta.rows = 3;
-    wrap.appendChild(ta);
-    const mark = c.status === 'done' ? ' · ✓ Done' : c.status === 'declined' ? ' · ✕ Declined' : '';
-    wrap.appendChild(el('div', 'res', `${c.reviewer ?? 'Reviewer'}${mark}`));
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        e.stopPropagation();
-        this._closeActiveInput(false);
-      }
-    };
-    ta.addEventListener('keydown', onKey);
-    this._ui.root.appendChild(wrap);
-    this._positionInputNearPin(wrap, c.id);
-    const disarm = this._armOutsideDismiss(
-      () => [wrap, this._chipEl],
-      () => this._closeActiveInput(false),
-    );
-    this._activeInput = {
-      wrap,
-      commentId: c.id,
-      cleanup: disarm,
-      save: () => this._closeActiveInput(false),
     };
   }
 
@@ -2144,7 +2096,6 @@ export class Annotator {
       this._makeButton('Done', () => this._closePanel()),
     ]);
     this._panelEl = panel;
-    this._panelKind = 'confirm';
     this._ui.root.appendChild(panel);
     this._positionPanel();
   }

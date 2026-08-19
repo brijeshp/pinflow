@@ -107,15 +107,12 @@ export type DescribeRoute = (key: string) => string;
 // literal, not a bare .split: export.ts is a standalone toolkit hosts may call
 // server-side on data that never passed normalizeComments, so a non-string
 // xpath must not throw. attr() on both — each is stored, therefore untrusted.
-function tagFromCss(css: string, xpath: string): string {
-  const last = css.split('>').pop()?.trim() ?? '';
-  const tag = last.split(/[.:#[]/)[0] || String(xpath).split('/').pop()?.split('[')[0];
-  return attr(tag) || 'element';
-}
-
 function elementLabel(comment: Comment): string {
   const { selectors, textFingerprint } = comment.anchor;
-  const tag = tagFromCss(selectors.css, selectors.xpath);
+  const last = selectors.css.split('>').pop()?.trim() ?? '';
+  const tag =
+    attr(last.split(/[.:#[]/)[0] || String(selectors.xpath).split('/').pop()?.split('[')[0]) ||
+    'element';
   const ident = selectors.testid
     ? ` data-testid="${attr(selectors.testid)}"`
     : selectors.id
@@ -149,21 +146,6 @@ function elementLabel(comment: Comment): string {
   return `\`<${tag}${ident}>\`${text}`;
 }
 
-function selectorLines(comment: Comment): string {
-  const { selectors } = comment.anchor;
-  return [
-    `- testid: ${selectors.testid ? `\`${inline(selectors.testid)}\`` : '(none)'}`,
-    `- css: \`${inline(selectors.css)}\``,
-    `- xpath: \`${inline(selectors.xpath)}\``,
-  ].join('\n');
-}
-
-function viewportLabel(comment: Comment): string {
-  const { width, height } = comment.anchor.viewport;
-  const kind = width < 768 ? 'mobile' : width < 1200 ? 'tablet' : 'desktop';
-  return `${width}×${height} (${kind})`;
-}
-
 // Neutral heading plus line-anchored fields. Workflow semantics live ONLY in
 // the Status line, derived from the VALIDATED status value — the old composite
 // heading trailed "— done" after untrusted id/createdAt strings, so a
@@ -185,12 +167,14 @@ function commentHeading(comment: Comment, index: number, reviewer?: string): str
 
 // "the ‘Continue’ button under ‘Next section’" — the human twin of the CSS
 // path, from the context captured at pin time. Empty when never captured (v2).
-function contextLine(comment: Comment): string {
+function contextLine(comment: Comment): string[] {
   const ctx = comment.anchor.context;
-  if (!ctx) return '';
-  return `**Context:** the ${ctx.name ? `‘${inline(ctx.name)}’ ` : ''}${inline(ctx.role ?? 'element')}${
-    ctx.heading ? ` under ‘${inline(ctx.heading)}’` : ''
-  }`;
+  if (!ctx) return [];
+  return [
+    `**Context:** the ${ctx.name ? `‘${inline(ctx.name)}’ ` : ''}${inline(ctx.role ?? 'element')}${
+      ctx.heading ? ` under ‘${inline(ctx.heading)}’` : ''
+    }`,
+  ];
 }
 
 // "**Computed:** background rgb(...), text rgb(...), font 17px DM Sans" — the
@@ -340,22 +324,22 @@ function scopeLines(scope: Scope): string[] {
 }
 
 function commentBlock(comment: Comment, index: number, reviewer?: string): string {
-  const heading = commentHeading(comment, index, reviewer);
-  const pos = comment.anchor.positionPercent;
-  const ctx = contextLine(comment);
+  const { positionPercent: pos, selectors: sel, viewport: vp } = comment.anchor;
   return [
-    heading,
+    commentHeading(comment, index, reviewer),
     `**Element:** ${elementLabel(comment)}`,
-    ...(ctx ? [ctx] : []),
+    ...contextLine(comment),
     ...visualLines(comment),
     '**Selector candidates:**',
-    selectorLines(comment),
+    `- testid: ${sel.testid ? `\`${inline(sel.testid)}\`` : '(none)'}`,
+    `- css: \`${inline(sel.css)}\``,
+    `- xpath: \`${inline(sel.xpath)}\``,
     `**Position:** ${Math.round(pos.x)}% from left, ${Math.round(pos.y)}% from top of element`,
     ...(comment.anchor.areaPercent
       ? [areaLine(comment.anchor.areaPercent, comment.anchor.covers)]
       : []),
     ...(comment.scope ? scopeLines(comment.scope) : []),
-    `**Viewport at time of comment:** ${viewportLabel(comment)}`,
+    `**Viewport at time of comment:** ${vp.width}×${vp.height} (${vp.width < 768 ? 'mobile' : vp.width < 1200 ? 'tablet' : 'desktop'})`,
     // The team's "why" — the Status field says WHAT happened, this line says
     // the reason. Together they close the loop in the artifact.
     ...(comment.resolution ? [`**Resolution:** ${inline(comment.resolution)}`] : []),
@@ -368,11 +352,10 @@ function orphanBlock(comment: Comment & { reviewer?: string }, index: number): s
   // Orphans keep their human context and visual snapshot — the element is
   // GONE, so the last-known name/heading/colors are exactly what an agent
   // has left to work with (review r18).
-  const ctx = contextLine(comment);
   return [
     commentHeading(comment, index, comment.reviewer),
     `**Last known element:** ${elementLabel(comment)}`,
-    ...(ctx ? [ctx] : []),
+    ...contextLine(comment),
     ...visualLines(comment),
     ...(comment.anchor.areaPercent
       ? [areaLine(comment.anchor.areaPercent, comment.anchor.covers)]
@@ -449,16 +432,19 @@ function partitionOrphans<T extends Comment>(
   return { live, orphaned };
 }
 
-function orphanSection(orphaned: Array<Comment & { reviewer?: string }>): string {
-  if (orphaned.length === 0) return '';
-  const blocks = orphaned.map((c, i) => orphanBlock(c, i + 1)).join('\n\n---\n\n');
-  return [
-    '## Orphaned comments',
-    '',
-    'Their elements no longer exist in the DOM.',
-    '',
-    blocks,
-  ].join('\n');
+function orphanSection(orphaned: Array<Comment & { reviewer?: string }>): string[] {
+  return orphaned.length
+    ? [
+        '---',
+        [
+          '## Orphaned comments',
+          '',
+          'Their elements no longer exist in the DOM.',
+          '',
+          orphaned.map((c, i) => orphanBlock(c, i + 1)).join('\n\n---\n\n'),
+        ].join('\n'),
+      ]
+    : [];
 }
 
 function bodyFromGroups(
@@ -509,35 +495,9 @@ export function exportReviewer(
     header,
     ...preambleFor(store.comments),
     bodyFromGroups(groups, false, describeRoute),
+    ...orphanSection(orphaned),
   ];
-  const orphan = orphanSection(orphaned);
-  if (orphan) parts.push('---', orphan);
   return parts.filter(Boolean).join('\n\n') + '\n';
-}
-
-function summarize(
-  reviewers: string[],
-  groups: RouteGroup[],
-  byReviewer: Map<string, number>,
-): string {
-  const total = groups.reduce((sum, g) => sum + g.comments.length, 0);
-  const byReviewerLines = reviewers
-    .map((r) => `- ${inline(r)} — ${byReviewer.get(r) ?? 0} comments`)
-    .join('\n');
-  const byRouteLines = groups
-    .map((g) => `- ${inline(g.route)} — ${g.comments.length} comments`)
-    .join('\n');
-  return [
-    '## Summary',
-    '',
-    `${total} comments across ${groups.length} ${groups.length === 1 ? 'route' : 'routes'}.`,
-    '',
-    'By reviewer:',
-    byReviewerLines,
-    '',
-    'By route:',
-    byRouteLines,
-  ].join('\n');
 }
 
 export function exportBuilder(
@@ -565,14 +525,25 @@ export function exportBuilder(
     '',
     '---',
     '',
-    summarize(reviewers, groups, byReviewer),
+    '## Summary',
+    '',
+    `${live.length} comments across ${groups.length} ${groups.length === 1 ? 'route' : 'routes'}.`,
+    '',
+    'By reviewer:',
+    reviewers.map((r) => `- ${inline(r)} — ${byReviewer.get(r) ?? 0} comments`).join('\n'),
+    '',
+    'By route:',
+    groups.map((g) => `- ${inline(g.route)} — ${g.comments.length} comments`).join('\n'),
     '',
     '---',
   ].join('\n');
 
-  const parts = [header, ...preambleFor(allComments), bodyFromGroups(groups, true, describeRoute)];
-  const orphan = orphanSection(orphaned);
-  if (orphan) parts.push('---', orphan);
+  const parts = [
+    header,
+    ...preambleFor(allComments),
+    bodyFromGroups(groups, true, describeRoute),
+    ...orphanSection(orphaned),
+  ];
   return parts.filter(Boolean).join('\n\n') + '\n';
 }
 
