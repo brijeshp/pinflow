@@ -52,6 +52,28 @@ jobs:
           node-version: 20
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # Cache the browser binaries. `playwright install --with-deps` fetches
+      # from an external CDN on every run, and on 2026-08-19 it hung for 89
+      # minutes without ever reaching `pnpm build` — a stall in someone else's
+      # infrastructure that reads exactly like a broken test suite.
+      #
+      # Keyed on the LOCKFILE hash, not the resolved Playwright version. The
+      # version is the tighter key, but computing it needs a nested-quoted shell
+      # pipeline that cannot be fully tested outside CI. The lockfile hash can
+      # only ever over-invalidate — an occasional needless refetch — where the
+      # failure mode of a too-loose key is running new Playwright against stale
+      # browsers. Prefer the error that costs a minute.
+      - uses: actions/cache@v4
+        id: pw-cache
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('pnpm-lock.yaml') }}
+      # On a miss, fetch browsers + apt deps. On a hit the binaries are already
+      # restored, so only the apt deps are needed — they are not part of the
+      # cached path and are cheap.
       - run: pnpm exec playwright install --with-deps
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+      - run: pnpm exec playwright install-deps
+        if: steps.pw-cache.outputs.cache-hit == 'true'
       - run: pnpm build
       - run: pnpm test:e2e
