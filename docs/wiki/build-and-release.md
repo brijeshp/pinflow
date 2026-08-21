@@ -19,8 +19,8 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 | Entry         | Budget (gz) |
 | ------------- | ----------- |
-| core IIFE     | 22.22 KB    |
-| core ESM      | 22.04 KB    |
+| core IIFE     | 21.92 KB    |
+| core ESM      | 21.75 KB    |
 | voice ESM     | 4.45 KB     |
 | react wrapper | 0.47 KB     |
 | vue wrapper   | 0.61 KB     |
@@ -47,6 +47,7 @@ read the figure CI prints, ratchet to that + ~50 B.
 
 ## CI (`.github/workflows/`)
 
+- **e2e caches Playwright browsers** (`~/.cache/ms-playwright`, keyed on the lockfile hash). Without it `playwright install --with-deps` hits an external CDN every run; on 2026-08-19 that step hung 89 minutes without reaching `pnpm build`, which is indistinguishable from a broken suite until you read the step list. On a cache hit only `install-deps` runs (apt packages are not in the cached path).
 - **`ci.yml`** — `verify` job: `scripts/provenance-check.mjs` (no AI-agent attribution in commit messages since 2026-08-10 — the AGENTS.md invariant, enforced on the log itself), `format:check`, `typecheck`, `build` (BEFORE tests so bundle-isolation hard-fails rather than skips), `test:coverage` (the 80/75 thresholds are enforced in CI), `size`, `wiki:check`. `e2e` job: build + Playwright across chromium / mobile-chrome / mobile-safari. pnpm caching in both.
 - **`release.yml`** — changesets publish on push to `main`, gated by re-running the full battery (format/typecheck/build/coverage/size/E2E/wiki-check) on the exact SHA before publishing; `prepublishOnly` independently runs build + coverage + size.
 - The remote is `origin` (public GitHub) and both workflows are **live**: pushing `main` triggers the release chain — `release.yml` runs the full battery on that SHA, then changesets opens a "Version Packages" PR, and npm publish fires only when that PR is merged. Treat every push to `main` as a release act.
