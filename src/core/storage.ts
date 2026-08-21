@@ -25,11 +25,6 @@ export function storageKey(project: string, reviewer: string): string {
   return `${KEY_PREFIX}${encodeURIComponent(project)}:${encodeURIComponent(reviewer)}`;
 }
 
-/** Pre-encoding key shape; read-side fallback only, never written. */
-function legacyStorageKey(project: string, reviewer: string): string {
-  return `${KEY_PREFIX}${project}:${reviewer}`;
-}
-
 function isObject(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null;
 }
@@ -54,7 +49,7 @@ function isPersistedStore(v: unknown): v is {
 // (with a string `css`), positionPercent, and viewport must all be objects or
 // the record is dropped rather than admitted to crash export later.
 function finite(v: unknown): v is number {
-  return typeof v === 'number' && Number.isFinite(v);
+  return Number.isFinite(v);
 }
 
 function optStr(v: unknown): boolean {
@@ -84,7 +79,7 @@ function validContext(v: unknown): boolean {
 function validArea(v: unknown): boolean {
   if (v === undefined) return true;
   if (!isObject(v)) return false;
-  return (['x', 'y', 'w', 'h'] as const).every((k) => pct(v[k]));
+  return pct(v['x']) && pct(v['y']) && pct(v['w']) && pct(v['h']);
 }
 
 function validVoice(v: unknown): boolean {
@@ -310,16 +305,6 @@ export function normalizeComments(input: unknown): Comment[] {
 // Forward-tolerant migration. v1 → default modality 'text'; v2 → as-is (v3
 // disposition fields simply absent); a NEWER version is read for its stable
 // core fields rather than wiped. Genuinely foreign data → null.
-function migrate(parsed: unknown): ReviewerStore | null {
-  if (!isPersistedStore(parsed)) return null;
-  return {
-    reviewer: parsed.reviewer,
-    project: parsed.project,
-    createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : now(),
-    comments: normalizeComments(parsed.comments),
-  };
-}
-
 export function loadStore(
   storage: Storage,
   project: string,
@@ -328,8 +313,9 @@ export function loadStore(
   let raw = storage.getItem(storageKey(project, reviewer));
   let legacy = false;
   if (!raw) {
+    // Pre-encoding key shape; read-side fallback only, never written.
     // Corpora written before component encoding (colon-bearing names only).
-    raw = storage.getItem(legacyStorageKey(project, reviewer));
+    raw = storage.getItem(`${KEY_PREFIX}${project}:${reviewer}`);
     legacy = raw !== null;
   }
   if (!raw) return null;
@@ -339,7 +325,14 @@ export function loadStore(
   } catch {
     return null; // corrupt blob — discard
   }
-  const store = migrate(parsed);
+  const store: ReviewerStore | null = isPersistedStore(parsed)
+    ? {
+        reviewer: parsed.reviewer,
+        project: parsed.project,
+        createdAt: typeof parsed.createdAt === 'string' ? parsed.createdAt : now(),
+        comments: normalizeComments(parsed.comments),
+      }
+    : null;
   // A legacy raw key is ambiguous ("a:b:c" parses two ways) — trust it only
   // when the blob's OWN embedded scope matches the request (review #19).
   if (legacy && store && (store.project !== project || store.reviewer !== reviewer)) return null;

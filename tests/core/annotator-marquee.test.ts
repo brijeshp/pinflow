@@ -782,16 +782,12 @@ describe('area comments record the blocks they cover (0.6.1)', () => {
     expect(comments()[0]!.anchor.covers).toBe('the bullets that need work');
   });
 
-  // CHARACTERIZATION, not an endorsement. `Area covers` ought to name the BLOCK
-  // a region crosses, but an unclamped hit can land mid-sentence on an <em> —
-  // and on a page that talks about feedback, the quoted fragment reads like
-  // reviewer prose inside the feedback file itself. Clamping to the nearest
-  // block measured 76 B gz on ESM, and the budget had room for exactly one of
-  // that or the N-of-M sibling note; the latter prevents a wrong edit, this
-  // prevents a confusing quote, so this one waits. Pinned so that when someone
-  // adds the clamp back, this test fails loudly and gets rewritten as an
-  // assertion of the good behaviour rather than the tolerated one.
-  it('currently quotes a text-level hit verbatim (clamp deferred on budget)', () => {
+  // Was a characterization test pinning the unclamped behaviour, written to
+  // fail loudly when the clamp came back. It did, and this is the rewrite it
+  // asked for: the assertion of the good behaviour rather than the tolerated
+  // one. A sample landing mid-sentence now names the block, so the artifact
+  // cannot quote a page fragment that reads like reviewer prose.
+  it('clamps a text-level hit up to its block, so it never quotes mid-sentence', () => {
     annotator = makeAnnotator();
     arm();
     const list = document.createElement('ul');
@@ -809,7 +805,9 @@ describe('area comments record the blocks they cover (0.6.1)', () => {
 
     drag(list, [100, 100], [300, 300]);
 
-    expect(comments()[0]!.anchor.covers).toBe('make this button clearer');
+    const covers = comments()[0]!.anchor.covers ?? '';
+    expect(covers).not.toBe('make this button clearer');
+    expect(covers).toContain('Feedback that says');
   });
 
   it('records nothing when the drag only crosses the container itself', () => {
