@@ -166,6 +166,12 @@ lines at all — that is normal, not damage, and you work as before.
 - **Read `rung:` and `confidence:` before trusting a boundary.** `rung:
 source` or `testid` is a declared boundary; `landmark` or `anchor` is
   the tool guessing. At `confidence: low`, verify before relying on it.
+- **`gen:` is the tuning that WROTE the record, not the version that exported
+  it.** Scope is captured once and stored, never re-derived at export, so a
+  comment placed months ago carries the thresholds in force back then. `gen: N
+— older tuning` means `rung`/`confidence` on THIS note were decided by rules
+  the current build no longer uses: treat the boundary as a weaker claim, and
+  re-place the pin if it matters.
 - **`stale` means a heal moved the anchor.** The element lists were dropped
   because they described a DOM that no longer exists. The boundary still holds;
   the specifics do not.

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { exportBuilder, exportReviewer } from '../../src/core/export';
 import type { Comment, ReviewerStore, Scope } from '../../src/core/types';
+import { SCOPE_GEN as CURRENT_GEN } from '../../src/core/scope-limits';
 
 const META = { generatedAt: '2026-08-12T10:00:00Z', project: 'proto' };
 const LIVE = (): boolean => false;
@@ -252,6 +253,24 @@ describe('scope fields are untrusted input like every other field', () => {
     const md = render(REGION);
     expect(md).toContain('Choose a plan”');
     expect(md).not.toContain('Choose a plan…');
+  });
+
+  // SCOPE_GEN exists so a record captured under old tuning cannot be read as if
+  // it were current — `rung`/`confidence` are persisted AND shipped to agents,
+  // so the same word means different things across tunings. It was persisted
+  // and validated at hydration, then dropped at the one boundary that matters:
+  // re-exporting five gen-1 comments after 0.9.x rendered them indistinguishably
+  // from fresh ones, and neither a human nor an agent could tell.
+  it('renders the tuning generation', () => {
+    const md = render({ ...REGION, gen: CURRENT_GEN });
+    expect(md).toMatch(new RegExp(`gen: ${CURRENT_GEN}`));
+    expect(md).not.toContain('older tuning');
+  });
+
+  it('marks a record captured under an older tuning', () => {
+    const md = render({ ...REGION, gen: 1 });
+    const line = md.split('\n').find((l) => l.startsWith('**Scope:'))!;
+    expect(line).toContain('gen: 1 — older tuning');
   });
 
   it('does not tell an agent a grazed element may never be edited', () => {
