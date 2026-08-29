@@ -268,6 +268,147 @@ describe('scope — exclusions (R7)', () => {
     expect(s.between).toBeDefined();
     expect(s.excluded?.map((n) => n.tag)).toEqual(['p']);
   });
+
+  // R9. Coverage is scored against each ELEMENT's own area, so a marquee that
+  // is small relative to everything it crosses clears no floor and leaves
+  // `members` empty — which the insertion branch then read as "the reviewer
+  // drew a gap". A real 0.9.1 export did exactly this to a hero note: the
+  // `<h1>` the note was about was published under **Do not change**, the change
+  // list was absent entirely, and an insertion point was asserted inside a
+  // container holding three elements. Silence would have been better.
+  //
+  // The discriminator is not "did it graze anything" — the test above grazes a
+  // paragraph and IS a genuine insertion. It is how much of the DRAWN REGION
+  // the grazed set fills: content the reviewer drew across, or empty space.
+  it('a marquee drawn across oversized content is a change set, not a gap', () => {
+    mount('<div id="stack"><h1 id="title"><span id="accent"></span></h1></div>');
+    const stack = document.querySelector('#stack') as HTMLElement;
+    rect(stack, 0, 0, 400, 400);
+    // Both dwarf the marquee, so neither can clear the 0.35 floor.
+    rect(document.querySelector('#title')!, 0, 0, 400, 300);
+    rect(document.querySelector('#accent')!, 0, 0, 400, 280);
+    const s = resolveScope(stack, { left: 0, top: 100, width: 400, height: 60 })!.scope;
+
+    expect(s.between).toBeUndefined();
+    expect(s.members?.map((n) => n.tag)).toContain('h1');
+    expect(s.excluded).toBeUndefined();
+  });
+
+  // The climb is upward-only, so a layout wrapper OUTSIDE the annotated
+  // component puts the attribute below the boundary where it can never be
+  // reached. That is not exotic markup — `<div class="wrap"><Hero/></div>` is
+  // the shape the audited site uses for its hero, and it was the one note in a
+  // seven-note export that came back with no source hint while every other
+  // section resolved one.
+  it('finds a source hint on the single annotated component below the boundary', () => {
+    mount(
+      '<div id="stack"><section id="hero" data-pinflow-source="src/components/Hero.astro"><h1 id="title"></h1></section></div>',
+    );
+    const stack = document.querySelector('#stack') as HTMLElement;
+    rect(stack, 0, 0, 400, 400);
+    rect(document.querySelector('#hero')!, 0, 0, 400, 400);
+    rect(document.querySelector('#title')!, 0, 0, 400, 300);
+    const s = resolveScope(stack, { left: 0, top: 100, width: 400, height: 60 })!.scope;
+    expect(s.source).toBe('src/components/Hero.astro');
+  });
+
+  // Two candidates means the hint would be a coin flip, and a hint naming the
+  // WRONG file is worse than none — an agent is told to confirm it, not to
+  // distrust it. Silence is the designed failure mode.
+  it('stays silent when the boundary holds more than one annotated component', () => {
+    mount(
+      '<div id="stack"><section id="a" data-pinflow-source="src/A.astro"></section><section id="b" data-pinflow-source="src/B.astro"></section><h1 id="title"></h1></div>',
+    );
+    const stack = document.querySelector('#stack') as HTMLElement;
+    rect(stack, 0, 0, 400, 400);
+    rect(document.querySelector('#a')!, 0, 0, 400, 10);
+    rect(document.querySelector('#b')!, 0, 10, 400, 10);
+    rect(document.querySelector('#title')!, 0, 0, 400, 300);
+    const s = resolveScope(stack, { left: 0, top: 100, width: 400, height: 60 })!.scope;
+    expect(s.source).toBeUndefined();
+  });
+
+  // An ancestor is direct evidence; a descendant is an inference. When both
+  // exist the climb must still win, or a nested annotated child could rename
+  // the note's component out from under its own boundary.
+  it('prefers an ancestor hint over a descendant one', () => {
+    mount(
+      '<div id="stack" data-pinflow-source="src/Outer.astro"><section id="hero" data-pinflow-source="src/Inner.astro"><h1 id="title"></h1></section></div>',
+    );
+    const stack = document.querySelector('#stack') as HTMLElement;
+    rect(stack, 0, 0, 400, 400);
+    rect(document.querySelector('#hero')!, 0, 0, 400, 400);
+    rect(document.querySelector('#title')!, 0, 0, 400, 300);
+    const s = resolveScope(stack, { left: 0, top: 100, width: 400, height: 60 })!.scope;
+    expect(s.source).toBe('src/Outer.astro');
+  });
+
+  it('never lets a descendant hint promote the rung to source', () => {
+    mount(
+      '<div id="stack"><section id="hero" data-pinflow-source="src/components/Hero.astro"><h1 id="title"></h1></section></div>',
+    );
+    const stack = document.querySelector('#stack') as HTMLElement;
+    rect(stack, 0, 0, 400, 400);
+    rect(document.querySelector('#hero')!, 0, 0, 400, 400);
+    rect(document.querySelector('#title')!, 0, 0, 400, 300);
+    const s = resolveScope(stack, { left: 0, top: 100, width: 400, height: 60 })!.scope;
+    expect(s.source).toBeDefined();
+    expect(s.rung).not.toBe('source');
+  });
+
+  // The whole defect, reassembled from the real record rather than invented:
+  // comment 1 of the 2026-08-29 export, whose note was "Copy needs work". The
+  // artifact published an absent change list, the `<h1>` the note was about
+  // under **Do not change**, an insertion point inside a container holding
+  // three elements, and no source hint — while every other section in the same
+  // export resolved one. Both fixes have to fire on this one shape.
+  //
+  // Geometry is the export's own: boundary `#main > div.wrap`, region 41% x 22%
+  // of it from 3%, 26%, with `section.hero` carrying the attribute BELOW the
+  // boundary because the page wraps the hero rather than the hero wrapping.
+  it('the hero note that produced none of what it needed', () => {
+    mount(
+      '<div id="wrap"><section id="hero" data-pinflow-source="src/components/Hero.astro">' +
+        '<h1 id="hero-title"><span id="accent"></span></h1></section></div>',
+    );
+    const wrap = document.querySelector('#wrap') as HTMLElement;
+    rect(wrap, 0, 0, 1000, 1000);
+    rect(document.querySelector('#hero')!, 0, 0, 1000, 900);
+    rect(document.querySelector('#hero-title')!, 50, 200, 900, 400);
+    rect(document.querySelector('#accent')!, 50, 400, 900, 150);
+    const s = resolveScope(wrap, { left: 30, top: 260, width: 410, height: 220 })!.scope;
+
+    // Was: no change list at all.
+    expect(s.members?.map((n) => n.tag)).toContain('h1');
+    // Was: the h1 the note was about, filed as untouchable.
+    expect(s.excluded).toBeUndefined();
+    // Was: "nothing exists there yet", asserted over three elements.
+    expect(s.between).toBeUndefined();
+    // Was: absent, because the climb only ever went up.
+    expect(s.source).toBe('src/components/Hero.astro');
+  });
+
+  it('every promoted member is banded partial — none of them cleared the floor', () => {
+    mount('<div id="stack"><h1 id="title"></h1></div>');
+    const stack = document.querySelector('#stack') as HTMLElement;
+    rect(stack, 0, 0, 400, 400);
+    rect(document.querySelector('#title')!, 0, 0, 400, 300);
+    const s = resolveScope(stack, { left: 0, top: 100, width: 400, height: 60 })!.scope;
+    expect(s.members!.every((m) => m.band === 'partial')).toBe(true);
+  });
+
+  // The boundary claim survives (a source rung still found what it found), but
+  // no member reached the ambiguity floor, so the set is best-effort and must
+  // not be published at the confidence of a clean containment.
+  it('demotes confidence when nothing cleared the floor', () => {
+    mount('<div id="stack" data-pinflow-source="src/Hero.tsx"><h1 id="title"></h1></div>');
+    const stack = document.querySelector('#stack') as HTMLElement;
+    rect(stack, 0, 0, 400, 400);
+    rect(document.querySelector('#title')!, 0, 0, 400, 300);
+    const s = resolveScope(stack, { left: 0, top: 100, width: 400, height: 60 })!.scope;
+    expect(s.rung).toBe('source');
+    expect(s.confidence).not.toBe('high');
+  });
 });
 
 describe('scope — insertions (R8)', () => {

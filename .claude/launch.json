@@ -55,6 +55,12 @@
         "-c-1"
       ],
       "port": 4321
+    },
+    {
+      "name": "pinflow-motion-test",
+      "runtimeExecutable": "pnpm",
+      "runtimeArgs": ["--dir", "/Users/brijeshpatel/Apps/pinflow-site", "dev", "--port", "4322"],
+      "port": 4322
     }
   ]
 }
