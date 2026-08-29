@@ -51,6 +51,25 @@ test('a host-control click while armed disarms AND is swallowed', async ({ page 
   expect(await page.evaluate(() => (window as unknown as { ctaClicks: number }).ctaClicks)).toBe(1);
 });
 
+// The export's clipboard write must succeed under the real tap gesture —
+// WebKit rejects writes that begin behind an async boundary, and the
+// coordinator's synchronous initiation exists exactly for this (0.10.0
+// review #12). The confirmation asserts the verified channel by name only
+// when the write genuinely resolved true.
+test('the export copy succeeds under the click gesture', async ({ page }, testInfo) => {
+  if (testInfo.project.name === 'chromium' || testInfo.project.name === 'mobile-chrome') {
+    await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  }
+  await page.goto('/?reviewer=Gesture');
+  await page.locator(CONTROL).click();
+  await page.locator('[data-testid="primary-cta"]').first().click({ force: true });
+  await page.locator(TEXTAREA).fill('copy me');
+  await page.locator(SAVE_BUTTON).click();
+  await page.locator(CHIP).click();
+  await page.locator(EXPORT_BTN).click();
+  await expect(page.locator('text=Copied to your clipboard')).toBeVisible();
+});
+
 test('the comment survives the backed-out arm', async ({ page }) => {
   await page.goto('/?reviewer=Disarmer2');
   await armClear(page);

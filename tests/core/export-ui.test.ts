@@ -2122,7 +2122,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   // The clipboard queue is PAGE-lifetime (0.10.0 review #11): the public
   // downloadExport() writes through it, and a replacement instance inherits
   // it — a stale write can never outrun a newer artifact from any writer.
-  it('the public downloadExport shares the write queue', async () => {
+  it('the public downloadExport cannot race the in-flight write', async () => {
     captureBlobs();
     const pend: Array<(ok: boolean) => void> = [];
     vi.stubGlobal(
@@ -2145,19 +2145,14 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Export & share')!.click(); // built-in export write in flight
     await Promise.resolve();
     expect(pend).toHaveLength(1);
-    annotator!.downloadExport(); // public path: must QUEUE, not race
+    annotator!.downloadExport(); // public path: refused while busy, never queued
     await Promise.resolve();
-    expect(pend).toHaveLength(1);
-    pend[0]!(true);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(pend).toHaveLength(2); // released in order
-    // Drain: the queue is page-lifetime module state — an abandoned write
-    // would wedge every later test's clipboard.
-    pend[1]!(true);
+    expect(pend).toHaveLength(1); // no second native write was initiated
+    pend[0]!(true); // drain the in-flight slot (page-lifetime module state)
     await new Promise((r) => setTimeout(r, 0));
   });
 
-  it('a replacement instance inherits the write queue', async () => {
+  it('a replacement instance cannot race the in-flight write', async () => {
     captureBlobs();
     const pend: Array<(ok: boolean) => void> = [];
     vi.stubGlobal(
@@ -2187,15 +2182,14 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     chip()!.click();
     byLabel('Export & share')!.click();
     await Promise.resolve();
-    expect(pend).toHaveLength(1); // instance B queues behind A
-    pend[0]!(true);
-    await new Promise((r) => setTimeout(r, 0));
-    expect(pend).toHaveLength(2);
-    pend[1]!(true); // drain the page-lifetime queue
+    expect(pend).toHaveLength(1); // B's write was REFUSED, not raced
+    // The refusal is honest: B's confirmation claims only the download.
+    expect(body()).toContain('Check your downloads');
+    pend[0]!(true); // drain the slot
     await new Promise((r) => setTimeout(r, 0));
   });
 
-  it('concurrent copy retries resolve latest-wins', async () => {
+  it('same-content retries share one in-flight write; the newest narrates', async () => {
     captureBlobs();
     const pend: Array<(ok: boolean) => void> = [];
     vi.stubGlobal(
@@ -2221,22 +2215,19 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await new Promise((r) => setTimeout(r, 0));
 
     byLabel('Copy to Clipboard')!.click(); // retry A: write in flight
-    byLabel('Copy to Clipboard')!.click(); // retry B: QUEUED behind A
+    byLabel('Copy to Clipboard')!.click(); // retry B: SAME artifact — shares A's write
     await Promise.resolve();
-    expect(pend).toHaveLength(2); // export's write + A only — B waits
-    pend[1]!(false); // A fails…
+    expect(pend).toHaveLength(2); // export's write + ONE retry write, shared
+    pend[1]!(true); // the shared write succeeds
     await new Promise((r) => setTimeout(r, 0));
-    expect(pend).toHaveLength(3); // …which releases B
-    pend[2]!(true); // …and B succeeds
-    await new Promise((r) => setTimeout(r, 0));
-    // B is the newest reservation, so its success is what narrates.
+    // Both retries saw the shared result; the newest reservation narrates it.
     expect(body()).toBe('Copied to your clipboard.');
   });
 
   // Clipboard writes SERIALIZE in initiation order (0.10.0 review #10): a
   // stale export's write must never land after a newer confirmation is up,
   // or the delivered clipboard and the clearable batch would disagree.
-  it('a stale overlapping export write cannot outrun the newer one', async () => {
+  it('an overlapping export is refused rather than reordered', async () => {
     captureBlobs();
     const pend: Array<(ok: boolean) => void> = [];
     vi.stubGlobal(
@@ -2260,53 +2251,74 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await Promise.resolve(); // the chained write initiates a microtask later
     chip()!.click(); // toggle closes A's still-open sheet (ownership-invalidating A)
     chip()!.click(); // summon sheet B
-    byLabel('Export & share')!.click(); // export B
-    // Serialized: B's write must not have been initiated while A hangs.
-    expect(pend).toHaveLength(1);
-    pend[0]!(true); // A settles (its UI claim is ownership-rejected)…
+    // A name typed on sheet B changes the attribution, so B's artifact is
+    // genuinely different content from the hanging A write.
+    const name = shadow().querySelector<HTMLInputElement>('input.name')!;
+    name.value = 'Bea';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    byLabel('Export & share')!.click(); // export B: REFUSED while A is in flight
+    await Promise.resolve();
+    expect(pend).toHaveLength(1); // no second native write ever started
     await new Promise((r) => setTimeout(r, 0));
-    expect(pend).toHaveLength(2); // …and only then does B's write start
-    pend[1]!(true);
+    // B's confirmation is honest about the refusal: download only.
+    expect(body()).toContain('Check your downloads');
+    pend[0]!(true); // A settles late — its stale UI is ownership-rejected…
     await new Promise((r) => setTimeout(r, 0));
-    expect(body()).toContain('Copied to your clipboard');
+    // …and the panel still belongs to B.
+    expect(body()).toContain('Check your downloads');
   });
 
-  it('concurrent copy retries resolve latest-wins in the inverse order too', async () => {
+  // A mixed failed clear must not restore an id whose delete went out: the
+  // fold-back and the emission agree per id (0.10.0 review #12).
+  it('a mixed failed clear never both restores and deletes one comment', async () => {
     captureBlobs();
-    const pend: Array<(ok: boolean) => void> = [];
-    vi.stubGlobal(
-      'navigator',
-      Object.create(navigator, {
-        clipboard: {
-          value: {
-            writeText: () =>
-              new Promise<void>((res, rej) =>
-                pend.push((ok) => (ok ? res() : rej(new Error('x')))),
-              ),
-          },
-          configurable: true,
-        },
-      }),
-    );
-    seedStore([makeComment('c1', 'a')]);
-    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
-    chip()!.click();
-    byLabel('Export & share')!.click();
-    await Promise.resolve(); // chained writes initiate a microtask later
-    pend[0]!(true);
-    await new Promise((r) => setTimeout(r, 0));
+    captureClipboard();
+    spacedClock();
+    const c1 = makeComment('c1', 'stale copy returns');
+    const c2 = makeComment('c2', 'cleanly gone');
+    seedStore([c1, c2]);
+    let armTrap = false;
+    let fired = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            t.setItem(k, v);
+            if (armTrap && !fired && v.includes('"comments":[]')) {
+              fired = true;
+              // Another tab persists the STALE exported c1 before verification.
+              const key = `pinflow:c:${PROJECT}:${REVIEWER}`;
+              const disk = JSON.parse(t.getItem(key) ?? 'null') as { comments?: Comment[] } | null;
+              if (disk) {
+                disk.comments = [c1];
+                t.setItem(key, JSON.stringify(disk));
+              }
+            }
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      storage,
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
 
-    byLabel('Copy to Clipboard')!.click(); // retry A: write in flight
-    byLabel('Copy to Clipboard')!.click(); // retry B: queued
-    await Promise.resolve();
-    pend[1]!(true); // A (stale reservation) succeeds…
-    await new Promise((r) => setTimeout(r, 0));
-    pend[2]!(false); // …then B (newest) runs and fails
-    await new Promise((r) => setTimeout(r, 0));
-    // The newest reservation narrates even when it is the failure: a stale
-    // success must not mask it (0.10.0 review #3; serialization means an
-    // out-of-order completion can no longer exist — 0.10.0 review #10).
-    expect(body()).toBe('Copy failed — use the download instead.');
+    byLabel('Clear comments')!.click();
+    armTrap = true;
+    byLabel('Clear 2 comments?')!.click();
+    expect(fired).toBe(true);
+
+    expect(body()).toContain('could not be cleared');
+    // c2 was durably removed: its delete went out, and it is NOT restored.
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c2']);
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept.map((c) => c.id)).toEqual(['c1']);
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(1);
   });
 
   // Delivery is mutable state: a successful retry upgrades what the armed

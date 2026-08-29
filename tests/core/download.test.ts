@@ -80,4 +80,51 @@ describe('copyToClipboard', () => {
     });
     await expect(copyToClipboard('nope')).resolves.toBe(false);
   });
+
+  it('initiates the native write synchronously, inside the caller gesture', async () => {
+    // WebKit rejects clipboard writes that begin behind an async boundary —
+    // the user activation is gone by then. The coordinator must call
+    // writeText on the SAME tick as copyToClipboard (0.10.0 review #12).
+    let calledSynchronously = false;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: () => {
+          calledSynchronously = true;
+          return Promise.resolve();
+        },
+      },
+      configurable: true,
+    });
+    const p = copyToClipboard('gesture');
+    expect(calledSynchronously).toBe(true);
+    await expect(p).resolves.toBe(true);
+  });
+
+  it('a write pending past the settle bound stops being shareable — fail fast, never wedge', async () => {
+    vi.useFakeTimers();
+    let settle!: () => void;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => new Promise<void>((r) => (settle = r)) },
+      configurable: true,
+    });
+    const hung = copyToClipboard('same artifact');
+    // Same content while healthy: shared, no second native write.
+    const shared = copyToClipboard('same artifact');
+    expect(shared).toBe(hung);
+    // Past the bound, even same-content callers are refused instead of
+    // joining a write the engine may never settle (0.10.0 review #12).
+    vi.advanceTimersByTime(3000);
+    await expect(copyToClipboard('same artifact')).resolves.toBe(false);
+    // Different content is refused throughout — never reordered.
+    await expect(copyToClipboard('other artifact')).resolves.toBe(false);
+    vi.useRealTimers();
+    // A late settle drains the slot; the page recovers without reload.
+    settle();
+    await expect(hung).resolves.toBe(true);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => Promise.resolve() },
+      configurable: true,
+    });
+    await expect(copyToClipboard('fresh')).resolves.toBe(true);
+  });
 });

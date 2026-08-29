@@ -959,14 +959,18 @@ export class Annotator {
         // legitimize deleting the discarded side (0.10.0 review #9).
         comments: this._unionTracked(disk.comments, this._store.comments),
       };
-    // A failed clear keeps its batch: the stripped revisions fold back into
-    // memory (newer survivors still win their unions), so the advertised
-    // retry re-finds exactly what it promised to clear instead of reporting
-    // "Nothing left" over an unremoved corpus (0.10.0 review #11).
+    // A failed clear keeps its batch — but only the part that VERIFIABLY
+    // survived: an id absent from both final stores was durably removed and
+    // gets its delete, so folding it back would restore locally what the wire
+    // was just told to drop. Fold-back and delete emission agree per id
+    // (0.10.0 review #11, #12).
     if (!clean)
       this._store = {
         ...this._store,
-        comments: this._unionTracked(this._store.comments, intent),
+        comments: this._unionTracked(
+          this._store.comments,
+          intent.filter((c) => survivors.has(c.id)),
+        ),
       };
     for (const c of intent) if (!survivors.has(c.id)) this._emitChange('delete', c);
     this._renderPins();
