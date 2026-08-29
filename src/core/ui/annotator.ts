@@ -158,17 +158,6 @@ export class Annotator {
   private _panelAnchor: HTMLElement | null = null;
   // Status-line write generation — see _say().
   private _sayGen = 0;
-  // ONE clipboard, ONE queue (0.10.0 review #10): the Clipboard API gives
-  // writes no ordering, so an older export's slow write could land after a
-  // newer confirmation was already up — delivered clipboard and clearable
-  // batch disagreeing. Every write chains here, in initiation order.
-  private _clip: Promise<unknown> = Promise.resolve();
-
-  private _writeClip(md: string): Promise<boolean> {
-    const next = this._clip.then(() => copyToClipboard(md));
-    this._clip = next;
-    return next;
-  }
   private _sheetOpen = false;
   private _sheetDismiss: (() => void) | null = null;
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
@@ -969,6 +958,15 @@ export class Annotator {
         // DURING the wipe must be recorded here, or the next export would
         // legitimize deleting the discarded side (0.10.0 review #9).
         comments: this._unionTracked(disk.comments, this._store.comments),
+      };
+    // A failed clear keeps its batch: the stripped revisions fold back into
+    // memory (newer survivors still win their unions), so the advertised
+    // retry re-finds exactly what it promised to clear instead of reporting
+    // "Nothing left" over an unremoved corpus (0.10.0 review #11).
+    if (!clean)
+      this._store = {
+        ...this._store,
+        comments: this._unionTracked(this._store.comments, intent),
       };
     for (const c of intent) if (!survivors.has(c.id)) this._emitChange('delete', c);
     this._renderPins();
@@ -2302,7 +2300,8 @@ export class Annotator {
       if (byId.get(id) !== ts) this._foldConflicts.delete(id);
     download(md, filename);
     const startedFrom = this._panelEl;
-    const copied = await this._writeClip(md);
+    // Serialized page-wide inside copyToClipboard (0.10.0 review #10, #11).
+    const copied = await copyToClipboard(md);
     // A slow clipboard must not resurrect stale UI (review #23): the
     // confirmation appears only if the EXACT surface that launched the export
     // is still open — a closed or replaced panel invalidates it entirely.
@@ -2588,7 +2587,7 @@ export class Annotator {
   private async _reCopy(md?: string): Promise<boolean> {
     const startedFrom = this._panelEl;
     const gen = ++this._sayGen;
-    const ok = await this._writeClip(md ?? this._buildArtifact()[0]);
+    const ok = await copyToClipboard(md ?? this._buildArtifact()[0]);
     if (!this._destroyed && this._panelEl === startedFrom && gen === this._sayGen)
       this._say(ok ? 'Copied to your clipboard.' : 'Copy failed — use the download instead.');
     return ok;

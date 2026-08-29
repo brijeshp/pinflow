@@ -1157,6 +1157,10 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Clear 1 comment?')!.click();
 
     expect(fired).toBe(true);
+    // The strictly-newer survivor is a legitimate edit, NOT a failed clear:
+    // the panel reports success (0.10.0 review #11).
+    expect(body()).toContain('Comments cleared');
+    expect(body()).not.toContain('could not be cleared');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
     const kept = loadStore(localStorage, PROJECT, 'Zed')?.comments ?? [];
     expect(kept).toHaveLength(1);
@@ -1603,6 +1607,17 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
     failAll = false;
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('text A');
+
+    // The advertised retry must still know the batch: the exported revision
+    // is retained for it, and once storage recovers the clear LANDS —
+    // removing the id (and its stale pre-export disk copy) durably (0.10.0
+    // review #11).
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('Comments cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
   });
 
   // Conflict evidence is BATCH state, not fold state: the first tap's fold
@@ -2104,6 +2119,82 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // Latest retry wins: an older failed write must not shout over a newer
   // success (0.10.0 review #2 — request generation reserved at retry START).
+  // The clipboard queue is PAGE-lifetime (0.10.0 review #11): the public
+  // downloadExport() writes through it, and a replacement instance inherits
+  // it — a stale write can never outrun a newer artifact from any writer.
+  it('the public downloadExport shares the write queue', async () => {
+    captureBlobs();
+    const pend: Array<(ok: boolean) => void> = [];
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: {
+            writeText: () =>
+              new Promise<void>((res, rej) =>
+                pend.push((ok) => (ok ? res() : rej(new Error('x')))),
+              ),
+          },
+          configurable: true,
+        },
+      }),
+    );
+    seedStore([makeComment('c1', 'queued batch')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click(); // built-in export write in flight
+    await Promise.resolve();
+    expect(pend).toHaveLength(1);
+    annotator!.downloadExport(); // public path: must QUEUE, not race
+    await Promise.resolve();
+    expect(pend).toHaveLength(1);
+    pend[0]!(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pend).toHaveLength(2); // released in order
+    // Drain: the queue is page-lifetime module state — an abandoned write
+    // would wedge every later test's clipboard.
+    pend[1]!(true);
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
+  it('a replacement instance inherits the write queue', async () => {
+    captureBlobs();
+    const pend: Array<(ok: boolean) => void> = [];
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: {
+            writeText: () =>
+              new Promise<void>((res, rej) =>
+                pend.push((ok) => (ok ? res() : rej(new Error('x')))),
+              ),
+          },
+          configurable: true,
+        },
+      }),
+    );
+    seedStore([makeComment('c1', 'first life')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    await Promise.resolve();
+    expect(pend).toHaveLength(1); // instance A's write hangs
+    annotator!.destroy();
+    document.body.innerHTML = '';
+    seedStore([makeComment('c2', 'second life')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    await Promise.resolve();
+    expect(pend).toHaveLength(1); // instance B queues behind A
+    pend[0]!(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pend).toHaveLength(2);
+    pend[1]!(true); // drain the page-lifetime queue
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
   it('concurrent copy retries resolve latest-wins', async () => {
     captureBlobs();
     const pend: Array<(ok: boolean) => void> = [];
