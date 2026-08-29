@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-// The armed clear's back-out grammar, on real DOM (0.10.0 review #8): a click
+// The armed clear's back-out grammar, on real DOM (0.11.0 review #8): a click
 // on a focusable host control while armed must DISARM and be SWALLOWED — the
 // tap meant "back out of the question", not "operate what is under it". This
 // ordering (pointerdown → native focus transfer → focusout → pointerup →
@@ -53,7 +53,7 @@ test('a host-control click while armed disarms AND is swallowed', async ({ page 
 
 // The export's clipboard write must succeed under the real tap gesture —
 // WebKit rejects writes that begin behind an async boundary, and the
-// coordinator's synchronous initiation exists exactly for this (0.10.0
+// coordinator's synchronous initiation exists exactly for this (0.11.0
 // review #12). The confirmation asserts the verified channel by name only
 // when the write genuinely resolved true.
 test('the export copy succeeds under the click gesture', async ({ page }, testInfo) => {

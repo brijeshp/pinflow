@@ -457,7 +457,7 @@ describe('production audit hardening', () => {
 it('a missing or non-string updatedAt is coerced at the boundary, never trusted', async () => {
   // updatedAt is the one field of the revision stamp that used to ride the
   // spread unvalidated: a null slips into JSON.stringify as null and two
-  // different records could stamp identically (0.10.0 review #4).
+  // different records could stamp identically (0.11.0 review #4).
   const { normalizeComments } = await import('../../src/core/storage');
   const base = {
     id: 'c1',
@@ -484,7 +484,7 @@ it('a missing or non-string updatedAt is coerced at the boundary, never trusted'
 it('duplicate ids are collapsed at the boundary — newest revision wins, later on ties', async () => {
   // Two records sharing an id would collapse the clear's revision map and
   // desync every by-id consumer (merge, union, render) — dedupe where all
-  // untrusted comment lists enter (0.10.0 review #5).
+  // untrusted comment lists enter (0.11.0 review #5).
   const { normalizeComments } = await import('../../src/core/storage');
   const base = {
     id: 'c1',

@@ -610,14 +610,14 @@ describe('late clipboard vs closed surfaces (review #23, r2)', () => {
   });
 });
 
-// Disposition moved here from the export sheet (0.10.0 UX pass). The sheet
+// Disposition moved here from the export sheet (0.11.0 UX pass). The sheet
 // asked "export, or export and wipe?" BEFORE either channel had run, which is a
 // decision without its evidence: download() fires a detached a.click() and
 // returns void, so a reviewer in an in-app webview could authorise the wipe and
 // receive nothing. The confirmation is the first moment delivery is knowable,
 // so it is the only honest place to offer the wipe.
 //
-// The wipe is REVISION-SCOPED (0.10.0 review #1): it removes exactly the
+// The wipe is REVISION-SCOPED (0.11.0 review #1): it removes exactly the
 // revisions the artifact was built from — updatedAt AND the server-owned
 // status/resolution, which PROTOCOL moves without an updatedAt bump — so a
 // comment added, edited, or dispositioned after the export survives. "The
@@ -645,7 +645,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   }
 
   // The two-tap confirm swallows a second activation inside its arming window
-  // (one physical gesture must never be both taps — 0.10.0 review #1). Tests
+  // (one physical gesture must never be both taps — 0.11.0 review #1). Tests
   // legitimately confirm step a fake clock past the window per call.
   function spacedClock(): void {
     let t = 0;
@@ -791,7 +791,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     releaseRetry();
     await new Promise((r) => setTimeout(r, 0));
     // The stale "Copied to your clipboard." must not replace the destructive
-    // warning at the decision moment (0.10.0 review #1).
+    // warning at the decision moment (0.11.0 review #1).
     expect(body()).toContain('Deletes your 1 comment');
   });
 
@@ -829,7 +829,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // The batch is frozen in the same synchronous block as the artifact: a merge
-  // landing inside the export's clipboard await is already outside it (0.10.0
+  // landing inside the export's clipboard await is already outside it (0.11.0
   // review #2 — the await-window corridor).
   it('feedback arriving while the export clipboard is pending is outside the batch', async () => {
     captureBlobs();
@@ -863,7 +863,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // The wipe is scoped to the exported revisions: a comment the server adds
   // while the confirmation is open is NOT in the artifact, so the clear must
-  // not take it (0.10.0 review #1 — the add corridor).
+  // not take it (0.11.0 review #1 — the add corridor).
   it('a comment added after the export survives the clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -926,7 +926,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // Disposition is server-owned and merges WITHOUT an updatedAt bump
   // (PROTOCOL): a comment the team resolved since the export carries state the
-  // artifact does not hold, so the clear must not destroy it (0.10.0 review #2).
+  // artifact does not hold, so the clear must not destroy it (0.11.0 review #2).
   it('a comment the team resolved since the export survives the clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -942,7 +942,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     // Same id, same updatedAt — only the server-owned STATUS moved. Isolated
     // from the resolution case below so dropping either field from the stamp
-    // fails a test (0.10.0 review #3).
+    // fails a test (0.11.0 review #3).
     resolveSource([{ ...exported, status: 'done' }]);
     await new Promise((r) => setTimeout(r, 0));
 
@@ -979,7 +979,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // The exporter prints absent status as "Status: open", so a server echo that
   // merely makes the default explicit is the SAME revision — it must not shrink
-  // the batch into a false "Nothing left to clear" (0.10.0 review #3).
+  // the batch into a false "Nothing left to clear" (0.11.0 review #3).
   it("a server echo making status 'open' explicit is still the exported revision", async () => {
     captureBlobs();
     captureClipboard();
@@ -1005,7 +1005,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // The FIRST tap folds the durable truth too: an edit persisted before it
-  // must retire the control, not arm a count from stale memory (0.10.0
+  // must retire the control, not arm a count from stale memory (0.11.0
   // review #4).
   it('an edit persisted before the first tap retires the control at the arm', async () => {
     captureBlobs();
@@ -1033,7 +1033,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // Same reviewer, another tab: a newer revision persisted OUTSIDE this tab's
   // memory must survive a clear computed from that stale memory — the wipe
-  // reads the durable truth before destroying (0.10.0 review #3).
+  // reads the durable truth before destroying (0.11.0 review #3).
   it('a newer revision persisted by another tab survives the clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -1065,7 +1065,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   // The nastier schedule: the rename lands INSIDE the wipe, between the
   // pre-fold and the persist (localStorage has no cross-context lock). The
   // wipe must converge — deletes on the wire, nothing resurrected under the
-  // new key (0.10.0 review #3).
+  // new key (0.11.0 review #3).
   it('a rename landing mid-persist cannot resurrect the cleared comment', async () => {
     captureBlobs();
     captureClipboard();
@@ -1113,7 +1113,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   // The strip stays REVISION-scoped through every retry: a newer revision of a
   // cleared id folded in mid-wipe survives, and its id gets no delete — the
   // wire must never be told to drop feedback the device knows is newer
-  // (0.10.0 review #4).
+  // (0.11.0 review #4).
   it('a newer revision folded in mid-wipe survives, and no delete is emitted for it', async () => {
     captureBlobs();
     captureClipboard();
@@ -1158,7 +1158,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     expect(fired).toBe(true);
     // The strictly-newer survivor is a legitimate edit, NOT a failed clear:
-    // the panel reports success (0.10.0 review #11).
+    // the panel reports success (0.11.0 review #11).
     expect(body()).toContain('Comments cleared');
     expect(body()).not.toContain('could not be cleared');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
@@ -1168,7 +1168,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // A storage write that fails must fail CLOSED: no success report, no wire
-  // deletes, and the control returns to resting for a retry (0.10.0 review #4).
+  // deletes, and the control returns to resting for a retry (0.11.0 review #4).
   it('a failed write reports failure instead of success', async () => {
     captureBlobs();
     captureClipboard();
@@ -1205,7 +1205,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(byLabel('Clear comments')).toBeDefined(); // resting again, retryable
     // The screen must keep showing what disk still holds: the verification
     // read folds back into memory, so the pins and chip survive the failed
-    // wipe instead of vanishing under a failure message (0.10.0 review #5).
+    // wipe instead of vanishing under a failure message (0.11.0 review #5).
     expect(shadow().querySelectorAll('button.pin')).toHaveLength(1);
     expect(chip()).not.toBeNull();
     failWrites = false;
@@ -1214,7 +1214,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // Synced hosts: PROTOCOL deletes are id-keyed with no revision precondition,
   // so a wipe while hydration is still in flight could destroy a backend
-  // revision this device has never seen. The wipe waits instead (0.10.0
+  // revision this device has never seen. The wipe waits instead (0.11.0
   // review #4).
   it('the wipe waits for a pending hydration', async () => {
     captureBlobs();
@@ -1247,7 +1247,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   // A hydration that FAILED is not a pass: the device has never seen server
   // truth, so an id-keyed delete could destroy an unseen backend revision.
   // The wipe refuses outright instead of treating "not in flight" as "in
-  // sync" (0.10.0 review #5).
+  // sync" (0.11.0 review #5).
   it('a failed hydration blocks the synced clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -1293,7 +1293,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // Fulfilled is not accepted: a source() that resolves with garbage (or an
   // array whose entries the normalizer drops) has still never shown this
-  // device server truth (0.10.0 review #6).
+  // device server truth (0.11.0 review #6).
   it('a malformed fulfilled source response blocks the synced clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -1338,7 +1338,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // A refused fold with an OCCUPIED destination: the newer revision under the
   // remembered key must join the fold read-only, or the clear deletes what the
-  // fold could not move (0.10.0 review #6).
+  // fold could not move (0.11.0 review #6).
   it('a refused fold with an occupied destination protects its newer revision', async () => {
     captureBlobs();
     captureClipboard();
@@ -1380,7 +1380,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // The held-then-missing race: another tab completes the fold between this
   // tab's pre-read and the rename's own read. A false there means MOVED, not
-  // refused — re-classify and adopt (0.10.0 review #6).
+  // refused — re-classify and adopt (0.11.0 review #6).
   it('a fold completed under our feet is adopted, not misread as refusal', async () => {
     captureBlobs();
     captureClipboard();
@@ -1416,7 +1416,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Clear comments')!.click();
     // The remembered marker moves FIRST, so the confirming fold enters the
     // rename path and the trap interleaves between the held pre-read and the
-    // rename's own read — the exact repaired branch (0.10.0 review #7).
+    // rename's own read — the exact repaired branch (0.11.0 review #7).
     localStorage.setItem(`pinflow:r:${PROJECT}`, 'Zed');
     armTrap = true;
     byLabel('Clear 1 comment?')!.click();
@@ -1430,7 +1430,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   // A refused identity fold must not escape verification: when the rename
   // copy fails, the corpus is still under the OLD key, and switching identity
   // anyway would verify an empty destination while the durable copy survives
-  // behind an emitted delete (0.10.0 review #5).
+  // behind an emitted delete (0.11.0 review #5).
   it('a failed rename fold keeps the clear honest under the old key', async () => {
     captureBlobs();
     captureClipboard();
@@ -1470,7 +1470,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // Degenerate timestamps must not alias two different comments into one
   // clearable revision: the stamp anchors on the text the artifact actually
-  // quoted (0.10.0 review #5).
+  // quoted (0.11.0 review #5).
   it('a changed comment with a degenerate timestamp still survives the clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -1494,7 +1494,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // A route moved on a timestamp tie is content the artifact did not show:
-  // the stamp carries route and createdAt too (0.10.0 review #6).
+  // the stamp carries route and createdAt too (0.11.0 review #6).
   it('a comment whose route moved on a timestamp tie survives the clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -1516,7 +1516,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // Equal-timestamp, different-revision copies in memory and on disk are a
   // CONFLICT, not a tie to resolve silently — the clear must not pick a side
-  // and then delete it (0.10.0 review #6).
+  // and then delete it (0.11.0 review #6).
   it('a tie-timestamp divergence between memory and disk is never cleared', async () => {
     captureBlobs();
     captureClipboard();
@@ -1562,7 +1562,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // An OLDER durable revision surviving under a cleared id is a failed
   // clear: the durable state still shows pre-export content, and reporting
-  // success would resurrect it behind a "cleared" message (0.10.0 review #10).
+  // success would resurrect it behind a "cleared" message (0.11.0 review #10).
   it('an older durable survivor fails verification instead of passing it', async () => {
     captureBlobs();
     captureClipboard();
@@ -1610,7 +1610,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     // The advertised retry must still know the batch: the exported revision
     // is retained for it, and once storage recovers the clear LANDS —
-    // removing the id (and its stale pre-export disk copy) durably (0.10.0
+    // removing the id (and its stale pre-export disk copy) durably (0.11.0
     // review #11).
     byLabel('Clear comments')!.click();
     expect(byLabel('Clear 1 comment?')).toBeDefined();
@@ -1622,7 +1622,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // Conflict evidence is BATCH state, not fold state: the first tap's fold
   // union overwrites the memory side, so a recomputation at the confirming
-  // tap can no longer see the divergence it just protected (0.10.0 review #7).
+  // tap can no longer see the divergence it just protected (0.11.0 review #7).
   it('a conflict discovered at the arm still shields its comment at the confirm', async () => {
     captureBlobs();
     captureClipboard();
@@ -1669,7 +1669,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(kept.map((c) => c.id)).toEqual(['c1']);
     expect(kept[0]?.text).toBe('text A'); // the tie winner, byte-for-byte
 
-    // The evidence outlives the batch (0.10.0 review #8): a SECOND export
+    // The evidence outlives the batch (0.11.0 review #8): a SECOND export
     // freezes the surviving tie winner into its artifact, but the divergent
     // backend revision appeared in neither file — the conflict still shields.
     chip()!.click();
@@ -1684,7 +1684,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // The verification fold-back is a union too: a divergence persisted by
   // another tab DURING the wipe must be recorded there, or a second export
-  // legitimizes deleting the discarded side (0.10.0 review #9).
+  // legitimizes deleting the discarded side (0.11.0 review #9).
   it('a divergence landing mid-clear is tracked by the verification fold-back', async () => {
     captureBlobs();
     captureClipboard();
@@ -1755,7 +1755,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // The export sheet's own name edit moves the corpus and used to REPLACE
   // memory wholesale, discarding a failed-persist revision with no union at
-  // all (0.10.0 review #8).
+  // all (0.11.0 review #8).
   it('renaming at the export sheet folds, and the conflict survives the move', async () => {
     captureBlobs();
     captureClipboard();
@@ -1803,7 +1803,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // The identity-adoption union must not pick a tie winner over an undetected
   // conflict: a B held only in memory, with its A moved to the remembered key
-  // by another tab, is still a conflict (0.10.0 review #7).
+  // by another tab, is still a conflict (0.11.0 review #7).
   it('an adoption-union tie preserves the conflict instead of clearing it', async () => {
     captureBlobs();
     captureClipboard();
@@ -1847,7 +1847,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // A cancelled gesture must not strand an abandoned armed question after
-  // focus already left (0.10.0 review #7).
+  // focus already left (0.11.0 review #7).
   it('a pointercancel after a deferred focus departure disarms', async () => {
     captureBlobs();
     captureClipboard();
@@ -1869,7 +1869,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // A release that never arrives (drag out of the window, app switch) must
-  // not strand an abandoned armed question (0.10.0 review #9).
+  // not strand an abandoned armed question (0.11.0 review #9).
   it('a window blur during a gesture lands the deferred departure', async () => {
     captureBlobs();
     captureClipboard();
@@ -1891,7 +1891,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // The deferred disarm timer is OWNED: a panel replaced before it fires must
-  // not have its status line overwritten by a stale disarm (0.10.0 review #9).
+  // not have its status line overwritten by a stale disarm (0.11.0 review #9).
   it('a replaced panel is not written to by the stale deferred disarm', async () => {
     captureBlobs();
     captureClipboard();
@@ -1916,7 +1916,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   // The pointer swallow and the focusout disarm must COMPOSE: a click on a
   // focusable host control fires focusout between pointerdown and pointerup,
   // and tearing the pointer listener down mid-gesture would skip the swallow
-  // (0.10.0 review #6).
+  // (0.11.0 review #6).
   it('a focusable host click still swallows: focusout defers to the pointer gesture', async () => {
     captureBlobs();
     captureClipboard();
@@ -1951,7 +1951,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // Keyboard parity for the outside disarm: Tabbing out of the panel is
-  // leaving the question too (0.10.0 review #5).
+  // leaving the question too (0.11.0 review #5).
   it('focus leaving the panel disarms; focus moving within it does not', async () => {
     captureBlobs();
     captureClipboard();
@@ -1980,7 +1980,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // Arming is a question; leaving the panel is walking away from it. A tap on
   // the HOST PAGE disarms too, or a stray tap minutes later could still wipe
-  // (0.10.0 review #4).
+  // (0.11.0 review #4).
   it('a tap on the host page disarms the armed control', async () => {
     captureBlobs();
     captureClipboard();
@@ -2000,7 +2000,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // The confirming tap re-checks vacuity: a batch that emptied between the
-  // taps must not report success over a wipe that removed nothing (0.10.0 review #2).
+  // taps must not report success over a wipe that removed nothing (0.11.0 review #2).
   it('a batch that empties between arm and confirm reports nothing to clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -2030,7 +2030,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // A cross-tab rename between export and clear: identity must reconcile
   // BEFORE the wipe computes, or _persist unions the on-disk corpus back into
-  // the emptied store while deletes go out on the wire (0.10.0 review #2).
+  // the emptied store while deletes go out on the wire (0.11.0 review #2).
   it('a clear that races a cross-tab rename still lands: no resurrection', async () => {
     captureBlobs();
     captureClipboard();
@@ -2067,10 +2067,10 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(chip()).toBeNull(); // the corpus really is gone
 
     // Download retry: the blob handed to createObjectURL after the wipe must
-    // carry the held artifact, not an empty rebuild (0.10.0 review #1).
+    // carry the held artifact, not an empty rebuild (0.11.0 review #1).
     byLabel('Download Feedback Markdown')!.click();
     // A spent control must stay spent: this click used to trip the disarm
-    // branch and overwrite the cleared report with the resting body (0.10.0 review #2).
+    // branch and overwrite the cleared report with the resting body (0.11.0 review #2).
     expect(body()).toContain('cleared');
     expect(blobs).toHaveLength(2);
     await expect(blobs[1]!.text()).resolves.toContain('still recoverable');
@@ -2092,7 +2092,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Clear comments')!.click();
     byLabel('Clear 1 comment?')!.click();
     // The focused element was just removed; a keyboard user must land on a
-    // surviving control inside the still-open panel (0.10.0 review #1).
+    // surviving control inside the still-open panel (0.11.0 review #1).
     expect(shadow().activeElement).toBe(byLabel('Done'));
   });
 
@@ -2118,8 +2118,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // Latest retry wins: an older failed write must not shout over a newer
-  // success (0.10.0 review #2 — request generation reserved at retry START).
-  // The clipboard queue is PAGE-lifetime (0.10.0 review #11): the public
+  // success (0.11.0 review #2 — request generation reserved at retry START).
+  // The clipboard queue is PAGE-lifetime (0.11.0 review #11): the public
   // downloadExport() writes through it, and a replacement instance inherits
   // it — a stale write can never outrun a newer artifact from any writer.
   it('the public downloadExport cannot race the in-flight write', async () => {
@@ -2224,7 +2224,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(body()).toBe('Copied to your clipboard.');
   });
 
-  // Clipboard writes SERIALIZE in initiation order (0.10.0 review #10): a
+  // Clipboard writes SERIALIZE in initiation order (0.11.0 review #10): a
   // stale export's write must never land after a newer confirmation is up,
   // or the delivered clipboard and the clearable batch would disagree.
   it('an overlapping export is refused rather than reordered', async () => {
@@ -2269,7 +2269,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // A mixed failed clear must not restore an id whose delete went out: the
-  // fold-back and the emission agree per id (0.10.0 review #12).
+  // fold-back and the emission agree per id (0.11.0 review #12).
   it('a mixed failed clear never both restores and deletes one comment', async () => {
     captureBlobs();
     captureClipboard();
@@ -2322,7 +2322,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // Delivery is mutable state: a successful retry upgrades what the armed
-  // warning may honestly claim (0.10.0 review #2).
+  // warning may honestly claim (0.11.0 review #2).
   it('a successful copy retry upgrades the armed warning', async () => {
     captureBlobs();
     vi.stubGlobal(
@@ -2362,13 +2362,13 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Clear comments')!.click(); // armed warning (delivered form)
     byLabel('Download Feedback Markdown')!.click(); // disarm via another action
     // The resting line must reflect VERIFIED delivery, not the export-time
-    // failure (0.10.0 review #4).
+    // failure (0.11.0 review #4).
     expect(body()).toContain('Copied to your clipboard');
     expect(body()).not.toBe('Check your downloads for the file.');
   });
 
   // The armed control guards key-repeat on Enter alone — held Enter activates
-  // per keydown, but arrow-key scrolling must keep working (0.10.0 review #2).
+  // per keydown, but arrow-key scrolling must keep working (0.11.0 review #2).
   it('the repeat guard swallows held Enter and nothing else', async () => {
     captureBlobs();
     captureClipboard();
@@ -2406,7 +2406,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // Destroying (or closing) an ARMED confirmation must tear down every
-  // document listener the armed state registered (0.10.0 review #8).
+  // document listener the armed state registered (0.11.0 review #8).
   it('destroy while armed removes the gesture and dismiss listeners', async () => {
     captureBlobs();
     captureClipboard();
@@ -2425,7 +2425,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     const removed = docSpy.mock.calls.map((c) => String(c[0]));
     // EXACTLY two removals per pointer type in toggle mode (outside-dismiss
     // trio + armed tracker trio — stealth's gesture controller would add a
-    // third and let a deleted tracker removal hide; 0.10.0 review #10), plus
+    // third and let a deleted tracker removal hide; 0.11.0 review #10), plus
     // the window blur pair.
     for (const type of ['pointerdown', 'pointerup', 'pointercancel']) {
       expect(removed.filter((t) => t === type).length).toBe(2);
@@ -2435,7 +2435,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // An INSIDE release after a mid-gesture focus departure defers its disarm to
   // the next task: a synchronous disarm would remove the outside-dismiss
-  // listener mid-dispatch and skip the swallow in real DOM (0.10.0 review #8;
+  // listener mid-dispatch and skip the swallow in real DOM (0.11.0 review #8;
   // happy-dom clones listener lists, so ordering itself is covered by e2e).
   it('an inside release after a deferred departure disarms on the next task', async () => {
     captureBlobs();

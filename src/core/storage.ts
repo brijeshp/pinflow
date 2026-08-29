@@ -290,7 +290,7 @@ export function normalizeComments(input: unknown): Comment[] {
         createdAt: typeof c['createdAt'] === 'string' ? c['createdAt'] : '',
         // The recency key for every merge AND the clear's revision stamp — a
         // non-string here used to ride the spread, and two different records
-        // could stamp identically through JSON null (0.10.0 review #4).
+        // could stamp identically through JSON null (0.11.0 review #4).
         updatedAt:
           typeof c['updatedAt'] === 'string'
             ? c['updatedAt']
@@ -321,7 +321,7 @@ export function normalizeComments(input: unknown): Comment[] {
     });
   // Duplicate ids would collapse the clear's revision map and desync every
   // by-id consumer (merge, union, render): keep one record per id — newest
-  // updatedAt wins, the later entry on ties (0.10.0 review #5).
+  // updatedAt wins, the later entry on ties (0.11.0 review #5).
   const byId = new Map<string, Comment>();
   for (const c of list) {
     const prev = byId.get(c.id);

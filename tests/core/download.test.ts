@@ -84,7 +84,7 @@ describe('copyToClipboard', () => {
   it('initiates the native write synchronously, inside the caller gesture', async () => {
     // WebKit rejects clipboard writes that begin behind an async boundary —
     // the user activation is gone by then. The coordinator must call
-    // writeText on the SAME tick as copyToClipboard (0.10.0 review #12).
+    // writeText on the SAME tick as copyToClipboard (0.11.0 review #12).
     let calledSynchronously = false;
     Object.defineProperty(navigator, 'clipboard', {
       value: {
@@ -103,7 +103,7 @@ describe('copyToClipboard', () => {
   it('a write pending past the settle bound stops being shareable — fail fast, never wedge', async () => {
     // ELAPSED time, not timer execution: a backgrounded page can suspend
     // timers past the wall-clock bound, so the expiry is checked
-    // synchronously at share time (0.10.0 review #13). The clock is mocked so
+    // synchronously at share time (0.11.0 review #13). The clock is mocked so
     // no timer callback ever runs between the calls.
     let t = 0;
     vi.spyOn(performance, 'now').mockImplementation(() => t);
@@ -134,7 +134,7 @@ describe('copyToClipboard', () => {
   });
 
   it('a healthy different-content refusal does not latch the slot', async () => {
-    // The latch belongs to EXPIRY alone (0.10.0 review #16): a refactor that
+    // The latch belongs to EXPIRY alone (0.11.0 review #16): a refactor that
     // checked content before the clocks could let a different-content caller
     // observe-but-not-latch an expiry — or worse, a healthy refusal could
     // poison the slot. Pin both: B is refused while A stays shareable.
@@ -156,7 +156,7 @@ describe('copyToClipboard', () => {
   it('system sleep expires the slot even while the monotonic clock is frozen', async () => {
     // WebKit's performance.now() does not advance through system sleep — the
     // wall clock is the second bound, expiring the share on EITHER elapsed
-    // value (0.10.0 review #14).
+    // value (0.11.0 review #14).
     vi.spyOn(performance, 'now').mockImplementation(() => 0); // frozen through sleep
     let wall = 1_000_000;
     vi.spyOn(Date, 'now').mockImplementation(() => wall);
@@ -169,7 +169,7 @@ describe('copyToClipboard', () => {
     wall += 3001; // the Mac slept past the bound; performance.now() saw nothing
     await expect(copyToClipboard('same artifact')).resolves.toBe(false);
     // Expiry is LATCHED: a wall-clock rollback after the bound must not make
-    // the hung share eligible again (0.10.0 review #15).
+    // the hung share eligible again (0.11.0 review #15).
     wall -= 2001; // NTP steps the wall clock back under the bound
     await expect(copyToClipboard('same artifact')).resolves.toBe(false);
     settle();

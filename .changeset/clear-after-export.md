@@ -18,4 +18,4 @@ Clearing your comments moved to after the export, where you can see whether it w
 
 The panel's status line is now an `aria-live="polite"` region with a write generation, so a slow clipboard retry can neither go unannounced (the old `Copy failed` rewrite was silent) nor overwrite the armed warning at the decision moment. The quiet-control opacity and the stock `--pf-danger` fallback (now `light-dark(#dc2626,#f87171)`) were retuned so both the resting and armed states clear WCAG AA 4.5:1 on both schemes, and panel buttons get a 44px floor on coarse pointers (keyed to the pointer, not the viewport, so landscape phones keep it) per the spec's mobile hit-target rule.
 
-Budget: local figures land at 23.24 KB gz (IIFE) and 23.10 KB gz (ESM); the ceilings move to 23.40/23.25 KB as a deliberate trade, set generously and re-ratcheted on this branch to the figure CI reports before merge.
+Budget: merged with the 0.10.0 scope work, local figures land at 23.64 KB gz (IIFE) and 23.50 KB gz (ESM); the ceilings move to 23.80/23.65 KB as a deliberate trade, set generously and re-ratcheted on this branch to the figure CI reports before merge.

@@ -422,7 +422,7 @@ it('orphaned comments keep their context and visual snapshot (review r18)', asyn
   expect(md).toContain('**Computed:** background rgb(1, 2, 3)');
   expect(md).toContain('**Image:** https://cdn.example.com/gone.jpg');
   expect(md).toContain('under ‘Welcome’');
-  // The disposition must survive orphanhood (0.10.0 review #3): Status came
+  // The disposition must survive orphanhood (0.11.0 review #3): Status came
   // from commentHeading all along, but the resolution note was dropped — and
   // the revision-scoped clear treats an exported comment as safe to delete,
   // so a note absent here existed nowhere but localStorage.
