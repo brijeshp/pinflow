@@ -1,5 +1,8 @@
 import { getCssPath, getTestId, getTextFingerprint } from './selector';
-import { cleanLabel, EXCLUDED_CAP, MEMBER_CAP } from './scope-limits';
+import { cleanLabel, EXCLUDED_CAP, MEMBER_CAP, SCOPE_GEN } from './scope-limits';
+
+// Re-exported so the engine stays the obvious place to look for it.
+export { SCOPE_GEN };
 import { validateSourcePath } from './source-path';
 import type { ChangeNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from './types';
 
@@ -29,11 +32,6 @@ import type { ChangeNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from '.
  * cap, or confidence rule changes — records carry it so a later reader can
  * tell which tuning produced a given `confidence`.
  */
-// Bumped to 2 in 0.9.0: marquee boundaries are now size-checked (so
-// `confidence` means something different for a region than it did under gen 1),
-// and `siblings` did not exist. A gen-1 record must not be read as if either
-// were true of it.
-export const SCOPE_GEN = 2;
 
 // Coverage bands. `inside` matches Miro's "Precise selection" (the only
 // production tool shipping an area ratio at all); `partial` is the ambiguity
