@@ -254,6 +254,16 @@ function validScope(v: unknown): Scope | undefined {
   // validation, is a claim with nothing behind it.
   else if (scope.rung === 'source') scope.rung = 'anchor';
 
+  // Both halves must survive or the field is dropped whole — a motion node
+  // without props renders "animates undefined". scopeNode() rejects rather
+  // than truncates, and cleanLabel is typed `unknown` so a number or null in
+  // `props` returns undefined instead of throwing into the path that discards
+  // the whole store.
+  const mo = v['motion'];
+  const mn = scopeNode(mo);
+  const mp = isObject(mo) ? cleanLabel(mo['props']) : undefined;
+  if (mn && mp) scope.motion = { ...mn, props: mp };
+
   if (v['truncated'] === true) scope.truncated = true;
   if (v['stale'] === true) scope.stale = true;
   return scope;

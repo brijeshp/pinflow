@@ -261,6 +261,26 @@ describe('scope fields are untrusted input like every other field', () => {
   // and validated at hydration, then dropped at the one boundary that matters:
   // re-exporting five gen-1 comments after 0.9.x rendered them indistinguishably
   // from fresh ones, and neither a human nor an agent could tell.
+  // The line that motivated the whole field: on the real note the Change list is
+  // seventeen syntax spans and the culprit is their grandparent, so Motion is
+  // emitted BEFORE Change.
+  it('names the animating element and the property, ahead of the change list', () => {
+    const md = render({
+      ...REGION,
+      motion: { tag: 'div', css: 'main > div.card', label: 'Pricing', props: 'rotate' },
+    });
+    const line = md.split('\n').find((l) => l.startsWith('**Motion:'))!;
+    expect(line).toBe(
+      '**Motion:** `<div>` (\u201cPricing\u201d) — `main > div.card` animates rotate',
+    );
+    const lines = md.split('\n');
+    expect(lines.indexOf(line)).toBeLessThan(lines.findIndex((l) => l.startsWith('**Change')));
+  });
+
+  it('emits no Motion line when nothing animates', () => {
+    expect(render(REGION)).not.toContain('**Motion:');
+  });
+
   it('renders the tuning generation', () => {
     const md = render({ ...REGION, gen: CURRENT_GEN });
     expect(md).toMatch(new RegExp(`gen: ${CURRENT_GEN}`));

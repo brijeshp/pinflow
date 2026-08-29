@@ -4,7 +4,7 @@ import { cleanLabel, EXCLUDED_CAP, MEMBER_CAP, SCOPE_GEN } from './scope-limits'
 // Re-exported so the engine stays the obvious place to look for it.
 export { SCOPE_GEN };
 import { validateSourcePath } from './source-path';
-import type { ChangeNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from './types';
+import type { ChangeNode, MotionNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from './types';
 
 // The scope engine. Three modules divide the same problem by cardinality and
 // by time: `selector.ts` is one element ⇄ durable strings ACROSS renders (it
@@ -258,6 +258,59 @@ function tooManyDescendants(el: Element): boolean {
   return total > 0 && el.getElementsByTagName('*').length / total > MAX_DESCENDANT_SHARE;
 }
 
+// Properties whose change MOVES something. A colour or shadow transition is not
+// what a reviewer means by "remove the shaking", and naming one produces a
+// confident line about the wrong thing — the site's own `.btn` transitions
+// background-color, border-color and color, which must stay silent.
+const MOVES = /all|rotate|scale|translate|transform|margin|padding|inset|width|height|gap/;
+
+// Bounds the ancestor walk. One style resolution per element, at pointerup
+// only — `resolveScope` has a single call site and never runs on the reflow
+// path — but an unbounded walk on a deep tree is still work nobody asked for.
+const MOTION_CAP = 24;
+
+// The property NAMES this element animates, or undefined. Never the VALUES:
+// the reviewer's pointer is ON the element when they release, so a
+// `:hover { rotate: 0deg }` rule computes to `0deg` for a note complaining the
+// thing rotates. A keyframes name (`cta-settle`) and a property name (`rotate`)
+// are both literal tokens an agent can grep for in source.
+//
+// `transitionDuration` is tested with /[1-9]/ rather than parsed: a computed
+// duration list is `0s` or `0s, 0s` when nothing runs, and neither contains a
+// digit 1-9, while any real duration does.
+function movesOf(el: Element): string | undefined {
+  const cs = getComputedStyle(el);
+  const a = cs.animationName;
+  const t = cs.transitionProperty;
+  // cleanLabel collapses the join: two empty halves become '' and then
+  // undefined, so the caller needs no separate emptiness check.
+  return cleanLabel(
+    `${a && a !== 'none' ? a : ''} ${/[1-9]/.test(cs.transitionDuration) && MOVES.test(t) ? t : ''}`,
+  );
+}
+
+// Seeds are `members[0]`, ITS first element child, and the pinned element.
+//
+// Not every member: a copy note whose members are a run of inline `<kbd>` and
+// `<strong>` inside an animated CTA card would otherwise gain a motion line
+// about the card, on a note about wording.
+//
+// The child probe is not symmetry — in a real note the animator was a CHILD of
+// the first member (`li.scene` inside `ul.scenes`), so an upward-only walk
+// misses it by construction.
+function motionOf(target: Element, members: Element[]): MotionNode | null {
+  const first = members[0];
+  let n = 0;
+  for (const seed of [first ?? target, first?.firstElementChild ?? null]) {
+    for (let cur = seed; cur && !isRoot(cur) && n++ < MOTION_CAP; cur = cur.parentElement) {
+      if (skip(cur)) continue;
+      const props = movesOf(cur);
+      if (props) return { ...describe(cur), props };
+    }
+  }
+  return null;
+}
+
 // A boundary this large is the page, not a boundary. Share of the document's
 // elements OR share of the document's area — either alone is defeatable for a
 // POINT PIN, whose boundary is picked by the ladder and can be a sparse hero
@@ -468,6 +521,12 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
   if (src) scope.source = src;
   if (w.truncated) scope.truncated = true;
 
+  // A LEAD, not a grant: the element a motion note is about is usually an
+  // ancestor of everything the region covered, so it may sit outside `members`
+  // entirely. Resolved for both branches below — an insertion returns early.
+  const motion = motionOf(target, w.members);
+  if (motion) scope.motion = motion;
+
   // Exclusions belong to BOTH branches: a note dropped in a gap has neighbours
   // an agent must equally leave alone, so this cannot live inside the region
   // arm below.
@@ -525,6 +584,7 @@ export function demoteScope(scope: Scope): Scope {
   delete out.members;
   delete out.excluded;
   delete out.between;
+  delete out.motion;
   delete out.truncated;
   return out;
 }

@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 // Read as text, not via fs: the mangling guard must hold wherever vitest is
 // rooted from, and `?raw` resolves through the same alias map as the import.
 import scopeSource from '../../src/core/scope.ts?raw';
@@ -753,6 +753,20 @@ describe('validateSourcePath (R16) — drop, never repair', () => {
 });
 
 describe('demoteScope — a healed anchor must not keep a stale node list', () => {
+  // A heal means the member set describes a DOM that no longer exists, so a
+  // derived ancestor claim is exactly as invalid as the member list.
+  it('drops the motion lead too, since it was derived from the same DOM', () => {
+    const d = demoteScope({
+      gen: SCOPE_GEN,
+      rung: 'landmark',
+      confidence: 'high',
+      boundary: { tag: 'section', css: 'main > section' },
+      motion: { tag: 'div', css: 'main > div.card', props: 'rotate' },
+    });
+    expect(d.motion).toBeUndefined();
+    expect(d.stale).toBe(true);
+  });
+
   it('drops members and exclusions, floors confidence, and marks itself stale', () => {
     const { cards } = grid();
     const s = resolveScope(cards[0]!, OVER_ALL_THREE)!.scope;
@@ -856,5 +870,117 @@ describe('scope — resolveScope contract', () => {
     expect(scope.boundary.testid).toBe('pricing');
     expect(scope.members).toHaveLength(1);
     expect(scope.members![0]!.tag).toBe('button');
+  });
+});
+
+// Motion notes are 23% of real review notes across two sessions, and the
+// element that animates is almost never the one the region covered: a marquee
+// over a code block emits seventeen syntax spans while the rotate lives on the
+// card wrapping them. `motion` names that element and WHICH properties move.
+//
+// happy-dom returns '' for every animation property, so a capture test that
+// does not stub getComputedStyle is a guaranteed no-op that passes vacuously.
+describe('scope — the element that actually animates', () => {
+  function styles(map: Record<string, Partial<CSSStyleDeclaration>>): void {
+    vi.stubGlobal('getComputedStyle', (el: Element) => {
+      const key = (el as HTMLElement).id || el.tagName.toLowerCase();
+      return {
+        animationName: '',
+        transitionProperty: '',
+        transitionDuration: '0s',
+        ...(map[key] ?? {}),
+      } as CSSStyleDeclaration;
+    });
+  }
+  afterEach(() => vi.unstubAllGlobals());
+
+  const TILT = { transitionProperty: 'rotate', transitionDuration: '0.35s' };
+
+  it('names an animating ANCESTOR of a text-level member set', () => {
+    mount('<div id="card"><pre id="pre"><span id="a">x</span><span id="b">y</span></pre></div>');
+    const card = document.querySelector('#card') as HTMLElement;
+    rect(card, 0, 0, 400, 200);
+    rect(document.querySelector('#pre')!, 0, 0, 400, 200);
+    rect(document.querySelector('#a')!, 10, 10, 100, 20);
+    rect(document.querySelector('#b')!, 10, 40, 100, 20);
+    styles({ card: TILT });
+    const r = resolveScope(document.querySelector('#a') as Element, {
+      left: 5,
+      top: 5,
+      width: 380,
+      height: 90,
+    })!;
+    expect(r.scope.motion?.tag).toBe('div');
+    expect(r.scope.motion?.props).toBe('rotate');
+  });
+
+  it('falls back to the pinned element when there are no members', () => {
+    mount('<section id="sec"><p id="p">x</p></section>');
+    rect(document.querySelector('#sec')!, 0, 0, 400, 200);
+    rect(document.querySelector('#p')!, 10, 10, 50, 20);
+    styles({ sec: TILT });
+    // Point pin: boundary is the section, member is the <p>.
+    const r = resolveScope(document.querySelector('#p') as Element)!;
+    expect(r.scope.motion?.props).toBe('rotate');
+  });
+
+  // The seed contract. In one real note the animator is a CHILD of members[0]
+  // (`li.scene` inside `ul.scenes`), so an upward-only walk misses it entirely.
+  it('finds an animator that is the first CHILD of the first member', () => {
+    mount('<div id="wrap"><ul id="list"><li id="card1">a</li><li id="card2">b</li></ul></div>');
+    rect(document.querySelector('#wrap')!, 0, 0, 400, 200);
+    rect(document.querySelector('#list')!, 0, 0, 400, 200);
+    rect(document.querySelector('#card1')!, 0, 0, 400, 100);
+    rect(document.querySelector('#card2')!, 0, 100, 400, 100);
+    styles({ card1: TILT });
+    const r = resolveScope(document.querySelector('#list') as Element, {
+      left: 0,
+      top: 0,
+      width: 400,
+      height: 200,
+    })!;
+    expect(r.scope.motion?.props).toBe('rotate');
+  });
+
+  // A colour fade is not motion. "This button isn't landing" must stay silent.
+  it('ignores a paint-only transition', () => {
+    mount('<div id="card"><p id="p">x</p></div>');
+    rect(document.querySelector('#card')!, 0, 0, 400, 200);
+    rect(document.querySelector('#p')!, 10, 10, 100, 20);
+    styles({
+      card: {
+        transitionProperty: 'background-color, border-color, color',
+        transitionDuration: '0.18s',
+      },
+    });
+    const r = resolveScope(document.querySelector('#p') as Element)!;
+    expect(r.scope.motion).toBeUndefined();
+  });
+
+  it('ignores a movement property whose duration is zero (reduced motion)', () => {
+    mount('<div id="card"><p id="p">x</p></div>');
+    rect(document.querySelector('#card')!, 0, 0, 400, 200);
+    rect(document.querySelector('#p')!, 10, 10, 100, 20);
+    styles({ card: { transitionProperty: 'rotate', transitionDuration: '0s' } });
+    expect(resolveScope(document.querySelector('#p') as Element)!.scope.motion).toBeUndefined();
+  });
+
+  it('names a keyframes animation, which is a literal source token', () => {
+    mount('<div id="card"><p id="p">x</p></div>');
+    rect(document.querySelector('#card')!, 0, 0, 400, 200);
+    rect(document.querySelector('#p')!, 10, 10, 100, 20);
+    styles({ card: { animationName: 'cta-settle' } });
+    expect(resolveScope(document.querySelector('#p') as Element)!.scope.motion?.props).toBe(
+      'cta-settle',
+    );
+  });
+
+  it('never names pinflow’s own chrome, and never the document root', () => {
+    mount('<div id="card" data-pinflow-root><p id="p">x</p></div>');
+    rect(document.querySelector('#card')!, 0, 0, 400, 200);
+    rect(document.querySelector('#p')!, 10, 10, 100, 20);
+    styles({ card: TILT, body: TILT });
+    const r = resolveScope(document.querySelector('#p') as Element);
+    expect(r?.scope.motion).toBeUndefined();
   });
 });

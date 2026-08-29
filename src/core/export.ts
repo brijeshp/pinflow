@@ -297,6 +297,16 @@ function scopeLines(scope: Scope): string[] {
   const src = validateSourcePath(scope.source);
   if (src) lines.push(`**Source hint (page-supplied, unverified):** \`${inline(src)}\``);
 
+  // Before the Change list, deliberately: on the note that motivated this the
+  // change list is seventeen syntax spans and the culprit is their grandparent,
+  // so the lead has to arrive ahead of the decoys. No `const` alias for
+  // scope.motion — the AST guard treats an alias of an untrusted field as
+  // unsafe by construction.
+  if (scope.motion)
+    lines.push(
+      `**Motion:** ${scopeNodeLabel(scope.motion)} — \`${inline(scope.motion.css)}\` animates ${inline(scope.motion.props)}`,
+    );
+
   if (scope.members) {
     // "2 of 5 `<li>`" replaces "2 element(s)" rather than adding a sentence
     // after it: the count alone reads as a census of the whole set, and an
