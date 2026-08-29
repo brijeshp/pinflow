@@ -277,7 +277,7 @@ function validScope(v: unknown): Scope | undefined {
 // exact same distrust as localStorage blobs (review #18).
 export function normalizeComments(input: unknown): Comment[] {
   if (!Array.isArray(input)) return [];
-  return input
+  const list = input
     .filter(
       (c): c is Record<string, unknown> =>
         isObject(c) && typeof c['id'] === 'string' && hasValidAnchor(c),
@@ -288,6 +288,15 @@ export function normalizeComments(input: unknown): Comment[] {
         text: typeof c['text'] === 'string' ? c['text'] : '',
         route: typeof c['route'] === 'string' ? c['route'] : '',
         createdAt: typeof c['createdAt'] === 'string' ? c['createdAt'] : '',
+        // The recency key for every merge AND the clear's revision stamp — a
+        // non-string here used to ride the spread, and two different records
+        // could stamp identically through JSON null (0.11.0 review #4).
+        updatedAt:
+          typeof c['updatedAt'] === 'string'
+            ? c['updatedAt']
+            : typeof c['createdAt'] === 'string'
+              ? c['createdAt']
+              : '',
         modality: c['modality'] === 'voice' ? 'voice' : 'text',
       };
       // Fingerprints beyond the documented representation are hostile or
@@ -310,6 +319,15 @@ export function normalizeComments(input: unknown): Comment[] {
       else delete out.scope;
       return out;
     });
+  // Duplicate ids would collapse the clear's revision map and desync every
+  // by-id consumer (merge, union, render): keep one record per id — newest
+  // updatedAt wins, the later entry on ties (0.11.0 review #5).
+  const byId = new Map<string, Comment>();
+  for (const c of list) {
+    const prev = byId.get(c.id);
+    if (!prev || c.updatedAt >= prev.updatedAt) byId.set(c.id, c);
+  }
+  return [...byId.values()];
 }
 
 // Forward-tolerant migration. v1 → default modality 'text'; v2 → as-is (v3

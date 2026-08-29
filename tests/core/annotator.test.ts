@@ -565,9 +565,13 @@ describe('Annotator submission moment (L1.6)', () => {
     await exportViaSheet();
     const dl = findButton('Download Feedback Markdown');
     expect(dl).toBeTruthy();
-    expect(dl!.className).toContain('primary');
     expect(findButton('Copy to Clipboard')).toBeTruthy();
-    expect(findButton('Done')).toBeTruthy();
+    // Both retries are EXCEPTION paths — the download already fired on the way
+    // here, and re-firing the same detached click will not rescue a webview
+    // that swallowed the first one. Finishing is the common path, so the accent
+    // sits on Done and neither retry shouts over it.
+    expect(dl!.className).not.toContain('primary');
+    expect(findButton('Done')?.className).toContain('primary');
     // The email hand-off is gone: pinflow never knows the recipient.
     expect(findButton('Email it to the builder')).toBeUndefined();
   });

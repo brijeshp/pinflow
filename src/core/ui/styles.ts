@@ -91,12 +91,19 @@ export const STYLES =
   // iOS Safari auto-zooms the page when a focused input is under 16px; the
   // reviewer's recovery pinch then eats the draft. 16px on touch kills the
   // zoom trigger at the source.
-  '@media (pointer:coarse){.input textarea,.panel input.name{font-size:16px}}' +
+  // Spec 'Mobile considerations': hit targets >=44px. Keyed to the POINTER,
+  // not the viewport — a landscape phone is 844px wide and still a thumb.
+  '@media (pointer:coarse){.input textarea,.panel input.name{font-size:16px}.panel button{min-height:44px}}' +
   '.input .actions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--pf-text-muted,inherit)}' +
   // Read-only disposition line in a resolved comment's popup ("✓ Done — note").
   '.input .res{margin-top:8px;font-size:12px;color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
-  '.input .delete,.input .exportall{background:transparent;border:0;color:inherit;cursor:pointer;opacity:.55;font:inherit;padding:0}' +
-  '.input .delete:hover{opacity:1;color:var(--pf-danger,#dc2626)}' +
+  // .62, not .55: the quiet state must still clear AA 4.5:1 at 13px on both
+  // light-dark surfaces (0.11.0 review #1 measured .55 at ~4.0:1 on light).
+  '.input .delete,.input .exportall,.panel .clr{background:transparent;border:0;color:inherit;cursor:pointer;opacity:.62;font:inherit;padding:0}' +
+  '.panel .row+.row{margin-top:8px}.panel .clr{flex:none}' +
+  // Dark fallback lightens: #dc2626 is 4.8:1 on the light surface but 3.3:1
+  // on the dark one, and the armed clear is a standing state, not a flash.
+  '.input .delete:hover,.panel .clr:hover,.panel .clr.a{opacity:1;color:var(--pf-danger,light-dark(#dc2626,#f87171))}' +
   '.input .exportall:hover{opacity:1}' +
   '.input .save{background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);border:0;border-radius:8px;padding:6px 16px;min-height:30px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}' +
   '.input .save:hover{filter:brightness(.95)}' +

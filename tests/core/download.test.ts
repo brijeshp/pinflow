@@ -80,4 +80,99 @@ describe('copyToClipboard', () => {
     });
     await expect(copyToClipboard('nope')).resolves.toBe(false);
   });
+
+  it('initiates the native write synchronously, inside the caller gesture', async () => {
+    // WebKit rejects clipboard writes that begin behind an async boundary —
+    // the user activation is gone by then. The coordinator must call
+    // writeText on the SAME tick as copyToClipboard (0.11.0 review #12).
+    let calledSynchronously = false;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: {
+        writeText: () => {
+          calledSynchronously = true;
+          return Promise.resolve();
+        },
+      },
+      configurable: true,
+    });
+    const p = copyToClipboard('gesture');
+    expect(calledSynchronously).toBe(true);
+    await expect(p).resolves.toBe(true);
+  });
+
+  it('a write pending past the settle bound stops being shareable — fail fast, never wedge', async () => {
+    // ELAPSED time, not timer execution: a backgrounded page can suspend
+    // timers past the wall-clock bound, so the expiry is checked
+    // synchronously at share time (0.11.0 review #13). The clock is mocked so
+    // no timer callback ever runs between the calls.
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => t);
+    let settle!: () => void;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => new Promise<void>((r) => (settle = r)) },
+      configurable: true,
+    });
+    const hung = copyToClipboard('same artifact');
+    // Same content while healthy: shared, no second native write.
+    t = 100;
+    const shared = copyToClipboard('same artifact');
+    expect(shared).toBe(hung);
+    // Past the bound — with NO timer having fired — even same-content callers
+    // are refused instead of joining a write the engine may never settle.
+    t = 3001;
+    await expect(copyToClipboard('same artifact')).resolves.toBe(false);
+    // Different content is refused throughout — never reordered.
+    await expect(copyToClipboard('other artifact')).resolves.toBe(false);
+    // A late settle drains the slot; the page recovers without reload.
+    settle();
+    await expect(hung).resolves.toBe(true);
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => Promise.resolve() },
+      configurable: true,
+    });
+    await expect(copyToClipboard('fresh')).resolves.toBe(true);
+  });
+
+  it('a healthy different-content refusal does not latch the slot', async () => {
+    // The latch belongs to EXPIRY alone (0.11.0 review #16): a refactor that
+    // checked content before the clocks could let a different-content caller
+    // observe-but-not-latch an expiry — or worse, a healthy refusal could
+    // poison the slot. Pin both: B is refused while A stays shareable.
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => t);
+    let settle!: () => void;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => new Promise<void>((r) => (settle = r)) },
+      configurable: true,
+    });
+    const hung = copyToClipboard('artifact A');
+    await expect(copyToClipboard('artifact B')).resolves.toBe(false); // healthy refusal
+    t = 100; // still well under the bound
+    expect(copyToClipboard('artifact A')).toBe(hung); // NOT poisoned — still shared
+    settle();
+    await expect(hung).resolves.toBe(true);
+  });
+
+  it('system sleep expires the slot even while the monotonic clock is frozen', async () => {
+    // WebKit's performance.now() does not advance through system sleep — the
+    // wall clock is the second bound, expiring the share on EITHER elapsed
+    // value (0.11.0 review #14).
+    vi.spyOn(performance, 'now').mockImplementation(() => 0); // frozen through sleep
+    let wall = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => wall);
+    let settle!: () => void;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => new Promise<void>((r) => (settle = r)) },
+      configurable: true,
+    });
+    const hung = copyToClipboard('same artifact');
+    wall += 3001; // the Mac slept past the bound; performance.now() saw nothing
+    await expect(copyToClipboard('same artifact')).resolves.toBe(false);
+    // Expiry is LATCHED: a wall-clock rollback after the bound must not make
+    // the hung share eligible again (0.11.0 review #15).
+    wall -= 2001; // NTP steps the wall clock back under the bound
+    await expect(copyToClipboard('same artifact')).resolves.toBe(false);
+    settle();
+    await expect(hung).resolves.toBe(true);
+  });
 });

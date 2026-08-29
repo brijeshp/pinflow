@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { emptyStore, loadStore, saveStore } from '../../src/core/storage';
+import { emptyStore, loadStore, renameReviewer, saveStore } from '../../src/core/storage';
 import { routeKey } from '../../src/core/route-key';
 import type { Comment } from '../../src/core/types';
 import { Annotator } from '../../src/core/ui/annotator';
@@ -42,6 +42,7 @@ function makeAnnotator(extra?: {
   activation?: { mode: 'toggle' | 'stealth' | 'both' };
   onChange?: (store: unknown, delta: { type: string; comment: Comment }) => void;
   onSubmit?: () => void;
+  storage?: Storage;
 }): Annotator {
   return new Annotator({
     config: {
@@ -54,7 +55,7 @@ function makeAnnotator(extra?: {
     },
     reviewer: REVIEWER,
     mode: extra?.mode ?? 'reviewer',
-    storage: localStorage,
+    storage: extra?.storage ?? localStorage,
   });
 }
 
@@ -609,7 +610,19 @@ describe('late clipboard vs closed surfaces (review #23, r2)', () => {
   });
 });
 
-describe('reviewer batch controls — Clear all / Export & clear (first-user feedback)', () => {
+// Disposition moved here from the export sheet (0.11.0 UX pass). The sheet
+// asked "export, or export and wipe?" BEFORE either channel had run, which is a
+// decision without its evidence: download() fires a detached a.click() and
+// returns void, so a reviewer in an in-app webview could authorise the wipe and
+// receive nothing. The confirmation is the first moment delivery is knowable,
+// so it is the only honest place to offer the wipe.
+//
+// The wipe is REVISION-SCOPED (0.11.0 review #1): it removes exactly the
+// revisions the artifact was built from — updatedAt AND the server-owned
+// status/resolution, which PROTOCOL moves without an updatedAt bump — so a
+// comment added, edited, or dispositioned after the export survives. "The
+// exported file is unaffected" stays true by construction, not by hope.
+describe('reviewer batch controls — post-export disposition (clear after delivery)', () => {
   let annotator: Annotator | null = null;
 
   afterEach(() => {
@@ -617,6 +630,7 @@ describe('reviewer batch controls — Clear all / Export & clear (first-user fee
     annotator = null;
     localStorage.clear();
     document.body.innerHTML = '';
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -626,25 +640,1822 @@ describe('reviewer batch controls — Clear all / Export & clear (first-user fee
   function byLabel(label: string): HTMLButtonElement | undefined {
     return buttons().find((b) => b.textContent === label);
   }
+  function body(): string {
+    return shadow().querySelector('.panel p')?.textContent ?? '';
+  }
 
-  it('sheet offers Export & clear: exports, empties the store, removes pins, and emits a delete per comment', async () => {
+  // The two-tap confirm swallows a second activation inside its arming window
+  // (one physical gesture must never be both taps — 0.11.0 review #1). Tests
+  // legitimately confirm step a fake clock past the window per call.
+  function spacedClock(): void {
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => (t += 700));
+  }
+
+  // Records every clipboard write so a re-copy can be proved to carry the
+  // ALREADY-BUILT artifact rather than a rebuild from the (possibly wiped) store.
+  function captureClipboard(impl?: (t: string) => Promise<void>): string[] {
+    const writes: string[] = [];
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: {
+            writeText: (t: string) => {
+              writes.push(t);
+              return impl ? impl(t) : Promise.resolve();
+            },
+          },
+          configurable: true,
+        },
+      }),
+    );
+    return writes;
+  }
+
+  function captureBlobs(): Blob[] {
+    const blobs: Blob[] = [];
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((b: Blob | MediaSource) => {
+      blobs.push(b as Blob);
+      return 'blob:mock';
+    });
+    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    return blobs;
+  }
+
+  async function exportToConfirmation(): Promise<void> {
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+  }
+
+  it('the sheet no longer forks on clear: one export action, no destructive branch', () => {
+    captureBlobs();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    expect(byLabel('Export & share')).toBeDefined();
+    expect(byLabel('Export & clear')).toBeUndefined();
+    // Nor does it move the same destructive act onto the sheet under a new name.
+    expect(byLabel('Clear comments')).toBeUndefined();
+  });
+
+  it('the confirmation offers clear, and the first click arms rather than wipes', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    expect(byLabel('Clear comments')).toBeDefined();
+    byLabel('Clear comments')!.click();
+
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(2);
+    expect(byLabel('Clear 2 comments?')).toBeDefined();
+    // The only question a reviewer actually has at this point.
+    expect(body()).toContain('The exported file is unaffected');
+  });
+
+  it('when the clipboard was unavailable, the armed warning says the file is the only copy', async () => {
+    captureBlobs();
+    // No clipboard at all (http context): copied=false — delivery is unverifiable,
+    // so the armed copy must carry the risk instead of the reassurance. Stubbed
+    // explicitly: an earlier describe leaks a WORKING clipboard onto the shared
+    // navigator via defineProperty, so absence must be forced, not assumed.
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, { clipboard: { value: undefined, configurable: true } }),
+    );
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Check the file downloaded first');
+    expect(body()).not.toContain('The exported file is unaffected');
+  });
+
+  it('one physical gesture cannot be both taps: a double-tap arms but never wipes', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    const clr = byLabel('Clear comments')!;
+    clr.click(); // arm (real clock)
+    clr.click(); // same gesture, ~0ms later — inside the swallow window
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // still armed, not spent
+  });
+
+  it('any other panel action disarms: a Copy click returns the control to resting', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    byLabel('Copy to Clipboard')!.click();
+    expect(byLabel('Clear comments')).toBeDefined();
+    expect(byLabel('Clear 1 comment?')).toBeUndefined();
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments).toHaveLength(1);
+  });
+
+  it('a slow re-copy resolving after the arm cannot overwrite the armed warning', async () => {
+    captureBlobs();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const writes = captureClipboard(() => gate);
+    spacedClock();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    // The export's own copy also rides the gate — release it for the export,
+    // then re-gate for the retry.
+    const exporting = exportToConfirmation();
+    release();
+    await exporting;
+    await new Promise((r) => setTimeout(r, 0));
+
+    let releaseRetry!: () => void;
+    const retryGate = new Promise<void>((r) => (releaseRetry = r));
+    writes.length = 0;
+    captureClipboard(() => retryGate);
+
+    byLabel('Copy to Clipboard')!.click(); // starts a slow write
+    byLabel('Clear comments')!.click(); // arms — the warning is now the status
+    expect(body()).toContain('Deletes your 1 comment');
+    releaseRetry();
+    await new Promise((r) => setTimeout(r, 0));
+    // The stale "Copied to your clipboard." must not replace the destructive
+    // warning at the decision moment (0.11.0 review #1).
+    expect(body()).toContain('Deletes your 1 comment');
+  });
+
+  it('the second click wipes the store, removes the pins, and emits a delete per comment', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
     seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
     const deltas: string[] = [];
-    const createUrl = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
-    vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
     annotator = makeAnnotator({
       activation: { mode: 'stealth' },
       onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
     });
-    chip()!.click();
-    byLabel('Export & clear')!.click();
-    await new Promise((r) => setTimeout(r, 0));
-    expect(createUrl).toHaveBeenCalled();
-    const store = loadStore(localStorage, PROJECT, REVIEWER);
-    expect(store?.comments ?? []).toHaveLength(0);
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 2 comments?')!.click();
+
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
     expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
     expect(deltas.sort()).toEqual(['delete:c1', 'delete:c2']);
-    expect(shadow().querySelector('.panel p')?.textContent).toContain('cleared');
+    expect(body()).toContain('cleared');
+    // Spent, and gone: no second wipe to arm.
+    expect(byLabel('Clear comments')).toBeUndefined();
+  });
+
+  it('pluralises the armed label for a single comment', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+  });
+
+  // The batch is frozen in the same synchronous block as the artifact: a merge
+  // landing inside the export's clipboard await is already outside it (0.11.0
+  // review #2 — the await-window corridor).
+  it('feedback arriving while the export clipboard is pending is outside the batch', async () => {
+    captureBlobs();
+    let releaseCopy!: () => void;
+    const copyGate = new Promise<void>((r) => (releaseCopy = r));
+    captureClipboard(() => copyGate);
+    spacedClock();
+    let resolveSource!: (c: Comment[]) => void;
+    seedStore([makeComment('c1', 'exported one')]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    chip()!.click();
+    byLabel('Export & share')!.click(); // artifact + batch freeze HERE
+    resolveSource([makeComment('c9', 'landed mid-copy')]); // inside the await
+    await new Promise((r) => setTimeout(r, 0));
+    releaseCopy();
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // c9 is not in the batch
+    byLabel('Clear 1 comment?')!.click();
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept.map((c) => c.id)).toEqual(['c9']);
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+  });
+
+  // The wipe is scoped to the exported revisions: a comment the server adds
+  // while the confirmation is open is NOT in the artifact, so the clear must
+  // not take it (0.11.0 review #1 — the add corridor).
+  it('a comment added after the export survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let resolveSource!: (c: Comment[]) => void;
+    seedStore([makeComment('c1', 'exported one')]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    // Hydration lands a NEW server comment while the confirmation is open.
+    resolveSource([makeComment('c9', 'added after export')]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(2);
+
+    byLabel('Clear comments')!.click();
+    // Only the exported comment is offered for deletion.
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    byLabel('Clear 1 comment?')!.click();
+
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept.map((c) => c.id)).toEqual(['c9']);
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+    // The surviving comment keeps its chip and pin.
+    expect(chip()).not.toBeNull();
+  });
+
+  // The edit corridor of the same P1: a newer revision of an exported id is
+  // feedback the artifact does NOT hold, so it survives too — and when nothing
+  // of the exported batch remains, the control retires instead of arming a
+  // nonsense "Clear 0 comments?".
+  it('an exported comment edited to a newer revision survives, and the control retires', async () => {
+    captureBlobs();
+    captureClipboard();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = makeComment('c1', 'old text');
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    // Server-newer revision of the SAME id merges in (updatedAt moves on).
+    resolveSource([{ ...exported, text: 'newer text', updatedAt: '2026-01-02T00:00:00.000Z' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 0 comments?')).toBeUndefined();
+    expect(body()).toContain('Nothing left to clear');
+    expect(byLabel('Clear comments')).toBeUndefined(); // retired, not armed
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // Disposition is server-owned and merges WITHOUT an updatedAt bump
+  // (PROTOCOL): a comment the team resolved since the export carries state the
+  // artifact does not hold, so the clear must not destroy it (0.11.0 review #2).
+  it('a comment the team resolved since the export survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = makeComment('c1', 'resolved later');
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    // Same id, same updatedAt — only the server-owned STATUS moved. Isolated
+    // from the resolution case below so dropping either field from the stamp
+    // fails a test (0.11.0 review #3).
+    resolveSource([{ ...exported, status: 'done' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.status).toBe('done');
+  });
+
+  it('a resolution note added since the export survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = makeComment('c1', 'noted later');
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    // Same id, same updatedAt, same (absent) status — only the note moved.
+    resolveSource([{ ...exported, resolution: 'needs design input' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.resolution).toBe('needs design input');
+  });
+
+  // The exporter prints absent status as "Status: open", so a server echo that
+  // merely makes the default explicit is the SAME revision — it must not shrink
+  // the batch into a false "Nothing left to clear" (0.11.0 review #3).
+  it("a server echo making status 'open' explicit is still the exported revision", async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = makeComment('c1', 'echoed');
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    resolveSource([{ ...exported, status: 'open' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('cleared');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
+  });
+
+  // The FIRST tap folds the durable truth too: an edit persisted before it
+  // must retire the control, not arm a count from stale memory (0.11.0
+  // review #4).
+  it('an edit persisted before the first tap retires the control at the arm', async () => {
+    captureBlobs();
+    captureClipboard();
+    const exported = makeComment('c1', 'original');
+    seedStore([exported]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, REVIEWER),
+      comments: [{ ...exported, text: 'edited in tab B', updatedAt: '2026-01-02T00:00:00.000Z' }],
+    });
+    byLabel('Clear comments')!.click();
+
+    expect(body()).toContain('Nothing left to clear');
+    expect(byLabel('Clear comments')).toBeUndefined();
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('edited in tab B');
+  });
+
+  // Same reviewer, another tab: a newer revision persisted OUTSIDE this tab's
+  // memory must survive a clear computed from that stale memory — the wipe
+  // reads the durable truth before destroying (0.11.0 review #3).
+  it('a newer revision persisted by another tab survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const exported = makeComment('c1', 'original');
+    seedStore([exported]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    // Tab B persists an edit under the same reviewer while this tab is armed.
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, REVIEWER),
+      comments: [{ ...exported, text: 'edited in tab B', updatedAt: '2026-01-02T00:00:00.000Z' }],
+    });
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('Nothing left to clear');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.text).toBe('edited in tab B');
+  });
+
+  // The nastier schedule: the rename lands INSIDE the wipe, between the
+  // pre-fold and the persist (localStorage has no cross-context lock). The
+  // wipe must converge — deletes on the wire, nothing resurrected under the
+  // new key (0.11.0 review #3).
+  it('a rename landing mid-persist cannot resurrect the cleared comment', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'renamed mid-write')]);
+    let armTrap = false;
+    let fired = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (armTrap && !fired) {
+              fired = true;
+              // Tab B's rename interleaves exactly here, before this write.
+              renameReviewer(localStorage, PROJECT, REVIEWER, 'Zed');
+            }
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      storage,
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    armTrap = true;
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(fired).toBe(true); // the interleaving actually happened
+    expect(body()).toContain('cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+    const zed = loadStore(localStorage, PROJECT, 'Zed');
+    expect(zed).not.toBeNull(); // the destination store exists — emptiness is proven, not vacuous
+    expect(zed?.comments ?? []).toHaveLength(0);
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
+  });
+
+  // The strip stays REVISION-scoped through every retry: a newer revision of a
+  // cleared id folded in mid-wipe survives, and its id gets no delete — the
+  // wire must never be told to drop feedback the device knows is newer
+  // (0.11.0 review #4).
+  it('a newer revision folded in mid-wipe survives, and no delete is emitted for it', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const exported = makeComment('c1', 'exported revision');
+    seedStore([exported]);
+    let armTrap = false;
+    let fired = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (armTrap && !fired) {
+              fired = true;
+              renameReviewer(localStorage, PROJECT, REVIEWER, 'Zed');
+              // Tab B holds a NEWER revision of the exported comment.
+              saveStore(localStorage, {
+                ...emptyStore(PROJECT, 'Zed'),
+                comments: [
+                  { ...exported, text: 'edited under Zed', updatedAt: '2026-01-02T00:00:00.000Z' },
+                ],
+              });
+            }
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      storage,
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    armTrap = true;
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(fired).toBe(true);
+    // The strictly-newer survivor is a legitimate edit, NOT a failed clear:
+    // the panel reports success (0.11.0 review #11).
+    expect(body()).toContain('Comments cleared');
+    expect(body()).not.toContain('could not be cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    const kept = loadStore(localStorage, PROJECT, 'Zed')?.comments ?? [];
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.text).toBe('edited under Zed');
+  });
+
+  // A storage write that fails must fail CLOSED: no success report, no wire
+  // deletes, and the control returns to resting for a retry (0.11.0 review #4).
+  it('a failed write reports failure instead of success', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'stuck on disk')]);
+    let failWrites = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (failWrites) throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      storage,
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    failWrites = true;
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('could not be cleared');
+    expect(body()).not.toContain('Comments cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    expect(byLabel('Clear comments')).toBeDefined(); // resting again, retryable
+    // The screen must keep showing what disk still holds: the verification
+    // read folds back into memory, so the pins and chip survive the failed
+    // wipe instead of vanishing under a failure message (0.11.0 review #5).
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(1);
+    expect(chip()).not.toBeNull();
+    failWrites = false;
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // Synced hosts: PROTOCOL deletes are id-keyed with no revision precondition,
+  // so a wipe while hydration is still in flight could destroy a backend
+  // revision this device has never seen. The wipe waits instead (0.11.0
+  // review #4).
+  it('the wipe waits for a pending hydration', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let resolveSource!: (c: Comment[]) => void;
+    seedStore([makeComment('c1', 'awaiting sync')]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment?')!.click(); // hydration still pending
+    expect(body()).toContain('Still syncing');
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // still armed
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+
+    resolveSource([]);
+    await new Promise((r) => setTimeout(r, 0));
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+  });
+
+  // A hydration that FAILED is not a pass: the device has never seen server
+  // truth, so an id-keyed delete could destroy an unseen backend revision.
+  // The wipe refuses outright instead of treating "not in flight" as "in
+  // sync" (0.11.0 review #5).
+  it('a failed hydration blocks the synced clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let rejectSource!: (e: Error) => void;
+    seedStore([makeComment('c1', 'never synced')]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((_r, rej) => (rejectSource = rej)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    rejectSource(new Error('backend down'));
+    await new Promise((r) => setTimeout(r, 0));
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('Could not sync');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  it('a synchronously-throwing source blocks the synced clear the same way', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'never synced')]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: (() => {
+        throw new Error('boom');
+      }) as unknown as () => Promise<Comment[]>,
+    });
+    await exportToConfirmation();
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('Could not sync');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // Fulfilled is not accepted: a source() that resolves with garbage (or an
+  // array whose entries the normalizer drops) has still never shown this
+  // device server truth (0.11.0 review #6).
+  it('a malformed fulfilled source response blocks the synced clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let resolveSource!: (v: unknown) => void;
+    seedStore([makeComment('c1', 'unseen server twin')]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r as (v: unknown) => void)),
+    });
+    resolveSource({ error: 'offline' });
+    await new Promise((r) => setTimeout(r, 0));
+    await exportToConfirmation();
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('Could not sync');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  it('an array response with a dropped entry blocks the synced clear too', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let resolveSource!: (v: unknown) => void;
+    seedStore([makeComment('c1', 'unseen server twin')]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r as (v: unknown) => void)),
+    });
+    // The server DID send c1 — but mangled, so the normalizer drops it and the
+    // device stays blind to the revision it carried.
+    resolveSource([{ id: 'c1', mangled: true }]);
+    await new Promise((r) => setTimeout(r, 0));
+    await exportToConfirmation();
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('Could not sync');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // A refused fold with an OCCUPIED destination: the newer revision under the
+  // remembered key must join the fold read-only, or the clear deletes what the
+  // fold could not move (0.11.0 review #6).
+  it('a refused fold with an occupied destination protects its newer revision', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const exported = makeComment('c1', 'old under Tester');
+    seedStore([exported]);
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, 'Zed'),
+      comments: [{ ...exported, text: 'newer under Zed', updatedAt: '2026-01-02T00:00:00.000Z' }],
+    });
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (k.includes('Zed')) throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      storage,
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    localStorage.setItem(`pinflow:r:${PROJECT}`, 'Zed');
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('Nothing left to clear');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    expect(loadStore(localStorage, PROJECT, 'Zed')?.comments[0]?.text).toBe('newer under Zed');
+  });
+
+  // The held-then-missing race: another tab completes the fold between this
+  // tab's pre-read and the rename's own read. A false there means MOVED, not
+  // refused — re-classify and adopt (0.11.0 review #6).
+  it('a fold completed under our feet is adopted, not misread as refusal', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'moved mid-read')]);
+    let armTrap = false;
+    let fired = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'getItem') {
+          return (k: string) => {
+            const v = t.getItem(k);
+            if (armTrap && !fired && k.includes(encodeURIComponent(REVIEWER))) {
+              fired = true;
+              // The other tab folds Tester -> Zed between our two reads.
+              renameReviewer(localStorage, PROJECT, REVIEWER, 'Zed');
+            }
+            return v;
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      storage,
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    // The remembered marker moves FIRST, so the confirming fold enters the
+    // rename path and the trap interleaves between the held pre-read and the
+    // rename's own read — the exact repaired branch (0.11.0 review #7).
+    localStorage.setItem(`pinflow:r:${PROJECT}`, 'Zed');
+    armTrap = true;
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(fired).toBe(true);
+    expect(body()).toContain('cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+    expect(loadStore(localStorage, PROJECT, 'Zed')?.comments ?? []).toHaveLength(0);
+  });
+
+  // A refused identity fold must not escape verification: when the rename
+  // copy fails, the corpus is still under the OLD key, and switching identity
+  // anyway would verify an empty destination while the durable copy survives
+  // behind an emitted delete (0.11.0 review #5).
+  it('a failed rename fold keeps the clear honest under the old key', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'renamed nowhere')]);
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (k.includes('Zed')) throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      storage,
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    // Another tab remembers a new name whose key cannot be written.
+    localStorage.setItem(`pinflow:r:${PROJECT}`, 'Zed');
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+    // The wipe landed under the key that actually held the corpus.
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
+    expect(loadStore(localStorage, PROJECT, 'Zed')).toBeNull();
+  });
+
+  // Degenerate timestamps must not alias two different comments into one
+  // clearable revision: the stamp anchors on the text the artifact actually
+  // quoted (0.11.0 review #5).
+  it('a changed comment with a degenerate timestamp still survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = { ...makeComment('c1', 'version one'), updatedAt: '' };
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    // Same id, same (degenerate) updatedAt — different text.
+    resolveSource([{ ...exported, text: 'version two' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('version two');
+  });
+
+  // A route moved on a timestamp tie is content the artifact did not show:
+  // the stamp carries route and createdAt too (0.11.0 review #6).
+  it('a comment whose route moved on a timestamp tie survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = { ...makeComment('c1', 'same words'), updatedAt: '' };
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+    resolveSource([{ ...exported, route: '/moved' }]);
+    await new Promise((r) => setTimeout(r, 0));
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.route).toBe('/moved');
+  });
+
+  // Equal-timestamp, different-revision copies in memory and on disk are a
+  // CONFLICT, not a tie to resolve silently — the clear must not pick a side
+  // and then delete it (0.11.0 review #6).
+  it('a tie-timestamp divergence between memory and disk is never cleared', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const exported = { ...makeComment('c1', 'text A'), updatedAt: '' };
+    seedStore([exported]);
+    let resolveSource!: (c: Comment[]) => void;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (v.includes('text B')) throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    // Hydration lands text B on the same timestamp, and its persist fails —
+    // memory holds B while disk still holds A.
+    resolveSource([{ ...exported, text: 'text B' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    // The conflict is visible at the FIRST tap already: the arm-side fold
+    // computes it and retires the control instead of arming.
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    expect(byLabel('Clear comments')).toBeUndefined();
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // An OLDER durable revision surviving under a cleared id is a failed
+  // clear: the durable state still shows pre-export content, and reporting
+  // success would resurrect it behind a "cleared" message (0.11.0 review #10).
+  it('an older durable survivor fails verification instead of passing it', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = { ...makeComment('c1', 'text A') }; // disk A@t1
+    seedStore([c1]);
+    let resolveSource!: (c: Comment[]) => void;
+    let failAll = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (v.includes('text B') || (failAll && k.includes('pinflow:c:')))
+              throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    // Backend B@t2 lands in memory only (its persist fails); the export
+    // freezes B as the batch.
+    resolveSource([{ ...c1, text: 'text B', updatedAt: '2026-01-02T00:00:00.000Z' }]);
+    await new Promise((r) => setTimeout(r, 0));
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    failAll = true; // the wipe's own writes fail too
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('could not be cleared');
+    expect(body()).not.toContain('Comments cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    failAll = false;
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('text A');
+
+    // The advertised retry must still know the batch: the exported revision
+    // is retained for it, and once storage recovers the clear LANDS —
+    // removing the id (and its stale pre-export disk copy) durably (0.11.0
+    // review #11).
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('Comments cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
+  });
+
+  // Conflict evidence is BATCH state, not fold state: the first tap's fold
+  // union overwrites the memory side, so a recomputation at the confirming
+  // tap can no longer see the divergence it just protected (0.11.0 review #7).
+  it('a conflict discovered at the arm still shields its comment at the confirm', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = { ...makeComment('c1', 'text A'), updatedAt: '' };
+    const c2 = makeComment('c2', 'plain');
+    seedStore([c1, c2]);
+    let resolveSource!: (c: Comment[]) => void;
+    // VALUE-targeted: only the write carrying the hydrated revision fails.
+    // A one-shot flag was consumed by an unrelated heal persist when the
+    // suite ran in file order — the order mask of the r8 disclosure.
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (v.includes('text B')) throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    resolveSource([{ ...c1, text: 'text B' }]); // tie on c1; its persist fails
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // c2 only — c1 is conflicted
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c2']);
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept.map((c) => c.id)).toEqual(['c1']);
+    expect(kept[0]?.text).toBe('text A'); // the tie winner, byte-for-byte
+
+    // The evidence outlives the batch (0.11.0 review #8): a SECOND export
+    // freezes the surviving tie winner into its artifact, but the divergent
+    // backend revision appeared in neither file — the conflict still shields.
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    const after = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(after.map((c) => c.id)).toEqual(['c1']);
+    expect(after[0]?.text).toBe('text A');
+  });
+
+  // The verification fold-back is a union too: a divergence persisted by
+  // another tab DURING the wipe must be recorded there, or a second export
+  // legitimizes deleting the discarded side (0.11.0 review #9).
+  it('a divergence landing mid-clear is tracked by the verification fold-back', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = makeComment('c1', 'cleared one');
+    const c2 = makeComment('c2', 'text A');
+    seedStore([c1, c2]);
+    let resolveSource!: (c: Comment[]) => void;
+    let armTrap = false;
+    let fired = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            t.setItem(k, v);
+            if (armTrap && !fired && v.includes('text B')) {
+              fired = true;
+              // Another tab persists a divergent same-timestamp c2 mid-wipe.
+              const key = `pinflow:c:${PROJECT}:${REVIEWER}`;
+              const disk = JSON.parse(t.getItem(key) ?? 'null') as {
+                comments?: Comment[];
+              } | null;
+              if (disk?.comments) {
+                disk.comments = disk.comments.map((c) =>
+                  c.id === 'c2' ? { ...c, text: 'text C' } : c,
+                );
+                t.setItem(key, JSON.stringify(disk));
+              }
+            }
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    // Export freezes c2@'text A'; a hydrated edit then moves c2 to 'text B'
+    // at a NEWER timestamp, so the wipe leaves it alone.
+    await exportToConfirmation();
+    resolveSource([{ ...c2, text: 'text B', updatedAt: '2026-01-02T00:00:00.000Z' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // c1 only
+    armTrap = true;
+    byLabel('Clear 1 comment?')!.click(); // mid-wipe, disk c2 becomes 'text C' at the same timestamp
+    expect(fired).toBe(true);
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+
+    // Second export freezes whatever side the fold-back kept — but the
+    // divergence is RECORDED, so the second clear must not take c2.
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept.map((c) => c.id)).toEqual(['c2']);
+    expect(kept[0]?.text).toBe('text C'); // the side the union kept
+  });
+
+  // The export sheet's own name edit moves the corpus and used to REPLACE
+  // memory wholesale, discarding a failed-persist revision with no union at
+  // all (0.11.0 review #8).
+  it('renaming at the export sheet folds, and the conflict survives the move', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = { ...makeComment('c1', 'text A'), updatedAt: '' };
+    seedStore([c1]);
+    let resolveSource!: (c: Comment[]) => void;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (v.includes('text B')) throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    resolveSource([{ ...c1, text: 'text B' }]); // memory B; disk keeps A
+    await new Promise((r) => setTimeout(r, 0));
+
+    chip()!.click();
+    const name = shadow().querySelector<HTMLInputElement>('input.name')!;
+    name.value = 'Sam';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    byLabel('Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    const moved = loadStore(localStorage, PROJECT, 'Sam')?.comments ?? [];
+    expect(moved).toHaveLength(1);
+    expect(moved[0]?.text).toBe('text A'); // the disk side the fold kept
+  });
+
+  // The identity-adoption union must not pick a tie winner over an undetected
+  // conflict: a B held only in memory, with its A moved to the remembered key
+  // by another tab, is still a conflict (0.11.0 review #7).
+  it('an adoption-union tie preserves the conflict instead of clearing it', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = { ...makeComment('c1', 'text A'), updatedAt: '' };
+    seedStore([c1]);
+    let resolveSource!: (c: Comment[]) => void;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (v.includes('text B')) throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    resolveSource([{ ...c1, text: 'text B' }]); // memory B, disk A
+    await new Promise((r) => setTimeout(r, 0));
+    // Another tab folds the disk copy to a remembered new name.
+    renameReviewer(localStorage, PROJECT, REVIEWER, 'Zed');
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    const parked = loadStore(localStorage, PROJECT, 'Zed')?.comments ?? [];
+    expect(parked).toHaveLength(1);
+    expect(parked[0]?.text).toBe('text A');
+  });
+
+  // A cancelled gesture must not strand an abandoned armed question after
+  // focus already left (0.11.0 review #7).
+  it('a pointercancel after a deferred focus departure disarms', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const opts = { bubbles: true, composed: true };
+    document.body.dispatchEvent(new Event('pointerdown', opts));
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // deferred mid-gesture
+    document.body.dispatchEvent(new Event('pointercancel', opts));
+    expect(byLabel('Clear comments')).toBeDefined(); // the departure lands
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // A release that never arrives (drag out of the window, app switch) must
+  // not strand an abandoned armed question (0.11.0 review #9).
+  it('a window blur during a gesture lands the deferred departure', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const opts = { bubbles: true, composed: true };
+    document.body.dispatchEvent(new Event('pointerdown', opts));
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    // The release never arrives — the window loses focus instead.
+    window.dispatchEvent(new Event('blur'));
+    expect(byLabel('Clear comments')).toBeDefined();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // The deferred disarm timer is OWNED: a panel replaced before it fires must
+  // not have its status line overwritten by a stale disarm (0.11.0 review #9).
+  it('a replaced panel is not written to by the stale deferred disarm', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const opts = { bubbles: true, composed: true };
+    document.body.dispatchEvent(new Event('pointerdown', opts));
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    byLabel('Clear 1 comment?')!.dispatchEvent(new Event('pointerup', opts)); // inside release queues the timer
+    chip()!.click(); // summon REPLACES the confirmation before the timer fires
+    const sheetBody = body();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(body()).toBe(sheetBody); // the stale disarm wrote nothing
+  });
+
+  // The pointer swallow and the focusout disarm must COMPOSE: a click on a
+  // focusable host control fires focusout between pointerdown and pointerup,
+  // and tearing the pointer listener down mid-gesture would skip the swallow
+  // (0.11.0 review #6).
+  it('a focusable host click still swallows: focusout defers to the pointer gesture', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0)); // outside listeners arm
+
+    // Attached AFTER the arm: the arm tap itself bubbles out of the shadow
+    // root and would otherwise pollute the count.
+    let hostClicks = 0;
+    const host = () => hostClicks++;
+    document.body.addEventListener('click', host);
+
+    const opts = { bubbles: true, composed: true };
+    document.body.dispatchEvent(new Event('pointerdown', opts));
+    // Native focus transfer fires focusout BETWEEN down and up on focusable
+    // targets — the disarm must wait for the gesture to finish.
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // still armed mid-gesture
+    document.body.dispatchEvent(new Event('pointerup', opts));
+
+    expect(byLabel('Clear comments')).toBeDefined(); // disarmed by the gesture
+    document.body.dispatchEvent(new Event('click', opts));
+    expect(hostClicks).toBe(0); // the back-out tap was swallowed, consistently
+    document.body.removeEventListener('click', host);
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // Keyboard parity for the outside disarm: Tabbing out of the panel is
+  // leaving the question too (0.11.0 review #5).
+  it('focus leaving the panel disarms; focus moving within it does not', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    const clr = byLabel('Clear comments')!;
+    clr.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+
+    // Within-panel focus movement keeps the question armed.
+    const within = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(within, 'relatedTarget', { value: byLabel('Done')! });
+    byLabel('Clear 1 comment?')!.dispatchEvent(within);
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+
+    // Leaving for the host page disarms.
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    expect(byLabel('Clear comments')).toBeDefined();
+    expect(byLabel('Clear 1 comment?')).toBeUndefined();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // Arming is a question; leaving the panel is walking away from it. A tap on
+  // the HOST PAGE disarms too, or a stray tap minutes later could still wipe
+  // (0.11.0 review #4).
+  it('a tap on the host page disarms the armed control', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    // The outside listeners arm on a 0-timeout so the arming tap's own release
+    // cannot disarm; a human tap always lands in a later task.
+    await new Promise((r) => setTimeout(r, 0));
+    pointerTap(document.body);
+    expect(byLabel('Clear comments')).toBeDefined();
+    expect(byLabel('Clear 1 comment?')).toBeUndefined();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // The confirming tap re-checks vacuity: a batch that emptied between the
+  // taps must not report success over a wipe that removed nothing (0.11.0 review #2).
+  it('a batch that empties between arm and confirm reports nothing to clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = makeComment('c1', 'old text');
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    // The exported revision is replaced while the control is armed.
+    resolveSource([{ ...exported, text: 'newer', updatedAt: '2026-01-02T00:00:00.000Z' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    expect(body()).not.toContain('Comments cleared');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+    expect(shadow().querySelectorAll('button.pin').length).toBeGreaterThan(0);
+  });
+
+  // A cross-tab rename between export and clear: identity must reconcile
+  // BEFORE the wipe computes, or _persist unions the on-disk corpus back into
+  // the emptied store while deletes go out on the wire (0.11.0 review #2).
+  it('a clear that races a cross-tab rename still lands: no resurrection', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'renamed away')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    // Another tab renames the reviewer while the control is armed.
+    expect(renameReviewer(localStorage, PROJECT, REVIEWER, 'Zed')).toBe(true);
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('cleared');
+    expect(loadStore(localStorage, PROJECT, 'Zed')?.comments ?? []).toHaveLength(0);
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
+  });
+
+  // The safety property the whole redesign rests on: clearing must not remove
+  // the recovery that makes clearing safe. Both retries stay live and re-send
+  // the HELD artifact — never a rebuild from the wiped store.
+  it('clearing keeps the confirmation open with both retry channels live', async () => {
+    const blobs = captureBlobs();
+    const writes = captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'still recoverable')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(shadow().querySelector('.panel')).not.toBeNull();
+    expect(chip()).toBeNull(); // the corpus really is gone
+
+    // Download retry: the blob handed to createObjectURL after the wipe must
+    // carry the held artifact, not an empty rebuild (0.11.0 review #1).
+    byLabel('Download Feedback Markdown')!.click();
+    // A spent control must stay spent: this click used to trip the disarm
+    // branch and overwrite the cleared report with the resting body (0.11.0 review #2).
+    expect(body()).toContain('cleared');
+    expect(blobs).toHaveLength(2);
+    await expect(blobs[1]!.text()).resolves.toContain('still recoverable');
+
+    byLabel('Copy to Clipboard')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(writes).toHaveLength(2);
+    expect(writes[1]).toContain('still recoverable');
+  });
+
+  it('the confirming activation moves focus to Done, not to the void', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment?')!.click();
+    // The focused element was just removed; a keyboard user must land on a
+    // surviving control inside the still-open panel (0.11.0 review #1).
+    expect(shadow().activeElement).toBe(byLabel('Done'));
+  });
+
+  // Recovery is an exception path; finishing is the common one. The download
+  // already fired on the way here, so re-firing it is not the primary action.
+  it('gives primary emphasis to Done, not to a retry that already ran', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+    expect(byLabel('Done')?.className).toContain('primary');
+    expect(byLabel('Download Feedback Markdown')?.className).not.toContain('primary');
+  });
+
+  it('announces body changes: the panel paragraph is a polite live region', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+    expect(shadow().querySelector('.panel p')?.getAttribute('aria-live')).toBe('polite');
+  });
+
+  // Latest retry wins: an older failed write must not shout over a newer
+  // success (0.11.0 review #2 — request generation reserved at retry START).
+  // The clipboard queue is PAGE-lifetime (0.11.0 review #11): the public
+  // downloadExport() writes through it, and a replacement instance inherits
+  // it — a stale write can never outrun a newer artifact from any writer.
+  it('the public downloadExport cannot race the in-flight write', async () => {
+    captureBlobs();
+    const pend: Array<(ok: boolean) => void> = [];
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: {
+            writeText: () =>
+              new Promise<void>((res, rej) =>
+                pend.push((ok) => (ok ? res() : rej(new Error('x')))),
+              ),
+          },
+          configurable: true,
+        },
+      }),
+    );
+    seedStore([makeComment('c1', 'queued batch')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click(); // built-in export write in flight
+    await Promise.resolve();
+    expect(pend).toHaveLength(1);
+    annotator!.downloadExport(); // public path: refused while busy, never queued
+    await Promise.resolve();
+    expect(pend).toHaveLength(1); // no second native write was initiated
+    pend[0]!(true); // drain the in-flight slot (page-lifetime module state)
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
+  it('a replacement instance cannot race the in-flight write', async () => {
+    captureBlobs();
+    const pend: Array<(ok: boolean) => void> = [];
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: {
+            writeText: () =>
+              new Promise<void>((res, rej) =>
+                pend.push((ok) => (ok ? res() : rej(new Error('x')))),
+              ),
+          },
+          configurable: true,
+        },
+      }),
+    );
+    seedStore([makeComment('c1', 'first life')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    await Promise.resolve();
+    expect(pend).toHaveLength(1); // instance A's write hangs
+    annotator!.destroy();
+    document.body.innerHTML = '';
+    seedStore([makeComment('c2', 'second life')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    await Promise.resolve();
+    expect(pend).toHaveLength(1); // B's write was REFUSED, not raced
+    // The refusal is honest: B's confirmation claims only the download.
+    expect(body()).toContain('Check your downloads');
+    pend[0]!(true); // drain the slot
+    await new Promise((r) => setTimeout(r, 0));
+  });
+
+  it('same-content retries share one in-flight write; the newest narrates', async () => {
+    captureBlobs();
+    const pend: Array<(ok: boolean) => void> = [];
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: {
+            writeText: () =>
+              new Promise<void>((res, rej) =>
+                pend.push((ok) => (ok ? res() : rej(new Error('x')))),
+              ),
+          },
+          configurable: true,
+        },
+      }),
+    );
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    await Promise.resolve(); // chained writes initiate a microtask later
+    pend[0]!(true); // the export's own copy
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Copy to Clipboard')!.click(); // retry A: write in flight
+    byLabel('Copy to Clipboard')!.click(); // retry B: SAME artifact — shares A's write
+    await Promise.resolve();
+    expect(pend).toHaveLength(2); // export's write + ONE retry write, shared
+    pend[1]!(true); // the shared write succeeds
+    await new Promise((r) => setTimeout(r, 0));
+    // Both retries saw the shared result; the newest reservation narrates it.
+    expect(body()).toBe('Copied to your clipboard.');
+  });
+
+  // Clipboard writes SERIALIZE in initiation order (0.11.0 review #10): a
+  // stale export's write must never land after a newer confirmation is up,
+  // or the delivered clipboard and the clearable batch would disagree.
+  it('an overlapping export is refused rather than reordered', async () => {
+    captureBlobs();
+    const pend: Array<(ok: boolean) => void> = [];
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: {
+            writeText: () =>
+              new Promise<void>((res, rej) =>
+                pend.push((ok) => (ok ? res() : rej(new Error('x')))),
+              ),
+          },
+          configurable: true,
+        },
+      }),
+    );
+    seedStore([makeComment('c1', 'first batch')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click(); // export A: write A initiated, pending
+    await Promise.resolve(); // the chained write initiates a microtask later
+    chip()!.click(); // toggle closes A's still-open sheet (ownership-invalidating A)
+    chip()!.click(); // summon sheet B
+    // A name typed on sheet B changes the attribution, so B's artifact is
+    // genuinely different content from the hanging A write.
+    const name = shadow().querySelector<HTMLInputElement>('input.name')!;
+    name.value = 'Bea';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    byLabel('Export & share')!.click(); // export B: REFUSED while A is in flight
+    await Promise.resolve();
+    expect(pend).toHaveLength(1); // no second native write ever started
+    await new Promise((r) => setTimeout(r, 0));
+    // B's confirmation is honest about the refusal: download only.
+    expect(body()).toContain('Check your downloads');
+    pend[0]!(true); // A settles late — its stale UI is ownership-rejected…
+    await new Promise((r) => setTimeout(r, 0));
+    // …and the panel still belongs to B.
+    expect(body()).toContain('Check your downloads');
+  });
+
+  // A mixed failed clear must not restore an id whose delete went out: the
+  // fold-back and the emission agree per id (0.11.0 review #12).
+  it('a mixed failed clear never both restores and deletes one comment', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = makeComment('c1', 'stale copy returns');
+    const c2 = makeComment('c2', 'cleanly gone');
+    seedStore([c1, c2]);
+    let armTrap = false;
+    let fired = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            t.setItem(k, v);
+            if (armTrap && !fired && v.includes('"comments":[]')) {
+              fired = true;
+              // Another tab persists the STALE exported c1 before verification.
+              const key = `pinflow:c:${PROJECT}:${REVIEWER}`;
+              const disk = JSON.parse(t.getItem(key) ?? 'null') as { comments?: Comment[] } | null;
+              if (disk) {
+                disk.comments = [c1];
+                t.setItem(key, JSON.stringify(disk));
+              }
+            }
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      storage,
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    armTrap = true;
+    byLabel('Clear 2 comments?')!.click();
+    expect(fired).toBe(true);
+
+    expect(body()).toContain('could not be cleared');
+    // c2 was durably removed: its delete went out, and it is NOT restored.
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c2']);
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept.map((c) => c.id)).toEqual(['c1']);
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(1);
+  });
+
+  // Delivery is mutable state: a successful retry upgrades what the armed
+  // warning may honestly claim (0.11.0 review #2).
+  it('a successful copy retry upgrades the armed warning', async () => {
+    captureBlobs();
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, { clipboard: { value: undefined, configurable: true } }),
+    );
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation(); // copied=false — no clipboard at all
+    expect(body()).toContain('downloads');
+
+    captureClipboard(); // clipboard becomes available (e.g. permission granted)
+    byLabel('Copy to Clipboard')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(body()).toBe('Copied to your clipboard.');
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('The exported file is unaffected');
+    expect(body()).not.toContain('there is no other copy');
+  });
+
+  it('disarming restores the delivered resting line, not the export-time one', async () => {
+    captureBlobs();
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, { clipboard: { value: undefined, configurable: true } }),
+    );
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation(); // copied=false
+    expect(body()).toContain('downloads');
+
+    captureClipboard();
+    byLabel('Copy to Clipboard')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click(); // armed warning (delivered form)
+    byLabel('Download Feedback Markdown')!.click(); // disarm via another action
+    // The resting line must reflect VERIFIED delivery, not the export-time
+    // failure (0.11.0 review #4).
+    expect(body()).toContain('Copied to your clipboard');
+    expect(body()).not.toBe('Check your downloads for the file.');
+  });
+
+  // The armed control guards key-repeat on Enter alone — held Enter activates
+  // per keydown, but arrow-key scrolling must keep working (0.11.0 review #2).
+  it('the repeat guard swallows held Enter and nothing else', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+    const clr = byLabel('Clear comments')!;
+    clr.click(); // armed
+
+    const repeatEnter = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      repeat: true,
+      cancelable: true,
+      bubbles: true,
+    });
+    clr.dispatchEvent(repeatEnter);
+    expect(repeatEnter.defaultPrevented).toBe(true);
+
+    const firstEnter = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      cancelable: true,
+      bubbles: true,
+    });
+    clr.dispatchEvent(firstEnter);
+    expect(firstEnter.defaultPrevented).toBe(false);
+
+    const repeatArrow = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      repeat: true,
+      cancelable: true,
+      bubbles: true,
+    });
+    clr.dispatchEvent(repeatArrow);
+    expect(repeatArrow.defaultPrevented).toBe(false);
+  });
+
+  // Destroying (or closing) an ARMED confirmation must tear down every
+  // document listener the armed state registered (0.11.0 review #8).
+  it('destroy while armed removes the gesture and dismiss listeners', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'toggle' } });
+    await exportToConfirmation();
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    // Call-through spies only: reimplementing removeEventListener corrupts
+    // happy-dom's internal listener bookkeeping for the shared document.
+    const docSpy = vi.spyOn(document, 'removeEventListener');
+    const winSpy = vi.spyOn(window, 'removeEventListener');
+    annotator!.destroy();
+    annotator = null;
+    const removed = docSpy.mock.calls.map((c) => String(c[0]));
+    // EXACTLY two removals per pointer type in toggle mode (outside-dismiss
+    // trio + armed tracker trio — stealth's gesture controller would add a
+    // third and let a deleted tracker removal hide; 0.11.0 review #10), plus
+    // the window blur pair.
+    for (const type of ['pointerdown', 'pointerup', 'pointercancel']) {
+      expect(removed.filter((t) => t === type).length).toBe(2);
+    }
+    expect(winSpy.mock.calls.map((c) => String(c[0]))).toContain('blur');
+  });
+
+  // An INSIDE release after a mid-gesture focus departure defers its disarm to
+  // the next task: a synchronous disarm would remove the outside-dismiss
+  // listener mid-dispatch and skip the swallow in real DOM (0.11.0 review #8;
+  // happy-dom clones listener lists, so ordering itself is covered by e2e).
+  it('an inside release after a deferred departure disarms on the next task', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const opts = { bubbles: true, composed: true };
+    document.body.dispatchEvent(new Event('pointerdown', opts));
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    // Released back INSIDE the panel: the outside-dismiss will not fire.
+    byLabel('Clear 1 comment?')!.dispatchEvent(new Event('pointerup', opts));
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // not synchronous
+    await new Promise((r) => setTimeout(r, 0));
+    expect(byLabel('Clear comments')).toBeDefined(); // the departure landed
   });
 
   it('the sheet offers Send to builder when onSubmit is configured; clicking it calls the handler', async () => {

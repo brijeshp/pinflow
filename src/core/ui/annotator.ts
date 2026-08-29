@@ -136,7 +136,8 @@ export class Annotator {
   private _activeInput: ActiveInput | null = null;
   // Bottom-left dock (0.5.0): THE one standing affordance. Reviewer gets an
   // arm segment (+/× toggle) unless stealth; the count chip joins it when
-  // there is something to export (builder: the chip toggles the drawer).
+  // there is something to export. Builder renders no dock chrome at all
+  // (0.9.0 removed the drawer).
   private _dockEl: HTMLDivElement | null = null;
   private _armEl: HTMLButtonElement | null = null;
   private _panelEl: HTMLDivElement | null = null;
@@ -144,12 +145,19 @@ export class Annotator {
   private _nameEl: HTMLInputElement | null = null;
   // Identifies the in-flight source hydration, so a newer one supersedes it.
   private _hydrationToken: object | null = null;
+  // True once ANY source() hydration has resolved and merged: "not in flight"
+  // is not "in sync" — a rejected or throwing source leaves the device blind
+  // to server truth, and the synced clear refuses in that state (0.11.0
+  // review #5).
+  private _hydrated = false;
   // Anytime-export affordance: the count chip, whichever element anchors the
   // open panel (control in toggle mode, chip for the export sheet), which KIND
   // of panel is up (a sheet summon must replace a menu/confirmation, not just
   // toggle it away — review #4), and the sheet's outside-dismiss teardown.
   private _chipEl: HTMLButtonElement | null = null;
   private _panelAnchor: HTMLElement | null = null;
+  // Status-line write generation — see _say().
+  private _sayGen = 0;
   private _sheetOpen = false;
   private _sheetDismiss: (() => void) | null = null;
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
@@ -303,7 +311,20 @@ export class Annotator {
       (raw) => {
         if (this._pendingDeletes === tombstones) this._pendingDeletes = null;
         if (this._destroyed || this._hydrationToken !== token) return;
-        const server = normalizeComments(raw).filter((c) => !tombstones.has(c.id));
+        const all = normalizeComments(raw);
+        // Fulfilled is not accepted (0.11.0 review #6): a response that is
+        // not an array, or an array whose entries the normalizer dropped, has
+        // still never shown this device server truth — the id-keyed clear
+        // stays gated. An entry counts as seen when a record with its id
+        // survived normalization (duplicates collapse legitimately).
+        const ids = new Set(all.map((c) => c.id));
+        this._hydrated =
+          Array.isArray(raw) &&
+          (raw as unknown[]).every((e) => {
+            const id = (e as { id?: unknown } | null)?.id;
+            return typeof id === 'string' && ids.has(id);
+          });
+        const server = all.filter((c) => !tombstones.has(c.id));
         // Two repair cases (review r16): an id the server LACKS re-announces
         // as 'add'; an id the server has but with an older updatedAt (a lost
         // update — the merge keeps the local content) re-announces as
@@ -487,13 +508,44 @@ export class Annotator {
     const { storage, config } = this._deps;
     const remembered = rememberedReviewer(storage, config.project);
     if (!remembered || remembered === from) return;
-    renameReviewer(storage, config.project, from, remembered);
+    // Two different falses from renameReviewer (0.11.0 review #5): nothing
+    // under the old key means another tab already folded it — adopt the
+    // remembered name and union what landed. A refused COPY, though, means
+    // the corpus is still under the old key, and switching identity anyway
+    // would verify an empty destination while the durable copy survives
+    // elsewhere. Stay put; the next persist retries the fold.
+    const held = loadStore(storage, config.project, from);
+    // The rename's own union is storage-level and tie-dropping: record any
+    // source-vs-destination tie divergence BEFORE the move (0.11.0 review #8).
+    if (held) {
+      const dest = loadStore(storage, config.project, remembered);
+      if (dest) this._trackTies(dest.comments, held.comments);
+    }
+    if (held && !renameReviewer(storage, config.project, from, remembered)) {
+      // The pre-read and the rename's own read can straddle another tab's
+      // fold: if the old key is GONE now, this was a move, not a refusal —
+      // fall through and adopt, or a later persist would recreate the retired
+      // key and strand it behind the remembered marker (0.11.0 review #6).
+      if (loadStore(storage, config.project, from)) {
+        // Genuinely refused. The destination may still be OCCUPIED with newer
+        // revisions the fold could not move — read it in read-only, so what
+        // lives there joins every count and every verification instead of
+        // being deleted blind (0.11.0 review #6).
+        const parked = loadStore(storage, config.project, remembered);
+        if (parked)
+          this._store = {
+            ...this._store,
+            comments: this._unionTracked(parked.comments, this._store.comments),
+          };
+        return;
+      }
+    }
     const landed = loadStore(storage, config.project, remembered);
     this._reviewer = remembered;
     this._store = {
       ...this._store,
       reviewer: remembered,
-      comments: unionByRecency(landed?.comments ?? [], this._store.comments),
+      comments: this._unionTracked(landed?.comments ?? [], this._store.comments),
     };
   }
 
@@ -597,16 +649,86 @@ export class Annotator {
     return mode === 'always' || !this._deps.config.source;
   }
 
+  /** "1 comment" / "3 comments" — shared by the chip, the sheet and the clear. */
+  private _n(v: number, w: string): string {
+    return `${v} ${w}${v === 1 ? '' : 's'}`;
+  }
+
+  /** Batch-scoping revision stamp: content recency PLUS the server-owned
+   * disposition — PROTOCOL moves status/resolution without touching updatedAt,
+   * and state the artifact never captured must never be cleared by it. JSON
+   * keeps the tuple injective for arbitrary strings (a NUL-delimited join was
+   * not — 0.11.0 review #3), and status canonicalizes to 'open' exactly as the
+   * exporter prints absence, so a server echo that merely makes the default
+   * explicit is not a new revision. The text rides along so two records with
+   * degenerate (missing or equal-invalid) timestamps can never alias into one
+   * clearable revision — what the artifact quoted is what "exported" means
+   * (0.11.0 review #5). Route and createdAt ride too — location moved on a
+   * timestamp tie is content the artifact did not show (0.11.0 review #6).
+   * The stamp's deliberate boundary is AUTHORED and server-owned content:
+   * server-side anchor drift without an updatedAt bump is off-contract by
+   * PROTOCOL's whole-comment content merge, and the local heal ladder
+   * (_persistHeal — deliberately silent, no bump) is maintenance of DERIVED
+   * selector data whose feedback is fully present in the artifact, so
+   * neither makes a comment "unexported" (0.11.0 review #7). */
+  private _rev(c: Comment): string {
+    return JSON.stringify([
+      c.updatedAt,
+      c.status ?? 'open',
+      c.resolution ?? '',
+      c.text,
+      c.route,
+      c.createdAt,
+    ]);
+  }
+
+  // Ids whose two copies tie on updatedAt but differ in revision, mapped to
+  // the tie timestamp. This is EVIDENCE with a lifetime, not fold state: a
+  // union can overwrite the divergent side, and a later export can freeze the
+  // surviving tie winner into a legitimate-looking batch — but the discarded
+  // revision appeared in NO artifact. An entry is pruned only when its
+  // comment moves to a strictly different updatedAt or leaves the board
+  // (0.11.0 review #6, #7, #8). Unresolvable by design otherwise: PROTOCOL
+  // has no way to verify the backend copy, so a standing tie is standing
+  // ambiguity.
+  private readonly _foldConflicts = new Map<string, string>();
+
+  /** Record tie conflicts between two comment lists — same id, same
+   * updatedAt, different revision — BEFORE any union picks a winner
+   * (0.11.0 review #7, #8). */
+  private _trackTies(a: Comment[], b: Comment[]): void {
+    const byId = new Map(b.map((c) => [c.id, c]));
+    for (const x of a) {
+      const m = byId.get(x.id);
+      if (m && m.updatedAt === x.updatedAt && this._rev(m) !== this._rev(x))
+        this._foldConflicts.set(x.id, x.updatedAt);
+    }
+  }
+
+  /** Union with conflict tracking (0.11.0 review #7). */
+  private _unionTracked(base: Comment[], mine: Comment[]): Comment[] {
+    this._trackTies(base, mine);
+    return unionByRecency(base, mine);
+  }
+
+  /** The exported batch as it exists right now: comments still at an exported
+   * revision. Anything added, edited, dispositioned, or CONFLICTED since is
+   * excluded. */
+  private _exportedNow(rev: ReadonlyMap<string, string>): Comment[] {
+    return this._store.comments.filter(
+      (c) => rev.get(c.id) === this._rev(c) && !this._foldConflicts.has(c.id),
+    );
+  }
+
   private _sheetTitle(): string {
     const comments = this._store.comments;
     const screens = new Set(comments.map((c) => c.route)).size;
-    const n = (v: number, w: string): string => `${v} ${w}${v === 1 ? '' : 's'}`;
     // Orphans are hidden on the page; the sheet is where they're accounted
     // for (current route only — other routes' elements aren't here to check).
     let lost = 0;
     for (const pin of this._pins.values()) if (pin.dataset['orphaned']) lost++;
     const tail = lost > 0 ? ` · ${lost} unanchored` : '';
-    return `${n(comments.length, 'comment')} · ${n(screens, 'screen')}${tail}`;
+    return `${this._n(comments.length, 'comment')} · ${this._n(screens, 'screen')}${tail}`;
   }
 
   // A resolve that came through the fallback chain (fingerprint / fuzzy)
@@ -672,7 +794,7 @@ export class Annotator {
       }
       return;
     }
-    const label = `Export feedback — ${count} comment${count === 1 ? '' : 's'}`;
+    const label = `Export feedback — ${this._n(count, 'comment')}`;
     if (!this._chipEl) {
       const chip = el('button', 'chip', String(count));
       chip.type = 'button';
@@ -711,12 +833,12 @@ export class Annotator {
     const sheet = this._makePanel(
       this._sheetTitle(),
       'Downloads the markdown and copies it to your clipboard.',
-      [
-        this._makeButton('Export & share', () => void this._handleReviewerExport(), 'primary'),
-        // "& clear": one gesture to close a review pass — export, then wipe,
-        // so the applied batch never re-exports next time.
-        this._makeButton('Export & clear', () => void this._handleReviewerExport(true)),
-      ],
+      // ONE action. The sheet used to fork into "& share" / "& clear", which
+      // asked for the disposal decision before either channel had run — and
+      // download() cannot report failure, so the wipe could be authorised by a
+      // reviewer who received nothing. Disposal moved to the confirmation,
+      // which is the first surface that knows anything about delivery.
+      [this._makeButton('Export & share', () => void this._handleReviewerExport(), 'primary')],
     );
     // Attribution is asked for HERE and nowhere else: it is the only moment it
     // matters, and the only one where a reviewer has context for the question.
@@ -736,7 +858,6 @@ export class Annotator {
     // is gone; hosts pairing onSubmit with `source` should set exportUi).
     if (this._deps.config.onSubmit) {
       const row = el('div', 'row');
-      row.style.marginTop = '8px';
       row.appendChild(this._makeButton('Send to builder', () => void this._handleOnSubmit()));
       sheet.appendChild(row);
     }
@@ -754,21 +875,113 @@ export class Annotator {
     );
   }
 
+  /** Fold the durable truth into memory: the remembered identity first (a
+   * cross-tab rename), then the on-disk corpus under the current key (a
+   * cross-tab edit) — memory wins only where genuinely newer. Renders only
+   * when the fold changed something material, so a no-op fold cannot replay
+   * pin entrances (0.11.0 review #4). */
+  private _foldDurable(): void {
+    const before = this._store.comments;
+    this._reconcileIdentity();
+    if (this._reviewer !== null) {
+      const disk = loadStore(this._deps.storage, this._deps.config.project, this._reviewer);
+      if (disk)
+        this._store = {
+          ...this._store,
+          comments: this._unionTracked(disk.comments, this._store.comments),
+        };
+    }
+    const cur = this._store.comments;
+    const changed =
+      cur.length !== before.length ||
+      cur.some((c, i) => {
+        const b = before[i];
+        return !b || b.id !== c.id || this._rev(b) !== this._rev(c);
+      });
+    if (changed) this._renderPins();
+  }
+
   // Synced hosts stay consistent: every removal goes out as its own delete
   // (PROTOCOL deletes are per-comment; there is no bulk op on the wire).
-  private _clearReviewerComments(): void {
-    const removed = this._store.comments;
-    this._store = { ...this._store, comments: [] };
-    this._persist();
-    for (const c of removed) this._emitChange('delete', c);
+  //
+  // Verify, then report (0.11.0 review #4). The fold reads the durable truth
+  // before anything is selected; the strip is REVISION-scoped on every pass,
+  // so a newer revision folded in mid-wipe is never destroyed; and after the
+  // loop the final state — memory AND disk — decides what is claimed: deletes
+  // go out only for ids with no surviving copy anywhere, and `clean` is false
+  // whenever an exported revision remains (a swallowed setItem failure, or a
+  // pathological run of interleaved renames), so the caller reports failure
+  // instead of success. localStorage offers no cross-context lock; this is as
+  // strong as read-before, verify-after can make a lockless store.
+  private _clearReviewerComments(rev: ReadonlyMap<string, string>): {
+    tried: boolean;
+    clean: boolean;
+  } {
+    this._foldDurable();
+    const at = (c: Comment): boolean =>
+      rev.get(c.id) === this._rev(c) && !this._foldConflicts.has(c.id);
+    const intent = this._store.comments.filter(at);
+    if (!intent.length) return { tried: false, clean: true };
+    for (let i = 0; i < 4; i++) {
+      this._store = { ...this._store, comments: this._store.comments.filter((c) => !at(c)) };
+      this._persist();
+      this._reconcileIdentity();
+      if (!this._store.comments.some(at)) break;
+    }
+    const disk =
+      this._reviewer === null
+        ? null
+        : loadStore(this._deps.storage, this._deps.config.project, this._reviewer);
+    // Durably clean means the disk shows NOTHING from before the export under
+    // a cleared id: the exact exported revision is a failed write, and an
+    // OLDER one is a failed write resurrecting pre-export content behind a
+    // success report. A strictly newer survivor is a legitimate edit (0.11.0
+    // review #10).
+    const intentTs = new Map(intent.map((c) => [c.id, c.updatedAt]));
+    const diskStale = (c: Comment): boolean => {
+      const ts = intentTs.get(c.id);
+      return ts !== undefined && c.updatedAt <= ts;
+    };
+    const clean = !this._store.comments.some(at) && !disk?.comments.some(diskStale);
+    const survivors = new Set(
+      [...this._store.comments, ...(disk?.comments ?? [])].map((c) => c.id),
+    );
+    // The verification read folds back into memory too: on a failed write the
+    // screen must keep showing what disk still holds — pins vanishing under a
+    // "could not be cleared" message would be a lie in the other direction,
+    // and a later successful persist from the stripped memory would silently
+    // erase the survivors (0.11.0 review #5).
+    if (disk)
+      this._store = {
+        ...this._store,
+        // Tracked like every other union: a divergence another tab persisted
+        // DURING the wipe must be recorded here, or the next export would
+        // legitimize deleting the discarded side (0.11.0 review #9).
+        comments: this._unionTracked(disk.comments, this._store.comments),
+      };
+    // A failed clear keeps its batch — but only the part that VERIFIABLY
+    // survived: an id absent from both final stores was durably removed and
+    // gets its delete, so folding it back would restore locally what the wire
+    // was just told to drop. Fold-back and delete emission agree per id
+    // (0.11.0 review #11, #12).
+    if (!clean)
+      this._store = {
+        ...this._store,
+        comments: this._unionTracked(
+          this._store.comments,
+          intent.filter((c) => survivors.has(c.id)),
+        ),
+      };
+    for (const c of intent) if (!survivors.has(c.id)) this._emitChange('delete', c);
     this._renderPins();
+    return { tried: true, clean };
   }
 
   // Built imperatively to keep reviewer names out of innerHTML.
   private _makeButton(
     label: string,
     onClick: () => void,
-    variant?: 'primary' | 'danger',
+    variant?: 'primary' | 'clr',
   ): HTMLButtonElement {
     const b = el('button', variant, label);
     b.type = 'button';
@@ -781,7 +994,12 @@ export class Annotator {
     const panel = el('div', 'panel');
     const row = el('div', 'row');
     row.append(...buttons);
-    panel.append(el('h3', undefined, title), el('p', undefined, body), row);
+    // The paragraph is the panel's status line, not static prose: the
+    // confirmation rewrites it for a copy failure, for the armed clear, and for
+    // the wipe itself. Without this the copy failure changed silently.
+    const p = el('p', undefined, body);
+    p.setAttribute('aria-live', 'polite');
+    panel.append(el('h3', undefined, title), p, row);
     return panel;
   }
 
@@ -2043,34 +2261,56 @@ export class Annotator {
     const from = this._reviewer;
     if (from === null) return false;
     const { storage, config } = this._deps;
+    // Track source-vs-destination tie divergence before the storage-level
+    // union drops a side, and FOLD the reloaded corpus with memory instead of
+    // replacing it — memory may hold a failed-persist revision that exists
+    // nowhere else (0.11.0 review #8).
+    {
+      const held = loadStore(storage, config.project, from);
+      const dest = loadStore(storage, config.project, name);
+      if (held && dest) this._trackTies(dest.comments, held.comments);
+    }
     if (!renameReviewer(storage, config.project, from, name)) return false;
     this._reviewer = name;
-    this._store = loadStore(storage, config.project, name) ?? emptyStore(config.project, name);
+    const landed = loadStore(storage, config.project, name) ?? emptyStore(config.project, name);
+    this._store = {
+      ...landed,
+      comments: this._unionTracked(landed.comments, this._store.comments),
+    };
     // Folding into an existing corpus changes what belongs on screen; without
     // this the pins and the chip disagree with the artifact (review #6).
     this._renderPins();
     return true;
   }
 
-  private async _handleReviewerExport(clear = false): Promise<void> {
+  private async _handleReviewerExport(): Promise<void> {
     // Export is a terminal action for the armed state: the reviewer moved on
     // from pinning (0.3.0 review #4). Disarm BEFORE capturing the ownership
     // panel — disarming may rebuild an open menu.
     if (this._annotating) this._exitAnnotateMode();
     // Read the field BEFORE the artifact is built; it decides the attribution.
     const [md, filename] = this._buildArtifact(this._settleName());
+    // The batch freezes WITH the artifact, in this same synchronous block — a
+    // hydration merge or voice commit landing during the clipboard await below
+    // is already outside it (0.11.0 review #2). The clear on the confirmation is
+    // scoped to exactly these revisions; anything at a different one since is
+    // feedback (or disposition) the file does not hold.
+    const rev = new Map(this._store.comments.map((c) => [c.id, this._rev(c)]));
+    // Conflict evidence is pruned, never cleared: an entry survives every
+    // batch until its comment moves past the tie or leaves the board (0.11.0
+    // review #8).
+    const byId = new Map(this._store.comments.map((c) => [c.id, c.updatedAt]));
+    for (const [id, ts] of this._foldConflicts)
+      if (byId.get(id) !== ts) this._foldConflicts.delete(id);
     download(md, filename);
     const startedFrom = this._panelEl;
+    // Serialized page-wide inside copyToClipboard (0.11.0 review #10, #11).
     const copied = await copyToClipboard(md);
     // A slow clipboard must not resurrect stale UI (review #23): the
     // confirmation appears only if the EXACT surface that launched the export
     // is still open — a closed or replaced panel invalidates it entirely.
     if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
-    // Clear only after the ownership check: an abandoned surface must not
-    // wipe data behind the reviewer's back. _syncChip may close the sheet at
-    // zero; the confirmation is 'confirm'-kind and anchors via the fallback.
-    if (clear) this._clearReviewerComments();
-    this._showConfirmation(copied, clear, [md, filename]);
+    this._showConfirmation(copied, [md, filename], rev);
   }
 
   // Spec §5.6: after reviewer export, confirm rather than closing silently.
@@ -2083,51 +2323,278 @@ export class Annotator {
   // reviewer retry the channel that failed, which is the difference between a
   // dead end and a recovery. Only the clipboard result is ever asserted, since
   // it is the only one the widget can observe.
+  //
+  // That unverifiability is also why disposal lives here and not on the sheet:
+  // this is the first surface with any evidence about delivery, so it is the
+  // first place the reviewer can decide to discard the originals without
+  // guessing. The retries deliberately outlive the wipe.
   private _showConfirmation(
     copied: boolean,
-    cleared = false,
     artifact?: [md: string, filename: string],
+    rev?: ReadonlyMap<string, string>,
   ): void {
     this._closePanel();
-    const cleanup = cleared ? ' Comments cleared.' : '';
-    const body = copied
-      ? `Copied to your clipboard. If no file downloaded, paste it instead.${cleanup}`
-      : `Check your downloads for the file.${cleanup}`;
-    const panel = this._makePanel('Your feedback is ready', body, [
+    // Delivery is mutable: a Copy retry that succeeds AFTER a failed export
+    // write upgrades what the armed warning AND the resting line may honestly
+    // claim (0.11.0 review #4).
+    let delivered = copied;
+    // The resting body is also the disarm target: backing out of an armed
+    // clear restores the truest line the panel can currently claim.
+    const baseNow = (): string =>
+      delivered
+        ? 'Copied to your clipboard. If no file downloaded, paste it instead.'
+        : 'Check your downloads for the file.';
+    const panel = this._makePanel('Your feedback is ready', baseNow(), [
       // NOT downloadExport(): that also writes the clipboard, which would make
       // this button silently clobber it behind the reviewer's back — the panel
       // offers the two channels separately on purpose.
       //
       // Retries re-send the artifact that was ALREADY built. Rebuilding here
       // would re-derive attribution from the stored identity, after the sheet
-      // and its name field are gone (review #5), and would also re-export
-      // comments that "& clear" has since wiped.
+      // and its name field are gone (review #5) — and, since 0.11.0, would
+      // rebuild from a store the Clear below may have just emptied. Holding
+      // the artifact is what lets both retries outlive the wipe.
+      this._makeButton('Download Feedback Markdown', () => {
+        const [md, filename] = artifact ?? this._buildArtifact();
+        download(md, filename);
+      }),
       this._makeButton(
-        'Download Feedback Markdown',
-        () => {
-          const [md, filename] = artifact ?? this._buildArtifact();
-          download(md, filename);
-        },
-        'primary',
+        'Copy to Clipboard',
+        () =>
+          void this._reCopy(artifact?.[0]).then((ok) => {
+            if (ok) delivered = true;
+          }),
       ),
-      this._makeButton('Copy to Clipboard', () => void this._reCopy(artifact?.[0])),
-      this._makeButton('Done', () => this._closePanel()),
     ]);
+    // Disposition, in its own row: quiet-left / affirmative-right, the comment
+    // popup's delete/save grammar. Neither retry takes the primary — the
+    // download already fired on the way here, and where it silently no-ops
+    // (in-app webviews) firing the same detached click again will not help;
+    // the body copy points at the clipboard instead. Finishing is the common
+    // path, so Done is what carries the accent.
+    const row = el('div', 'row');
+    const done = this._makeButton('Done', () => this._closePanel(), 'primary');
+    if (rev?.size) {
+      let armed = false;
+      let at = 0;
+      let offOut: (() => void) | null = null;
+      // A click on a FOCUSABLE host control fires focusout between pointerdown
+      // and pointerup; disarming there would tear the pointer listener down
+      // mid-gesture and skip the back-out swallow. Track the gesture and let
+      // the pointer path finish it (0.11.0 review #6).
+      let midPointer = false;
+      let fled = false; // focus left the panel while a gesture was in flight
+      const pd = (): void => {
+        midPointer = true;
+      };
+      // On EVERY gesture end a deferred focus departure must land (0.11.0
+      // review #7) — but a pointerup defers ITS disarm to the next task: this
+      // listener runs before the outside-dismiss's, and a synchronous disarm
+      // would remove that later listener mid-dispatch, skipping the back-out
+      // swallow in real DOM (0.11.0 review #8). An outside release disarms
+      // via the dismiss itself; the timeout only catches inside releases.
+      let tid: ReturnType<typeof setTimeout> | null = null;
+      const pu = (): void => {
+        midPointer = false;
+        if (fled) {
+          fled = false;
+          // OWNED: the composite disposer cancels it, so a panel replaced
+          // before this fires is never written to (0.11.0 review #9).
+          tid = setTimeout(() => {
+            tid = null;
+            if (armed) disarm();
+          }, 0);
+        }
+      };
+      // A release that never arrives — drag out of the window, app switch —
+      // still ends the gesture and lands the departure (0.11.0 review #9).
+      const onBlur = (): void => {
+        midPointer = false;
+        if (fled) {
+          fled = false;
+          disarm();
+        }
+      };
+      // No click follows a cancel — the departure lands immediately.
+      const pc = (): void => {
+        midPointer = false;
+        if (fled) {
+          fled = false;
+          disarm();
+        }
+      };
+      const live = () => this._exportedNow(rev);
+      // Every path out of the armed state funnels here: the state drops, and
+      // the host-page listener below is disposed (0.11.0 review #4).
+      const unarm = (): void => {
+        armed = false;
+        fled = false;
+        offOut?.(); // the composite: outside-dismiss AND the gesture trackers
+        if (this._sheetDismiss === offOut) this._sheetDismiss = null;
+        offOut = null;
+      };
+      const disarm = (): void => {
+        if (!armed) return;
+        unarm();
+        clr.className = 'clr';
+        clr.textContent = 'Clear comments';
+        this._say(baseNow());
+      };
+      // Both retirement paths park focus on Done: the activation just removed
+      // the focused element, and a keyboard reviewer must land inside the
+      // still-open panel, not on the host page (0.11.0 review #1).
+      const spend = (msg: string): void => {
+        unarm();
+        clr.remove();
+        done.focus();
+        this._say(msg);
+      };
+      const clr = this._makeButton(
+        'Clear comments',
+        () => {
+          if (!armed) {
+            // The FIRST tap reads the durable truth too — a rename or an edit
+            // persisted by another tab must retire the control, not arm a
+            // count from stale memory (0.11.0 review #4).
+            this._foldDurable();
+            const n = live().length;
+            if (!n) return spend('Nothing left to clear.');
+            armed = true;
+            at = performance.now();
+            // Arming is a question posed to the reviewer; leaving the panel is
+            // walking away from it. A tap anywhere on the host page disarms,
+            // so a stray tap minutes later cannot land on a decision nobody
+            // is making (0.11.0 review #4). _closePanel owns the disposer via
+            // the shared slot, so a Done-while-armed cannot leak it.
+            // One composite disposer owns everything the armed state put on
+            // the document, and it lives in the shared slot — _closePanel and
+            // destroy() tear it all down even mid-arm (0.11.0 review #7).
+            const offDismiss = this._armOutsideDismiss(() => [panel], disarm);
+            document.addEventListener('pointerdown', pd, true);
+            document.addEventListener('pointerup', pu, true);
+            document.addEventListener('pointercancel', pc, true);
+            window.addEventListener('blur', onBlur);
+            this._sheetDismiss = offOut = (): void => {
+              offDismiss();
+              document.removeEventListener('pointerdown', pd, true);
+              document.removeEventListener('pointerup', pu, true);
+              document.removeEventListener('pointercancel', pc, true);
+              window.removeEventListener('blur', onBlur);
+              if (tid !== null) {
+                clearTimeout(tid);
+                tid = null;
+              }
+              // Teardown by ANY owner leaves the closure inert: no stale
+              // timer, no stale state, nothing left to say (0.11.0 review #9).
+              armed = false;
+              fled = false;
+              midPointer = false;
+            };
+            clr.className = 'clr a';
+            clr.textContent = `Clear ${this._n(n, 'comment')}?`;
+            // Answers the only question a reviewer actually has here — which
+            // depends on what this panel can honestly claim: with a verified
+            // clipboard the file is safe; without one, say so instead. Two
+            // taps rather than an undo: deletes go out per-comment on the
+            // sync wire (PROTOCOL has no bulk op), so there is no reversal.
+            return this._say(
+              `Deletes your ${this._n(n, 'comment')} from this browser. ` +
+                (delivered
+                  ? 'The exported file is unaffected.'
+                  : 'Check the file downloaded first: there is no other copy.'),
+            );
+          }
+          // One physical gesture must never be both taps: a double-tap (or a
+          // key-repeat burst) delivers its second activation well inside this
+          // window, and the whole safety of the control is that the second
+          // tap is a SEPARATE decision. Same idiom as the gesture layer's
+          // swallow window.
+          if (performance.now() - at < 600) return;
+          // PROTOCOL deletes are id-keyed with no revision precondition, so a
+          // wipe while hydration is in flight could destroy a backend revision
+          // this device has never seen. Wait it out (0.11.0 review #4).
+          if (this._pendingDeletes)
+            return this._say('Still syncing with the host. Try again in a moment.');
+          // A hydration that FAILED never becomes safe by settling: the
+          // device has not seen server truth, and an id-keyed delete could
+          // destroy a backend revision it never knew (0.11.0 review #5).
+          if (this._deps.config.source && !this._hydrated)
+            return this._say('Could not sync with the host. Reload to clear.');
+          // Verify-then-report: the wipe re-selects against the durable truth,
+          // and claims only what the final state supports (0.11.0 review #4).
+          // The retries stay either way: this panel is the route to the file.
+          const r = this._clearReviewerComments(rev);
+          if (!r.tried) return spend('Nothing left to clear.');
+          if (!r.clean) {
+            disarm();
+            return this._say('Some comments could not be cleared. Try again.');
+          }
+          spend('Comments cleared. You can still download or copy the file.');
+        },
+        'clr',
+      );
+      // Enter activates a focused button once per keydown INCLUDING repeats —
+      // a held key would sail past the window above on its own cadence.
+      clr.addEventListener('keydown', (e) => {
+        const k = e as KeyboardEvent;
+        // Enter alone: it activates per-keydown including repeats. Arrows and
+        // paging must keep scrolling (0.11.0 review #2).
+        if (k.repeat && k.key === 'Enter') k.preventDefault();
+      });
+      // Reaching for any other control is leaving the question — disarm, so a
+      // stray tap minutes later cannot land on a decision nobody is making.
+      panel.addEventListener(
+        'click',
+        (e) => {
+          if (armed && e.target !== clr) disarm();
+        },
+        true,
+      );
+      // Keyboard parity for the outside disarm: Tabbing out of the panel is
+      // leaving the question too (0.11.0 review #5). Retirement paths move
+      // focus themselves, but only after unarm(), so their focusout is inert.
+      panel.addEventListener('focusout', (e) => {
+        const to = (e as FocusEvent).relatedTarget as Node | null;
+        const leaving = armed && (!to || !panel.contains(to));
+        if (!leaving) return;
+        if (midPointer) {
+          fled = true; // the gesture owns the disarm — but the departure lands
+          return;
+        }
+        disarm();
+      });
+      row.appendChild(clr);
+    }
+    row.appendChild(done);
+    panel.appendChild(row);
     this._panelEl = panel;
     this._ui.root.appendChild(panel);
     this._positionPanel();
   }
 
-  // Reports only what it can verify. Ownership-checked like the export path
-  // (review #23): a slow write must not narrate into a panel the reviewer has
-  // already dismissed or replaced.
-  private async _reCopy(md?: string): Promise<void> {
+  /** The panel's status line. Live-region'd in _makePanel, so writes announce.
+   * Every write bumps the generation: an async narrator that captured an older
+   * one must stay silent, or a slow clipboard would overwrite the armed
+   * warning at the decision moment (0.11.0 review #1). */
+  private _say(text: string): void {
+    this._sayGen++;
+    const p = this._panelEl?.querySelector('p');
+    if (p) p.textContent = text;
+  }
+
+  // Reports only what it can verify, and only when nothing outranked it.
+  // Ownership-checked like the export path (review #23), plus two generation
+  // rules: the request RESERVES a generation at start, so of two overlapping
+  // retries the latest wins; and anything said since (armed clear, wipe
+  // report) outranks the narration entirely. Returns the clipboard result
+  // either way — delivery and narration are separate facts (0.11.0 review #2).
+  private async _reCopy(md?: string): Promise<boolean> {
     const startedFrom = this._panelEl;
+    const gen = ++this._sayGen;
     const ok = await copyToClipboard(md ?? this._buildArtifact()[0]);
-    if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
-    const p = this._panelEl.querySelector('p');
-    if (p)
-      p.textContent = ok ? 'Copied to your clipboard.' : 'Copy failed — use the download instead.';
+    if (!this._destroyed && this._panelEl === startedFrom && gen === this._sayGen)
+      this._say(ok ? 'Copied to your clipboard.' : 'Copy failed — use the download instead.');
+    return ok;
   }
 
   private async _handleOnSubmit(): Promise<void> {
