@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { exportBuilder, exportReviewer } from '../../src/core/export';
 import type { Comment, ReviewerStore, Scope } from '../../src/core/types';
+import { SCOPE_GEN as CURRENT_GEN } from '../../src/core/scope-limits';
 
 const META = { generatedAt: '2026-08-12T10:00:00Z', project: 'proto' };
 const LIVE = (): boolean => false;
@@ -252,6 +253,44 @@ describe('scope fields are untrusted input like every other field', () => {
     const md = render(REGION);
     expect(md).toContain('Choose a plan”');
     expect(md).not.toContain('Choose a plan…');
+  });
+
+  // SCOPE_GEN exists so a record captured under old tuning cannot be read as if
+  // it were current — `rung`/`confidence` are persisted AND shipped to agents,
+  // so the same word means different things across tunings. It was persisted
+  // and validated at hydration, then dropped at the one boundary that matters:
+  // re-exporting five gen-1 comments after 0.9.x rendered them indistinguishably
+  // from fresh ones, and neither a human nor an agent could tell.
+  // The line that motivated the whole field: on the real note the Change list is
+  // seventeen syntax spans and the culprit is their grandparent, so Motion is
+  // emitted BEFORE Change.
+  it('names the animating element and the property, ahead of the change list', () => {
+    const md = render({
+      ...REGION,
+      motion: { tag: 'div', css: 'main > div.card', label: 'Pricing', props: 'rotate' },
+    });
+    const line = md.split('\n').find((l) => l.startsWith('**Motion:'))!;
+    expect(line).toBe(
+      '**Motion:** `<div>` (\u201cPricing\u201d) — `main > div.card` animates rotate',
+    );
+    const lines = md.split('\n');
+    expect(lines.indexOf(line)).toBeLessThan(lines.findIndex((l) => l.startsWith('**Change')));
+  });
+
+  it('emits no Motion line when nothing animates', () => {
+    expect(render(REGION)).not.toContain('**Motion:');
+  });
+
+  it('renders the tuning generation', () => {
+    const md = render({ ...REGION, gen: CURRENT_GEN });
+    expect(md).toMatch(new RegExp(`gen: ${CURRENT_GEN}`));
+    expect(md).not.toContain('older tuning');
+  });
+
+  it('marks a record captured under an older tuning', () => {
+    const md = render({ ...REGION, gen: 1 });
+    const line = md.split('\n').find((l) => l.startsWith('**Scope:'))!;
+    expect(line).toContain('gen: 1 — older tuning');
   });
 
   it('does not tell an agent a grazed element may never be edited', () => {

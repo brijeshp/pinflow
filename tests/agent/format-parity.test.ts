@@ -78,6 +78,28 @@ describe('agent format parity (0.4.1 review #1/#4)', () => {
     expect(text).not.toMatch(/never edit (one )?(of those )?to satisfy a note/);
   });
 
+  // `gen` was persisted and validated for two releases before anything rendered
+  // it, so a record captured under old tuning read exactly like a fresh one.
+  // All four formats must teach what it means, or an agent's willingness to
+  // trust a stale boundary depends on which file its user installed.
+  // Motion is the only field that routinely names an element OUTSIDE the change
+  // set, so "lead, not a grant" has to hold in every format — otherwise whether
+  // an agent edits an unpinned ancestor depends on which file its user installed.
+  it.each(FORMATS)('%s teaches Motion as a lead, not a grant', (path) => {
+    const text = flat(path);
+    expect(text).toContain('**motion:**');
+    expect(text).toMatch(/lead, not a grant/);
+    expect(text).toMatch(/animates|which properties/);
+    expect(text).toMatch(/fixed string/);
+  });
+
+  it.each(FORMATS)('%s explains that gen is the tuning that wrote the record', (path) => {
+    const text = flat(path);
+    expect(text).toContain('gen:');
+    expect(text).toMatch(/older tuning/);
+    expect(text).toMatch(/stored|captured/);
+  });
+
   it.each(FORMATS)('%s marks the source hint unverified', (path) => {
     const text = flat(path);
     expect(text).toContain('unverified');

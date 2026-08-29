@@ -136,6 +136,40 @@ describe('schema v4 — scope persists, softly', () => {
     expect(out!.scope!.siblings).toBeUndefined();
   });
 
+  // `motion` renders into a sentence an agent greps from ("animates rotate"),
+  // and it is a hint — losing it must never lose the reviewer's words.
+  it('keeps a well-formed motion node', () => {
+    const out = normalizeOne({
+      scope: { ...SCOPE, motion: { tag: 'div', css: 'main > div.card', props: 'rotate' } },
+    });
+    expect(out!.scope!.motion).toEqual({ tag: 'div', css: 'main > div.card', props: 'rotate' });
+  });
+
+  it.each([
+    ['not an object', 'rotate'],
+    ['missing props', { tag: 'div', css: 'main > div.card' }],
+    ['props that is a number', { tag: 'div', css: 'main > div.card', props: 7 }],
+    ['props that is null', { tag: 'div', css: 'main > div.card', props: null }],
+    ['a non-string tag', { tag: 9, css: 'main > div.card', props: 'rotate' }],
+    ['an absurd css path', { tag: 'div', css: 'a'.repeat(5000), props: 'rotate' }],
+  ])('drops motion that is %s, and keeps the comment', (_why, motion) => {
+    const out = normalizeOne({ scope: { ...SCOPE, motion } });
+    expect(out).toBeDefined();
+    expect(out!.text).toBe('make this primary');
+    expect(out!.scope).toBeDefined();
+    expect(out!.scope!.motion).toBeUndefined();
+  });
+
+  it('strips invisible smuggling from a hydrated props value', () => {
+    const out = normalizeOne({
+      scope: {
+        ...SCOPE,
+        motion: { tag: 'div', css: 'main > div.card', props: 'rot\u202eate' },
+      },
+    });
+    expect(out!.scope!.motion?.props).toBe('rotate');
+  });
+
   it('drops a malformed member rather than the whole scope', () => {
     const out = normalizeOne({
       scope: { ...SCOPE, members: [SCOPE.members![0], { tag: 'article' }] },

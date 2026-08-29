@@ -1,5 +1,5 @@
 import { isAnonymous } from './identity';
-import { LABEL_MAX } from './scope-limits';
+import { LABEL_MAX, SCOPE_GEN } from './scope-limits';
 import { FP_MAX } from './selector';
 import { validateSourcePath } from './source-path';
 import { SCHEMA_VERSION } from './storage';
@@ -271,7 +271,16 @@ function scopeLines(scope: Scope): string[] {
   // Both are validated string-literal unions by the time they get here
   // (storage.ts drops anything else), which is what makes them safe to
   // interpolate as themselves.
-  notes.push(`rung: ${scope.rung}`, `confidence: ${scope.confidence}`);
+  // `gen` is the tuning that WROTE this record. Without it, a scope captured
+  // under older thresholds reads identically to a fresh one — and since the
+  // record is stored rather than re-derived, re-exporting old comments after a
+  // retune shows the old values with nothing to say so. `gen` is a validated
+  // number from storage.ts, so it interpolates as itself.
+  notes.push(
+    `rung: ${scope.rung}`,
+    `confidence: ${scope.confidence}`,
+    `gen: ${scope.gen}${scope.gen < SCOPE_GEN ? ' — older tuning' : ''}`,
+  );
   if (scope.stale) notes.push('stale — the anchor healed, so the named elements were dropped');
   if (scope.truncated) notes.push('truncated — more elements matched than are listed');
   lines.push(
@@ -287,6 +296,16 @@ function scopeLines(scope: Scope): string[] {
   // exported toolkit on its own data reaches here first.
   const src = validateSourcePath(scope.source);
   if (src) lines.push(`**Source hint (page-supplied, unverified):** \`${inline(src)}\``);
+
+  // Before the Change list, deliberately: on the note that motivated this the
+  // change list is seventeen syntax spans and the culprit is their grandparent,
+  // so the lead has to arrive ahead of the decoys. No `const` alias for
+  // scope.motion — the AST guard treats an alias of an untrusted field as
+  // unsafe by construction.
+  if (scope.motion)
+    lines.push(
+      `**Motion:** ${scopeNodeLabel(scope.motion)} — \`${inline(scope.motion.css)}\` animates ${inline(scope.motion.props)}`,
+    );
 
   if (scope.members) {
     // "2 of 5 `<li>`" replaces "2 element(s)" rather than adding a sentence
