@@ -121,18 +121,21 @@ describe('naming yourself at export', () => {
     expect(loadStore(localStorage, PROJECT, HANDLE)?.comments).toHaveLength(1);
   });
 
-  it('carries the name through "Export & clear" too', async () => {
+  it('carries the name through a clear made from the confirmation', async () => {
     annotator = openSheet(HANDLE);
     const field = nameField()!;
     field.value = 'Sam';
     field.dispatchEvent(new Event('input', { bubbles: true }));
-    clickButton('Export & clear');
+    clickButton('Export & share');
     await new Promise((r) => setTimeout(r, 0));
+    // Disposition lives a panel later now, so the settled name has to survive
+    // the gap. Clearing the PRE-rename key would leave the corpus behind under
+    // the old handle and silently resurrect it on the next visit.
+    clickButton('Clear comments');
+    clickButton('Clear 1 comment?');
 
     expect(localStorage.getItem(`pinflow:r:${PROJECT}`)).toBe('Sam');
-    // Cleared under the NEW name — a rename that left comments behind under the
-    // old key would silently resurrect them on the next visit.
-    expect(loadStore(localStorage, PROJECT, 'Sam')?.comments ?? []).toHaveLength(0);
+    expect(loadStore(localStorage, PROJECT, 'Sam')?.comments).toHaveLength(0);
     expect(localStorage.getItem(storageKey(PROJECT, HANDLE))).toBeNull();
   });
 

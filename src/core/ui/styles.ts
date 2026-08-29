@@ -95,8 +95,9 @@ export const STYLES =
   '.input .actions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--pf-text-muted,inherit)}' +
   // Read-only disposition line in a resolved comment's popup ("✓ Done — note").
   '.input .res{margin-top:8px;font-size:12px;color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
-  '.input .delete,.input .exportall{background:transparent;border:0;color:inherit;cursor:pointer;opacity:.55;font:inherit;padding:0}' +
-  '.input .delete:hover{opacity:1;color:var(--pf-danger,#dc2626)}' +
+  '.input .delete,.input .exportall,.panel .clr{background:transparent;border:0;color:inherit;cursor:pointer;opacity:.55;font:inherit;padding:0}' +
+  '.panel .row+.row{margin-top:8px}.panel .clr{flex:none}' +
+  '.input .delete:hover,.panel .clr:hover,.panel .clr.a{opacity:1;color:var(--pf-danger,#dc2626)}' +
   '.input .exportall:hover{opacity:1}' +
   '.input .save{background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);border:0;border-radius:8px;padding:6px 16px;min-height:30px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}' +
   '.input .save:hover{filter:brightness(.95)}' +

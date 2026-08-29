@@ -597,16 +597,20 @@ export class Annotator {
     return mode === 'always' || !this._deps.config.source;
   }
 
+  /** "1 comment" / "3 comments" — shared by the chip, the sheet and the clear. */
+  private _n(v: number, w: string): string {
+    return `${v} ${w}${v === 1 ? '' : 's'}`;
+  }
+
   private _sheetTitle(): string {
     const comments = this._store.comments;
     const screens = new Set(comments.map((c) => c.route)).size;
-    const n = (v: number, w: string): string => `${v} ${w}${v === 1 ? '' : 's'}`;
     // Orphans are hidden on the page; the sheet is where they're accounted
     // for (current route only — other routes' elements aren't here to check).
     let lost = 0;
     for (const pin of this._pins.values()) if (pin.dataset['orphaned']) lost++;
     const tail = lost > 0 ? ` · ${lost} unanchored` : '';
-    return `${n(comments.length, 'comment')} · ${n(screens, 'screen')}${tail}`;
+    return `${this._n(comments.length, 'comment')} · ${this._n(screens, 'screen')}${tail}`;
   }
 
   // A resolve that came through the fallback chain (fingerprint / fuzzy)
@@ -672,7 +676,7 @@ export class Annotator {
       }
       return;
     }
-    const label = `Export feedback — ${count} comment${count === 1 ? '' : 's'}`;
+    const label = `Export feedback — ${this._n(count, 'comment')}`;
     if (!this._chipEl) {
       const chip = el('button', 'chip', String(count));
       chip.type = 'button';
@@ -711,12 +715,12 @@ export class Annotator {
     const sheet = this._makePanel(
       this._sheetTitle(),
       'Downloads the markdown and copies it to your clipboard.',
-      [
-        this._makeButton('Export & share', () => void this._handleReviewerExport(), 'primary'),
-        // "& clear": one gesture to close a review pass — export, then wipe,
-        // so the applied batch never re-exports next time.
-        this._makeButton('Export & clear', () => void this._handleReviewerExport(true)),
-      ],
+      // ONE action. The sheet used to fork into "& share" / "& clear", which
+      // asked for the disposal decision before either channel had run — and
+      // download() cannot report failure, so the wipe could be authorised by a
+      // reviewer who received nothing. Disposal moved to the confirmation,
+      // which is the first surface that knows anything about delivery.
+      [this._makeButton('Export & share', () => void this._handleReviewerExport(), 'primary')],
     );
     // Attribution is asked for HERE and nowhere else: it is the only moment it
     // matters, and the only one where a reviewer has context for the question.
@@ -736,7 +740,6 @@ export class Annotator {
     // is gone; hosts pairing onSubmit with `source` should set exportUi).
     if (this._deps.config.onSubmit) {
       const row = el('div', 'row');
-      row.style.marginTop = '8px';
       row.appendChild(this._makeButton('Send to builder', () => void this._handleOnSubmit()));
       sheet.appendChild(row);
     }
@@ -768,7 +771,7 @@ export class Annotator {
   private _makeButton(
     label: string,
     onClick: () => void,
-    variant?: 'primary' | 'danger',
+    variant?: 'primary' | 'clr',
   ): HTMLButtonElement {
     const b = el('button', variant, label);
     b.type = 'button';
@@ -781,7 +784,12 @@ export class Annotator {
     const panel = el('div', 'panel');
     const row = el('div', 'row');
     row.append(...buttons);
-    panel.append(el('h3', undefined, title), el('p', undefined, body), row);
+    // The paragraph is the panel's status line, not static prose: the
+    // confirmation rewrites it for a copy failure, for the armed clear, and for
+    // the wipe itself. Without this the copy failure changed silently.
+    const p = el('p', undefined, body);
+    p.setAttribute('aria-live', 'polite');
+    panel.append(el('h3', undefined, title), p, row);
     return panel;
   }
 
@@ -2052,7 +2060,7 @@ export class Annotator {
     return true;
   }
 
-  private async _handleReviewerExport(clear = false): Promise<void> {
+  private async _handleReviewerExport(): Promise<void> {
     // Export is a terminal action for the armed state: the reviewer moved on
     // from pinning (0.3.0 review #4). Disarm BEFORE capturing the ownership
     // panel — disarming may rebuild an open menu.
@@ -2066,11 +2074,7 @@ export class Annotator {
     // confirmation appears only if the EXACT surface that launched the export
     // is still open — a closed or replaced panel invalidates it entirely.
     if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
-    // Clear only after the ownership check: an abandoned surface must not
-    // wipe data behind the reviewer's back. _syncChip may close the sheet at
-    // zero; the confirmation is 'confirm'-kind and anchors via the fallback.
-    if (clear) this._clearReviewerComments();
-    this._showConfirmation(copied, clear, [md, filename]);
+    this._showConfirmation(copied, [md, filename]);
   }
 
   // Spec §5.6: after reviewer export, confirm rather than closing silently.
@@ -2083,39 +2087,80 @@ export class Annotator {
   // reviewer retry the channel that failed, which is the difference between a
   // dead end and a recovery. Only the clipboard result is ever asserted, since
   // it is the only one the widget can observe.
-  private _showConfirmation(
-    copied: boolean,
-    cleared = false,
-    artifact?: [md: string, filename: string],
-  ): void {
+  //
+  // That unverifiability is also why disposal lives here and not on the sheet:
+  // this is the first surface with any evidence about delivery, so it is the
+  // first place the reviewer can decide to discard the originals without
+  // guessing. The retries deliberately outlive the wipe.
+  private _showConfirmation(copied: boolean, artifact?: [md: string, filename: string]): void {
     this._closePanel();
-    const cleanup = cleared ? ' Comments cleared.' : '';
-    const body = copied
-      ? `Copied to your clipboard. If no file downloaded, paste it instead.${cleanup}`
-      : `Check your downloads for the file.${cleanup}`;
-    const panel = this._makePanel('Your feedback is ready', body, [
-      // NOT downloadExport(): that also writes the clipboard, which would make
-      // this button silently clobber it behind the reviewer's back — the panel
-      // offers the two channels separately on purpose.
-      //
-      // Retries re-send the artifact that was ALREADY built. Rebuilding here
-      // would re-derive attribution from the stored identity, after the sheet
-      // and its name field are gone (review #5), and would also re-export
-      // comments that "& clear" has since wiped.
-      this._makeButton(
-        'Download Feedback Markdown',
-        () => {
+    const panel = this._makePanel(
+      'Your feedback is ready',
+      copied
+        ? 'Copied to your clipboard. If no file downloaded, paste it instead.'
+        : 'Check your downloads for the file.',
+      [
+        // NOT downloadExport(): that also writes the clipboard, which would make
+        // this button silently clobber it behind the reviewer's back — the panel
+        // offers the two channels separately on purpose.
+        //
+        // Retries re-send the artifact that was ALREADY built. Rebuilding here
+        // would re-derive attribution from the stored identity, after the sheet
+        // and its name field are gone (review #5) — and, since 0.9.x, would
+        // rebuild from a store the Clear below may have just emptied. Holding
+        // the artifact is what lets both retries outlive the wipe.
+        this._makeButton('Download Feedback Markdown', () => {
           const [md, filename] = artifact ?? this._buildArtifact();
           download(md, filename);
+        }),
+        this._makeButton('Copy to Clipboard', () => void this._reCopy(artifact?.[0])),
+      ],
+    );
+    // Disposition, in its own row: quiet-left / affirmative-right, the comment
+    // popup's delete/save grammar. Neither retry takes the primary — the
+    // download already fired on the way here, and where it silently no-ops
+    // (in-app webviews) firing the same detached click again will not help;
+    // the body copy points at the clipboard instead. Finishing is the common
+    // path, so Done is what carries the accent.
+    const row = el('div', 'row');
+    if (this._store.comments.length) {
+      let armed = false;
+      const clr = this._makeButton(
+        'Clear comments',
+        () => {
+          // Counted at CLICK time, not panel-build time: a hydration merge in
+          // between would otherwise name a number the wipe does not match.
+          const many = this._n(this._store.comments.length, 'comment');
+          if (armed) {
+            this._clearReviewerComments();
+            clr.remove();
+            // The retries stay: this panel is now the only route to the file.
+            this._say('Comments cleared. You can still download or copy the file.');
+            return;
+          }
+          armed = true;
+          clr.className = 'clr a';
+          clr.textContent = `Clear ${many}?`;
+          // Answers the only question a reviewer actually has here. Two taps
+          // rather than an undo: deletes go out per-comment on the sync wire
+          // (PROTOCOL has no bulk op), so there is nothing to reverse.
+          this._say(`Deletes your ${many} from this browser. The exported file is unaffected.`);
         },
-        'primary',
-      ),
-      this._makeButton('Copy to Clipboard', () => void this._reCopy(artifact?.[0])),
-      this._makeButton('Done', () => this._closePanel()),
-    ]);
+        'clr',
+      );
+      row.appendChild(clr);
+    }
+    row.appendChild(this._makeButton('Done', () => this._closePanel(), 'primary'));
+    panel.appendChild(row);
     this._panelEl = panel;
     this._ui.root.appendChild(panel);
     this._positionPanel();
+  }
+
+  /** The panel's status line. Live-region'd in _makePanel, so writes announce. */
+  private _say(text: string): void {
+    const p = this._panelEl?.querySelector('p');
+    if (p) p.textContent = text;
   }
 
   // Reports only what it can verify. Ownership-checked like the export path
@@ -2125,9 +2170,7 @@ export class Annotator {
     const startedFrom = this._panelEl;
     const ok = await copyToClipboard(md ?? this._buildArtifact()[0]);
     if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
-    const p = this._panelEl.querySelector('p');
-    if (p)
-      p.textContent = ok ? 'Copied to your clipboard.' : 'Copy failed — use the download instead.';
+    this._say(ok ? 'Copied to your clipboard.' : 'Copy failed — use the download instead.');
   }
 
   private async _handleOnSubmit(): Promise<void> {
