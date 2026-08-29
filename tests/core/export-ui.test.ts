@@ -1603,6 +1603,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c2']);
     const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
     expect(kept.map((c) => c.id)).toEqual(['c1']);
+    expect(kept[0]?.text).toBe('text A'); // the tie winner, byte-for-byte
 
     // The evidence outlives the batch (0.10.0 review #8): a SECOND export
     // freezes the surviving tie winner into its artifact, but the divergent
@@ -1614,6 +1615,78 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(body()).toContain('Nothing left to clear');
     const after = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
     expect(after.map((c) => c.id)).toEqual(['c1']);
+    expect(after[0]?.text).toBe('text A');
+  });
+
+  // The verification fold-back is a union too: a divergence persisted by
+  // another tab DURING the wipe must be recorded there, or a second export
+  // legitimizes deleting the discarded side (0.10.0 review #9).
+  it('a divergence landing mid-clear is tracked by the verification fold-back', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = makeComment('c1', 'cleared one');
+    const c2 = makeComment('c2', 'text A');
+    seedStore([c1, c2]);
+    let resolveSource!: (c: Comment[]) => void;
+    let armTrap = false;
+    let fired = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            t.setItem(k, v);
+            if (armTrap && !fired && v.includes('text B')) {
+              fired = true;
+              // Another tab persists a divergent same-timestamp c2 mid-wipe.
+              const key = `pinflow:c:${PROJECT}:${REVIEWER}`;
+              const disk = JSON.parse(t.getItem(key) ?? 'null') as {
+                comments?: Comment[];
+              } | null;
+              if (disk?.comments) {
+                disk.comments = disk.comments.map((c) =>
+                  c.id === 'c2' ? { ...c, text: 'text C' } : c,
+                );
+                t.setItem(key, JSON.stringify(disk));
+              }
+            }
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    // Export freezes c2@'text A'; a hydrated edit then moves c2 to 'text B'
+    // at a NEWER timestamp, so the wipe leaves it alone.
+    await exportToConfirmation();
+    resolveSource([{ ...c2, text: 'text B', updatedAt: '2026-01-02T00:00:00.000Z' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // c1 only
+    armTrap = true;
+    byLabel('Clear 1 comment?')!.click(); // mid-wipe, disk c2 becomes 'text C' at the same timestamp
+    expect(fired).toBe(true);
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+
+    // Second export freezes whatever side the fold-back kept — but the
+    // divergence is RECORDED, so the second clear must not take c2.
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept.map((c) => c.id)).toEqual(['c2']);
+    expect(kept[0]?.text).toBe('text C'); // the side the union kept
   });
 
   // The export sheet's own name edit moves the corpus and used to REPLACE
@@ -1659,7 +1732,9 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Clear comments')!.click();
     expect(body()).toContain('Nothing left to clear');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
-    expect(loadStore(localStorage, PROJECT, 'Sam')?.comments).toHaveLength(1);
+    const moved = loadStore(localStorage, PROJECT, 'Sam')?.comments ?? [];
+    expect(moved).toHaveLength(1);
+    expect(moved[0]?.text).toBe('text A'); // the disk side the fold kept
   });
 
   // The identity-adoption union must not pick a tie winner over an undetected
@@ -1702,7 +1777,9 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Clear comments')!.click();
     expect(body()).toContain('Nothing left to clear');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
-    expect(loadStore(localStorage, PROJECT, 'Zed')?.comments).toHaveLength(1);
+    const parked = loadStore(localStorage, PROJECT, 'Zed')?.comments ?? [];
+    expect(parked).toHaveLength(1);
+    expect(parked[0]?.text).toBe('text A');
   });
 
   // A cancelled gesture must not strand an abandoned armed question after
@@ -1725,6 +1802,51 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     document.body.dispatchEvent(new Event('pointercancel', opts));
     expect(byLabel('Clear comments')).toBeDefined(); // the departure lands
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // A release that never arrives (drag out of the window, app switch) must
+  // not strand an abandoned armed question (0.10.0 review #9).
+  it('a window blur during a gesture lands the deferred departure', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const opts = { bubbles: true, composed: true };
+    document.body.dispatchEvent(new Event('pointerdown', opts));
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    // The release never arrives — the window loses focus instead.
+    window.dispatchEvent(new Event('blur'));
+    expect(byLabel('Clear comments')).toBeDefined();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // The deferred disarm timer is OWNED: a panel replaced before it fires must
+  // not have its status line overwritten by a stale disarm (0.10.0 review #9).
+  it('a replaced panel is not written to by the stale deferred disarm', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const opts = { bubbles: true, composed: true };
+    document.body.dispatchEvent(new Event('pointerdown', opts));
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    byLabel('Clear 1 comment?')!.dispatchEvent(new Event('pointerup', opts)); // inside release queues the timer
+    chip()!.click(); // summon REPLACES the confirmation before the timer fires
+    const sheetBody = body();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(body()).toBe(sheetBody); // the stale disarm wrote nothing
   });
 
   // The pointer swallow and the focusout disarm must COMPOSE: a click on a
@@ -2107,8 +2229,12 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     } as never);
     annotator!.destroy();
     annotator = null;
+    // Two removals per type: the outside-dismiss disposer removes its own
+    // trio, and the gesture tracker's removals must ALSO run — counting only
+    // presence would false-pass if the tracker removals were deleted (0.10.0
+    // review #9).
     for (const type of ['pointerdown', 'pointerup', 'pointercancel']) {
-      expect(removed).toContain(type);
+      expect(removed.filter((t) => t === type).length).toBeGreaterThanOrEqual(2);
     }
   });
 

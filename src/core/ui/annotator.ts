@@ -944,7 +944,10 @@ export class Annotator {
     if (disk)
       this._store = {
         ...this._store,
-        comments: unionByRecency(disk.comments, this._store.comments),
+        // Tracked like every other union: a divergence another tab persisted
+        // DURING the wipe must be recorded here, or the next export would
+        // legitimize deleting the discarded side (0.10.0 review #9).
+        comments: this._unionTracked(disk.comments, this._store.comments),
       };
     for (const c of intent) if (!survivors.has(c.id)) this._emitChange('delete', c);
     this._renderPins();
@@ -2366,13 +2369,26 @@ export class Annotator {
       // would remove that later listener mid-dispatch, skipping the back-out
       // swallow in real DOM (0.10.0 review #8). An outside release disarms
       // via the dismiss itself; the timeout only catches inside releases.
+      let tid: ReturnType<typeof setTimeout> | null = null;
       const pu = (): void => {
         midPointer = false;
         if (fled) {
           fled = false;
-          setTimeout(() => {
+          // OWNED: the composite disposer cancels it, so a panel replaced
+          // before this fires is never written to (0.10.0 review #9).
+          tid = setTimeout(() => {
+            tid = null;
             if (armed) disarm();
           }, 0);
+        }
+      };
+      // A release that never arrives — drag out of the window, app switch —
+      // still ends the gesture and lands the departure (0.10.0 review #9).
+      const onBlur = (): void => {
+        midPointer = false;
+        if (fled) {
+          fled = false;
+          disarm();
         }
       };
       // No click follows a cancel — the departure lands immediately.
@@ -2433,11 +2449,22 @@ export class Annotator {
             document.addEventListener('pointerdown', pd, true);
             document.addEventListener('pointerup', pu, true);
             document.addEventListener('pointercancel', pc, true);
+            window.addEventListener('blur', onBlur);
             this._sheetDismiss = offOut = (): void => {
               offDismiss();
               document.removeEventListener('pointerdown', pd, true);
               document.removeEventListener('pointerup', pu, true);
               document.removeEventListener('pointercancel', pc, true);
+              window.removeEventListener('blur', onBlur);
+              if (tid !== null) {
+                clearTimeout(tid);
+                tid = null;
+              }
+              // Teardown by ANY owner leaves the closure inert: no stale
+              // timer, no stale state, nothing left to say (0.10.0 review #9).
+              armed = false;
+              fled = false;
+              midPointer = false;
             };
             clr.className = 'clr a';
             clr.textContent = `Clear ${this._n(n, 'comment')}?`;
