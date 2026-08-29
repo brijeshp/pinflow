@@ -132,4 +132,23 @@ describe('copyToClipboard', () => {
     });
     await expect(copyToClipboard('fresh')).resolves.toBe(true);
   });
+
+  it('system sleep expires the slot even while the monotonic clock is frozen', async () => {
+    // WebKit's performance.now() does not advance through system sleep — the
+    // wall clock is the second bound, expiring the share on EITHER elapsed
+    // value (0.10.0 review #14).
+    vi.spyOn(performance, 'now').mockImplementation(() => 0); // frozen through sleep
+    let wall = 1_000_000;
+    vi.spyOn(Date, 'now').mockImplementation(() => wall);
+    let settle!: () => void;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => new Promise<void>((r) => (settle = r)) },
+      configurable: true,
+    });
+    const hung = copyToClipboard('same artifact');
+    wall += 3001; // the Mac slept past the bound; performance.now() saw nothing
+    await expect(copyToClipboard('same artifact')).resolves.toBe(false);
+    settle();
+    await expect(hung).resolves.toBe(true);
+  });
 });
