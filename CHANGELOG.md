@@ -1,5 +1,43 @@
 # Changelog
 
+## 0.10.0
+
+### Minor Changes
+
+- 9f1fb05: Artifacts now name the element that actually animates.
+
+  Motion is 23% of real review notes across two measured sessions — "remove the shifting animation", "remove the shaking effect" — and until now the artifact answered them with the wrong elements. A marquee over a tilting code card emitted **seventeen syntax-highlighting spans** as the change set, while the `rotate` lived on the card wrapping all of them; that card appeared in no list at all, and `**Computed:**` said only what colour the text was.
+
+  `**Motion:**` names the nearest element at or above the change set whose CSS moves, and **which properties** — never their values. The value is a lie at capture time: the reviewer's pointer is on the element when they release, so a `:hover { rotate: 0deg }` rule computes to `0deg` on a note complaining the thing rotates. A property or keyframes name (`rotate`, `cta-settle`) is a literal token to grep for in source instead.
+
+  It is emitted **before** the change list, because on the note that motivated it the culprit is the grandparent of every listed element.
+
+  **A lead, not a grant.** It is routinely outside `**Scope:**` — the thing a motion note is about is usually an ancestor of everything the region covered — so editing it can affect siblings the reviewer never pinned. All four agent formats teach that, held in step by a parity test.
+
+  **Silent when nothing moves.** A paint-only transition is not motion: a button whose background fades over 0.18s gets no line, and neither does anything under `prefers-reduced-motion`, because the predicate reads computed style rather than the stylesheet. Across the 13 real notes it fires on exactly the 3 that are about motion.
+
+  Costs ~282 B gz, which required an owner-approved ceiling raise — there was no offsetting golf left that did not weaken escaping or the storage validators.
+
+- 7a042a1: Two scope fixes found by auditing a real seven-note export, plus the tuning generation bump they require.
+
+  **A marquee drawn across oversized content is a change set, not a gap.** Coverage is scored against each element's own area, so a rect small relative to everything it crosses cleared no floor and left the member list empty — which the insertion path read as "the reviewer drew a gap". A hero note reading _"Copy needs work"_ came back with no change list at all, the `<h1>` it was about published under **Do not change**, and an insertion point asserted inside a container holding three elements. Whether anything was grazed cannot be the test, because a rect that clips a paragraph and sits 90% in the gap really is an insertion; the drawn region is now measured from the other side, and a grazed set that fills it is promoted to the change list. Promoted members are banded `partial` and confidence drops one step, since nothing cleared the ambiguity floor.
+
+  **The source hint survives a layout wrapper.** The ancestor climb loses the attribute whenever the wrapper sits outside the annotated component (`<div class="wrap"><Hero/></div>`). When the climb finds nothing, the boundary's descendants are consulted and used only if there is exactly one candidate — two would be a coin flip, and a hint naming the wrong file is worse than none. The rung is never promoted by this path.
+
+  `SCOPE_GEN` moves to 3. Records captured under older tuning still hydrate and now render as `— older tuning`.
+
+### Patch Changes
+
+- 3da77c7: The `**Scope:**` line now says which tuning generation captured the record.
+
+  Scope is resolved once at pin time and **stored**, never re-derived at export — `export.ts` is DOM-free by contract and cannot reach the engine. So re-exporting comments placed before a retune renders the old boundaries, the old confidence, and the old `Area covers`, with nothing in the file to say so. That is exactly what `SCOPE_GEN` exists to prevent: `rung` and `confidence` are persisted _and shipped to agents_, so the same word means different things across tunings.
+
+  It was persisted, and validated at hydration, and then dropped at the one boundary where a reader could act on it. A record captured months ago was indistinguishable from a fresh one.
+
+  `(rung: landmark, confidence: medium, gen: 1 — older tuning)` — the marker appears only when the record predates the current generation, so current captures gain three characters and nothing else. All four agent formats explain what it means, held in step by a parity test.
+
+  The constant moves from `scope.ts` to `scope-limits.ts`, which already exists for values three modules must agree on and none may import the engine for: capture stamps it, hydration validates it, export renders it. `scope.ts` re-exports it, so nothing that imported it from there changes.
+
 ## 0.9.1
 
 ### Patch Changes
