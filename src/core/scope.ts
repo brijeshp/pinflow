@@ -4,7 +4,7 @@ import { cleanLabel, EXCLUDED_CAP, MEMBER_CAP, SCOPE_GEN } from './scope-limits'
 // Re-exported so the engine stays the obvious place to look for it.
 export { SCOPE_GEN };
 import { validateSourcePath } from './source-path';
-import type { ChangeNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from './types';
+import type { ChangeNode, MotionNode, Scope, ScopeConfidence, ScopeNode, ScopeRung } from './types';
 
 // The scope engine. Three modules divide the same problem by cardinality and
 // by time: `selector.ts` is one element ⇄ durable strings ACROSS renders (it
@@ -258,6 +258,59 @@ function tooManyDescendants(el: Element): boolean {
   return total > 0 && el.getElementsByTagName('*').length / total > MAX_DESCENDANT_SHARE;
 }
 
+// Properties whose change MOVES something. A colour or shadow transition is not
+// what a reviewer means by "remove the shaking", and naming one produces a
+// confident line about the wrong thing — the site's own `.btn` transitions
+// background-color, border-color and color, which must stay silent.
+const MOVES = /all|rotate|scale|translate|transform|margin|padding|inset|width|height|gap/;
+
+// Bounds the ancestor walk. One style resolution per element, at pointerup
+// only — `resolveScope` has a single call site and never runs on the reflow
+// path — but an unbounded walk on a deep tree is still work nobody asked for.
+const MOTION_CAP = 24;
+
+// The property NAMES this element animates, or undefined. Never the VALUES:
+// the reviewer's pointer is ON the element when they release, so a
+// `:hover { rotate: 0deg }` rule computes to `0deg` for a note complaining the
+// thing rotates. A keyframes name (`cta-settle`) and a property name (`rotate`)
+// are both literal tokens an agent can grep for in source.
+//
+// `transitionDuration` is tested with /[1-9]/ rather than parsed: a computed
+// duration list is `0s` or `0s, 0s` when nothing runs, and neither contains a
+// digit 1-9, while any real duration does.
+function movesOf(el: Element): string | undefined {
+  const cs = getComputedStyle(el);
+  const a = cs.animationName;
+  const t = cs.transitionProperty;
+  // cleanLabel collapses the join: two empty halves become '' and then
+  // undefined, so the caller needs no separate emptiness check.
+  return cleanLabel(
+    `${a && a !== 'none' ? a : ''} ${/[1-9]/.test(cs.transitionDuration) && MOVES.test(t) ? t : ''}`,
+  );
+}
+
+// Seeds are `members[0]`, ITS first element child, and the pinned element.
+//
+// Not every member: a copy note whose members are a run of inline `<kbd>` and
+// `<strong>` inside an animated CTA card would otherwise gain a motion line
+// about the card, on a note about wording.
+//
+// The child probe is not symmetry — in a real note the animator was a CHILD of
+// the first member (`li.scene` inside `ul.scenes`), so an upward-only walk
+// misses it by construction.
+function motionOf(target: Element, members: Element[]): MotionNode | null {
+  const first = members[0];
+  let n = 0;
+  for (const seed of [first ?? target, first?.firstElementChild ?? null]) {
+    for (let cur = seed; cur && !isRoot(cur) && n++ < MOTION_CAP; cur = cur.parentElement) {
+      if (skip(cur)) continue;
+      const props = movesOf(cur);
+      if (props) return { ...describe(cur), props };
+    }
+  }
+  return null;
+}
+
 // A boundary this large is the page, not a boundary. Share of the document's
 // elements OR share of the document's area — either alone is defeatable for a
 // POINT PIN, whose boundary is picked by the ladder and can be a sparse hero
@@ -285,6 +338,11 @@ interface Walk {
   bands: Map<Element, 'inside' | 'partial'>;
   visits: number;
   truncated: boolean;
+  // Largest slice of the DRAWN REGION any grazed element fills. Coverage is
+  // scored against each element's own area, so it cannot tell a marquee lying
+  // across oversized content from one dropped in a gap — both leave `members`
+  // empty. This measures the region from the other side and separates them.
+  fill: number;
 }
 
 // Top-down with early stop. Three cards in a grid → all three children score
@@ -311,7 +369,8 @@ function visit(el: Element, clip: ScopeRect, region: ScopeRect, depth: number, w
   // is false, so an unguarded divisor drops a zero-area node into the
   // EXCLUSION list — letting a hostile page author a free "do not change" line.
   if (own <= 0) return false;
-  const coverage = area(intersect(box, region)) / own;
+  const hit = area(intersect(box, region));
+  const coverage = hit / own;
   if (coverage <= 0) return false;
 
   if (coverage >= INSIDE) {
@@ -346,6 +405,7 @@ function visit(el: Element, clip: ScopeRect, region: ScopeRect, depth: number, w
   // overflow, so a busy marquee published a 12-item list that read as the whole
   // set — the same "the counts are a complete accounting" misreading the N-of-M
   // note closes from the other end.
+  if (w.fill < hit) w.fill = hit;
   if (w.excluded.length < EXCLUDED_CAP) w.excluded.push(el);
   else w.truncated = true;
   return false;
@@ -441,7 +501,14 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
   }
   if (isRoot(boundary)) return null;
 
-  const w: Walk = { members: [], excluded: [], bands: new Map(), visits: 0, truncated: false };
+  const w: Walk = {
+    members: [],
+    excluded: [],
+    bands: new Map(),
+    visits: 0,
+    truncated: false,
+    fill: 0,
+  };
   if (region) {
     const clip = boxOf(boundary);
     const kids = boundary.children;
@@ -452,6 +519,27 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
   }
 
   if (w.truncated) confidence = 'low';
+
+  // R9. Coverage is scored against each element's OWN area, so a marquee small
+  // relative to everything it crosses clears no floor and leaves `members`
+  // empty — which the insertion arm below then reads as "the reviewer drew a
+  // gap". A 0.9.1 export did this to a hero note: the `<h1>` the note was about
+  // was published under **Do not change**, no change list was emitted at all,
+  // and an insertion point was asserted inside a container holding three
+  // elements. Every part of that was false.
+  //
+  // "Did it graze anything" cannot be the test — a rect that clips 10px of a
+  // paragraph and sits 90% in the gap IS an insertion. Measure the region from
+  // the other side instead: if the grazed set FILLS what was drawn, the
+  // reviewer was pointing at content. Multiplying out avoids a divide by a
+  // zero-area region.
+  if (region && !w.members.length && w.fill >= PARTIAL * area(region)) {
+    w.members = w.excluded;
+    w.excluded = [];
+    // Nothing reached the ambiguity floor, so this set is best-effort. The
+    // boundary claim is untouched — a source rung still found what it found.
+    confidence = confidence === 'high' ? 'medium' : 'low';
+  }
 
   const scope: Scope = { gen: SCOPE_GEN, rung, confidence, boundary: describe(boundary) };
   // A HINT, not a boundary — so it does not have to BE the boundary element.
@@ -464,9 +552,29 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
   // pin whose boundary already carries the attribute finds itself first, so
   // this is a superset of the previous behaviour, never a change to it.
   const found = climb(boundary);
-  const src = found.rung === 'source' ? sourceOf(found.el) : null;
+  let src = found.rung === 'source' ? sourceOf(found.el) : null;
+  // The climb only goes up, so a layout wrapper OUTSIDE the annotated component
+  // — `<div class="wrap"><Hero/></div>`, the shape the audited site uses for
+  // its hero and nothing else — puts the attribute below the boundary where no
+  // ancestor walk can reach it. That note came back as the only one of seven
+  // with no hint while every other section resolved one.
+  //
+  // Exactly one candidate or nothing: a hint naming the WRONG file is worse
+  // than none, because agents are told to confirm it rather than distrust it.
+  // The rung is deliberately NOT promoted — an ancestor declares, a descendant
+  // only implies, and `rung` drives the boundary's own confidence.
+  if (!src) {
+    const inner = boundary.querySelectorAll('[data-pinflow-source]');
+    if (inner.length === 1) src = sourceOf(inner[0]!);
+  }
   if (src) scope.source = src;
   if (w.truncated) scope.truncated = true;
+
+  // A LEAD, not a grant: the element a motion note is about is usually an
+  // ancestor of everything the region covered, so it may sit outside `members`
+  // entirely. Resolved for both branches below — an insertion returns early.
+  const motion = motionOf(target, w.members);
+  if (motion) scope.motion = motion;
 
   // Exclusions belong to BOTH branches: a note dropped in a gap has neighbours
   // an agent must equally leave alone, so this cannot live inside the region
@@ -525,6 +633,7 @@ export function demoteScope(scope: Scope): Scope {
   delete out.members;
   delete out.excluded;
   delete out.between;
+  delete out.motion;
   delete out.truncated;
   return out;
 }

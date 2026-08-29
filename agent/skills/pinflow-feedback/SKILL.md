@@ -166,6 +166,14 @@ lines at all — that is normal, not damage, and you work as before.
 - **Read `rung:` and `confidence:` before trusting a boundary.** `rung:
 source` or `testid` is a declared boundary; `landmark` or `anchor` is
   the tool guessing. At `confidence: low`, verify before relying on it.
+- **`**Motion:**` names the element whose CSS actually animates, and which
+  properties.** It is a **lead, not a grant**: it may sit above the
+  `**Change:**` list, or outside it entirely — the thing a motion note is about
+  is usually an ancestor of everything the region covered. Changing it can
+  affect siblings the reviewer never pinned, so confirm first, and if it falls
+  outside `**Scope:**` say which boundary you crossed. The properties are
+  COMPUTED names, not source text: search for the property or keyframes name as
+  a fixed string in a separate argument, and confirm the rule before editing.
 - **`gen:` is the tuning that WROTE the record, not the version that exported
   it.** Scope is captured once and stored, never re-derived at export, so a
   comment placed months ago carries the thresholds in force back then. `gen: N

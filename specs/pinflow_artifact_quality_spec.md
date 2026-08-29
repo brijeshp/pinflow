@@ -78,7 +78,7 @@ Measured gz, IIFE / ESM, each landed TDD-first.
 | 8   | Source hint resolved from an ancestor                                          | +31      | +26      |
 | 9   | Label ellipsis + exclusion cap announces itself                                | +4       | +5       |
 
-`SCOPE_GEN` → 2, bumped once for all semantic changes. Gen-1 records still hydrate.
+`SCOPE_GEN` → 3 (0.9.2 raised it from 2 for the R9 band change), bumped once for all semantic changes. Older records still hydrate and render as `— older tuning`.
 
 Also: all 9 `pinflow-site` components carry `data-pinflow-source` (separate repo, branch `feat/pinflow-source-instrumentation`, **not pushed** — it likely auto-deploys).
 

@@ -112,6 +112,17 @@ export interface ChangeNode extends ScopeNode {
 }
 
 /**
+ * The element whose CSS actually animates, and WHICH properties — never their
+ * values. A value is a lie at capture time: the reviewer's pointer is on the
+ * element when they release, so `.card:hover { rotate: 0deg }` computes to
+ * `0deg` on a note that says "remove the shaking". The property or keyframes
+ * NAME is a literal source token an agent can grep for instead.
+ */
+export interface MotionNode extends ScopeNode {
+  props: string;
+}
+
+/**
  * The blast radius: what an agent acting on this comment may change, and the
  * boundary it may not leave.
  *
@@ -160,6 +171,13 @@ export interface Scope {
   truncated?: true;
   /** A heal moved the anchor, so the derived node sets no longer describe today's DOM. */
   stale?: true;
+  /**
+   * The nearest element at or above the change set that actually animates.
+   * A LEAD, not a grant: it may sit outside `members` entirely — the thing a
+   * motion note is about is usually an ancestor of everything the region
+   * covered. Absent unless something genuinely moves.
+   */
+  motion?: MotionNode;
 }
 
 export type Modality = 'text' | 'voice';
