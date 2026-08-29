@@ -133,6 +133,26 @@ describe('copyToClipboard', () => {
     await expect(copyToClipboard('fresh')).resolves.toBe(true);
   });
 
+  it('a healthy different-content refusal does not latch the slot', async () => {
+    // The latch belongs to EXPIRY alone (0.10.0 review #16): a refactor that
+    // checked content before the clocks could let a different-content caller
+    // observe-but-not-latch an expiry — or worse, a healthy refusal could
+    // poison the slot. Pin both: B is refused while A stays shareable.
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => t);
+    let settle!: () => void;
+    Object.defineProperty(navigator, 'clipboard', {
+      value: { writeText: () => new Promise<void>((r) => (settle = r)) },
+      configurable: true,
+    });
+    const hung = copyToClipboard('artifact A');
+    await expect(copyToClipboard('artifact B')).resolves.toBe(false); // healthy refusal
+    t = 100; // still well under the bound
+    expect(copyToClipboard('artifact A')).toBe(hung); // NOT poisoned — still shared
+    settle();
+    await expect(hung).resolves.toBe(true);
+  });
+
   it('system sleep expires the slot even while the monotonic clock is frozen', async () => {
     // WebKit's performance.now() does not advance through system sleep — the
     // wall clock is the second bound, expiring the share on EITHER elapsed
