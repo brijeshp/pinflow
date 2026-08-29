@@ -777,20 +777,13 @@ export class Annotator {
     );
   }
 
-  // Synced hosts stay consistent: every removal goes out as its own delete
-  // (PROTOCOL deletes are per-comment; there is no bulk op on the wire).
-  //
-  // The wipe reads the durable truth before destroying (0.10.0 review #2/#3):
-  // the remembered identity folds forward first (a cross-tab rename), then
-  // the on-disk corpus under the current key (a cross-tab edit) — so the
-  // removal set is selected against what actually exists, not this tab's
-  // possibly-stale memory. localStorage offers no cross-context lock, so a
-  // rename can even land BETWEEN the fold and the write; the persist loop
-  // re-reconciles and re-strips until the write sticks — bounded, since each
-  // pass folds the newest key forward. Returns what was actually removed; an
-  // empty removal still owes the screen any newer truth the fold surfaced.
-  private _clearReviewerComments(rev: ReadonlyMap<string, string>): Comment[] {
-    const pre = this._store;
+  /** Fold the durable truth into memory: the remembered identity first (a
+   * cross-tab rename), then the on-disk corpus under the current key (a
+   * cross-tab edit) — memory wins only where genuinely newer. Renders only
+   * when the fold changed something material, so a no-op fold cannot replay
+   * pin entrances (0.10.0 review #4). */
+  private _foldDurable(): void {
+    const before = this._store.comments;
     this._reconcileIdentity();
     if (this._reviewer !== null) {
       const disk = loadStore(this._deps.storage, this._deps.config.project, this._reviewer);
@@ -800,28 +793,53 @@ export class Annotator {
           comments: unionByRecency(disk.comments, this._store.comments),
         };
     }
-    const removed = this._exportedNow(rev);
-    if (removed.length) {
-      const gone = new Set(removed.map((c) => c.id));
-      const strip = (): void => {
-        this._store = {
-          ...this._store,
-          comments: this._store.comments.filter((c) => !gone.has(c.id)),
-        };
-      };
-      for (let i = 0; i < 4; i++) {
-        strip();
-        this._persist();
-        this._reconcileIdentity();
-        if (!this._store.comments.some((c) => gone.has(c.id))) break;
-      }
-      for (const c of removed) this._emitChange('delete', c);
-      this._renderPins();
-    } else if (this._store !== pre) {
-      this._invalidateViewCaches();
-      this._renderPins();
+    const cur = this._store.comments;
+    const changed =
+      cur.length !== before.length ||
+      cur.some((c, i) => {
+        const b = before[i];
+        return !b || b.id !== c.id || this._rev(b) !== this._rev(c);
+      });
+    if (changed) this._renderPins();
+  }
+
+  // Synced hosts stay consistent: every removal goes out as its own delete
+  // (PROTOCOL deletes are per-comment; there is no bulk op on the wire).
+  //
+  // Verify, then report (0.10.0 review #4). The fold reads the durable truth
+  // before anything is selected; the strip is REVISION-scoped on every pass,
+  // so a newer revision folded in mid-wipe is never destroyed; and after the
+  // loop the final state — memory AND disk — decides what is claimed: deletes
+  // go out only for ids with no surviving copy anywhere, and `clean` is false
+  // whenever an exported revision remains (a swallowed setItem failure, or a
+  // pathological run of interleaved renames), so the caller reports failure
+  // instead of success. localStorage offers no cross-context lock; this is as
+  // strong as read-before, verify-after can make a lockless store.
+  private _clearReviewerComments(rev: ReadonlyMap<string, string>): {
+    tried: boolean;
+    clean: boolean;
+  } {
+    this._foldDurable();
+    const at = (c: Comment): boolean => rev.get(c.id) === this._rev(c);
+    const intent = this._store.comments.filter(at);
+    if (!intent.length) return { tried: false, clean: true };
+    for (let i = 0; i < 4; i++) {
+      this._store = { ...this._store, comments: this._store.comments.filter((c) => !at(c)) };
+      this._persist();
+      this._reconcileIdentity();
+      if (!this._store.comments.some(at)) break;
     }
-    return removed;
+    const disk =
+      this._reviewer === null
+        ? null
+        : loadStore(this._deps.storage, this._deps.config.project, this._reviewer);
+    const clean = !this._store.comments.some(at) && !disk?.comments.some(at);
+    const survivors = new Set(
+      [...this._store.comments, ...(disk?.comments ?? [])].map((c) => c.id),
+    );
+    for (const c of intent) if (!survivors.has(c.id)) this._emitChange('delete', c);
+    this._renderPins();
+    return { tried: true, clean };
   }
 
   // Built imperatively to keep reviewer names out of innerHTML.
@@ -2161,15 +2179,17 @@ export class Annotator {
     rev?: ReadonlyMap<string, string>,
   ): void {
     this._closePanel();
-    // The resting body is also the disarm target: backing out of an armed
-    // clear restores THIS line, not whatever the last action wrote.
-    const base = copied
-      ? 'Copied to your clipboard. If no file downloaded, paste it instead.'
-      : 'Check your downloads for the file.';
     // Delivery is mutable: a Copy retry that succeeds AFTER a failed export
-    // write upgrades what the armed warning below may honestly claim (0.10.0 review #2).
+    // write upgrades what the armed warning AND the resting line may honestly
+    // claim (0.10.0 review #2, #4).
     let delivered = copied;
-    const panel = this._makePanel('Your feedback is ready', base, [
+    // The resting body is also the disarm target: backing out of an armed
+    // clear restores the truest line the panel can currently claim.
+    const baseNow = (): string =>
+      delivered
+        ? 'Copied to your clipboard. If no file downloaded, paste it instead.'
+        : 'Check your downloads for the file.';
+    const panel = this._makePanel('Your feedback is ready', baseNow(), [
       // NOT downloadExport(): that also writes the clipboard, which would make
       // this button silently clobber it behind the reviewer's back — the panel
       // offers the two channels separately on purpose.
@@ -2202,14 +2222,28 @@ export class Annotator {
     if (rev?.size) {
       let armed = false;
       let at = 0;
+      let offOut: (() => void) | null = null;
       const live = () => this._exportedNow(rev);
+      // Every path out of the armed state funnels here: the state drops, and
+      // the host-page listener below is disposed (0.10.0 review #2, #4).
+      const unarm = (): void => {
+        armed = false;
+        offOut?.();
+        if (this._sheetDismiss === offOut) this._sheetDismiss = null;
+        offOut = null;
+      };
+      const disarm = (): void => {
+        if (!armed) return;
+        unarm();
+        clr.className = 'clr';
+        clr.textContent = 'Clear comments';
+        this._say(baseNow());
+      };
       // Both retirement paths park focus on Done: the activation just removed
       // the focused element, and a keyboard reviewer must land inside the
-      // still-open panel, not on the host page (0.10.0 review #1). armed drops too,
-      // or the disarm listener below would fire once over the spent control
-      // and overwrite its report with the resting body (0.10.0 review #2).
+      // still-open panel, not on the host page (0.10.0 review #1).
       const spend = (msg: string): void => {
-        armed = false;
+        unarm();
         clr.remove();
         done.focus();
         this._say(msg);
@@ -2218,13 +2252,20 @@ export class Annotator {
         'Clear comments',
         () => {
           if (!armed) {
-            // A cross-tab rename must not arm a count from the retired key
-            // (0.10.0 review #3); the confirming tap folds the full truth.
-            this._reconcileIdentity();
+            // The FIRST tap reads the durable truth too — a rename or an edit
+            // persisted by another tab must retire the control, not arm a
+            // count from stale memory (0.10.0 review #4).
+            this._foldDurable();
             const n = live().length;
             if (!n) return spend('Nothing left to clear.');
             armed = true;
             at = performance.now();
+            // Arming is a question posed to the reviewer; leaving the panel is
+            // walking away from it. A tap anywhere on the host page disarms,
+            // so a stray tap minutes later cannot land on a decision nobody
+            // is making (0.10.0 review #4). _closePanel owns the disposer via
+            // the shared slot, so a Done-while-armed cannot leak it.
+            this._sheetDismiss = offOut = this._armOutsideDismiss(() => [panel], disarm);
             clr.className = 'clr a';
             clr.textContent = `Clear ${this._n(n, 'comment')}?`;
             // Answers the only question a reviewer actually has here — which
@@ -2245,14 +2286,21 @@ export class Annotator {
           // tap is a SEPARATE decision. Same idiom as the gesture layer's
           // swallow window.
           if (performance.now() - at < 600) return;
-          // Vacuity re-checked at the WIPE, not just the arm: a batch that
-          // emptied between the taps must not report success (0.10.0 review #2).
+          // PROTOCOL deletes are id-keyed with no revision precondition, so a
+          // wipe while hydration is in flight could destroy a backend revision
+          // this device has never seen. Wait it out (0.10.0 review #4).
+          if (this._pendingDeletes)
+            return this._say('Still syncing with the host. Try again in a moment.');
+          // Verify-then-report: the wipe re-selects against the durable truth,
+          // and claims only what the final state supports (0.10.0 review #2, #4).
           // The retries stay either way: this panel is the route to the file.
-          spend(
-            this._clearReviewerComments(rev).length
-              ? 'Comments cleared. You can still download or copy the file.'
-              : 'Nothing left to clear.',
-          );
+          const r = this._clearReviewerComments(rev);
+          if (!r.tried) return spend('Nothing left to clear.');
+          if (!r.clean) {
+            disarm();
+            return this._say('Some comments could not be cleared. Try again.');
+          }
+          spend('Comments cleared. You can still download or copy the file.');
         },
         'clr',
       );
@@ -2269,12 +2317,7 @@ export class Annotator {
       panel.addEventListener(
         'click',
         (e) => {
-          if (armed && e.target !== clr) {
-            armed = false;
-            clr.className = 'clr';
-            clr.textContent = 'Clear comments';
-            this._say(base);
-          }
+          if (armed && e.target !== clr) disarm();
         },
         true,
       );

@@ -278,6 +278,15 @@ export function normalizeComments(input: unknown): Comment[] {
         text: typeof c['text'] === 'string' ? c['text'] : '',
         route: typeof c['route'] === 'string' ? c['route'] : '',
         createdAt: typeof c['createdAt'] === 'string' ? c['createdAt'] : '',
+        // The recency key for every merge AND the clear's revision stamp — a
+        // non-string here used to ride the spread, and two different records
+        // could stamp identically through JSON null (0.10.0 review #4).
+        updatedAt:
+          typeof c['updatedAt'] === 'string'
+            ? c['updatedAt']
+            : typeof c['createdAt'] === 'string'
+              ? c['createdAt']
+              : '',
         modality: c['modality'] === 'voice' ? 'voice' : 'text',
       };
       // Fingerprints beyond the documented representation are hostile or

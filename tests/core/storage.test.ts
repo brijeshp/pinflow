@@ -454,6 +454,33 @@ describe('production audit hardening', () => {
   });
 });
 
+it('a missing or non-string updatedAt is coerced at the boundary, never trusted', async () => {
+  // updatedAt is the one field of the revision stamp that used to ride the
+  // spread unvalidated: a null slips into JSON.stringify as null and two
+  // different records could stamp identically (0.10.0 review #4).
+  const { normalizeComments } = await import('../../src/core/storage');
+  const base = {
+    id: 'c1',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    route: '/',
+    fullUrl: 'https://x/',
+    text: 't',
+    modality: 'text',
+    anchor: {
+      selectors: { testid: null, id: null, css: 'body', xpath: '/html/body' },
+      textFingerprint: '',
+      positionPercent: { x: 1, y: 1 },
+      viewport: { width: 800, height: 600 },
+    },
+  };
+  const [missing] = normalizeComments([{ ...base }]);
+  expect(missing?.updatedAt).toBe('2026-01-01T00:00:00.000Z'); // falls back to createdAt
+  const [nulled] = normalizeComments([{ ...base, updatedAt: null }]);
+  expect(nulled?.updatedAt).toBe('2026-01-01T00:00:00.000Z');
+  const [kept] = normalizeComments([{ ...base, updatedAt: '2026-02-02T00:00:00.000Z' }]);
+  expect(kept?.updatedAt).toBe('2026-02-02T00:00:00.000Z');
+});
+
 it('#19 (r2): a legacy raw-key blob is rejected when its embedded scope mismatches', async () => {
   const { loadStore } = await import('../../src/core/storage');
   // Raw key "pinflow:c:a:b:c" is reachable as project "a", reviewer "b:c" —
