@@ -1410,6 +1410,10 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await exportToConfirmation();
 
     byLabel('Clear comments')!.click();
+    // The remembered marker moves FIRST, so the confirming fold enters the
+    // rename path and the trap interleaves between the held pre-read and the
+    // rename's own read — the exact repaired branch (0.10.0 review #7).
+    localStorage.setItem(`pinflow:r:${PROJECT}`, 'Zed');
     armTrap = true;
     byLabel('Clear 1 comment?')!.click();
 
@@ -1554,6 +1558,127 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(body()).toContain('Nothing left to clear');
     expect(byLabel('Clear comments')).toBeUndefined();
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // Conflict evidence is BATCH state, not fold state: the first tap's fold
+  // union overwrites the memory side, so a recomputation at the confirming
+  // tap can no longer see the divergence it just protected (0.10.0 review #7).
+  it('a conflict discovered at the arm still shields its comment at the confirm', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = { ...makeComment('c1', 'text A'), updatedAt: '' };
+    const c2 = makeComment('c2', 'plain');
+    seedStore([c1, c2]);
+    let resolveSource!: (c: Comment[]) => void;
+    let failNext = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (failNext) {
+              failNext = false;
+              throw new Error('QuotaExceededError');
+            }
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    failNext = true;
+    resolveSource([{ ...c1, text: 'text B' }]); // tie on c1; persist fails
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // c2 only — c1 is conflicted
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c2']);
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept.map((c) => c.id)).toEqual(['c1']);
+  });
+
+  // The identity-adoption union must not pick a tie winner over an undetected
+  // conflict: a B held only in memory, with its A moved to the remembered key
+  // by another tab, is still a conflict (0.10.0 review #7).
+  it('an adoption-union tie preserves the conflict instead of clearing it', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = { ...makeComment('c1', 'text A'), updatedAt: '' };
+    seedStore([c1]);
+    let resolveSource!: (c: Comment[]) => void;
+    let failNext = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (failNext) {
+              failNext = false;
+              throw new Error('QuotaExceededError');
+            }
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    failNext = true;
+    resolveSource([{ ...c1, text: 'text B' }]); // memory B, disk A
+    await new Promise((r) => setTimeout(r, 0));
+    // Another tab folds the disk copy to a remembered new name.
+    renameReviewer(localStorage, PROJECT, REVIEWER, 'Zed');
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    expect(loadStore(localStorage, PROJECT, 'Zed')?.comments).toHaveLength(1);
+  });
+
+  // A cancelled gesture must not strand an abandoned armed question after
+  // focus already left (0.10.0 review #7).
+  it('a pointercancel after a deferred focus departure disarms', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const opts = { bubbles: true, composed: true };
+    document.body.dispatchEvent(new Event('pointerdown', opts));
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // deferred mid-gesture
+    document.body.dispatchEvent(new Event('pointercancel', opts));
+    expect(byLabel('Clear comments')).toBeDefined(); // the departure lands
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
   });
 

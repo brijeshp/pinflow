@@ -529,7 +529,7 @@ export class Annotator {
         if (parked)
           this._store = {
             ...this._store,
-            comments: unionByRecency(parked.comments, this._store.comments),
+            comments: this._unionTracked(parked.comments, this._store.comments),
           };
         return;
       }
@@ -539,7 +539,7 @@ export class Annotator {
     this._store = {
       ...this._store,
       reviewer: remembered,
-      comments: unionByRecency(landed?.comments ?? [], this._store.comments),
+      comments: this._unionTracked(landed?.comments ?? [], this._store.comments),
     };
   }
 
@@ -658,9 +658,13 @@ export class Annotator {
    * degenerate (missing or equal-invalid) timestamps can never alias into one
    * clearable revision — what the artifact quoted is what "exported" means
    * (0.10.0 review #5). Route and createdAt ride too — location moved on a
-   * timestamp tie is content the artifact did not show (0.10.0 review #6);
-   * anchor drift without an updatedAt bump is off-contract by PROTOCOL's
-   * whole-comment content merge and stays outside the stamp. */
+   * timestamp tie is content the artifact did not show (0.10.0 review #6).
+   * The stamp's deliberate boundary is AUTHORED and server-owned content:
+   * server-side anchor drift without an updatedAt bump is off-contract by
+   * PROTOCOL's whole-comment content merge, and the local heal ladder
+   * (_persistHeal — deliberately silent, no bump) is maintenance of DERIVED
+   * selector data whose feedback is fully present in the artifact, so
+   * neither makes a comment "unexported" (0.10.0 review #7). */
   private _rev(c: Comment): string {
     return JSON.stringify([
       c.updatedAt,
@@ -672,9 +676,25 @@ export class Annotator {
     ]);
   }
 
-  // Ids whose memory and disk copies tie on updatedAt but differ in revision —
-  // recomputed by every fold, excluded from every clear (0.10.0 review #6).
+  // Ids whose two copies tie on updatedAt but differ in revision — BATCH
+  // state, not fold state: discovered by any union (a fold can overwrite the
+  // divergent side, so a later recomputation could not rediscover it), reset
+  // only when a new batch freezes, excluded from every clear (0.10.0 review
+  // #6, #7).
   private readonly _foldConflicts = new Set<string>();
+
+  /** Union with conflict tracking: same id, same updatedAt, different
+   * revision on the two sides is an unresolved conflict — record it BEFORE
+   * unionByRecency picks a tie winner (0.10.0 review #7). */
+  private _unionTracked(base: Comment[], mine: Comment[]): Comment[] {
+    const byId = new Map(mine.map((c) => [c.id, c]));
+    for (const b of base) {
+      const m = byId.get(b.id);
+      if (m && m.updatedAt === b.updatedAt && this._rev(m) !== this._rev(b))
+        this._foldConflicts.add(b.id);
+    }
+    return unionByRecency(base, mine);
+  }
 
   /** The exported batch as it exists right now: comments still at an exported
    * revision. Anything added, edited, dispositioned, or CONFLICTED since is
@@ -848,26 +868,13 @@ export class Annotator {
   private _foldDurable(): void {
     const before = this._store.comments;
     this._reconcileIdentity();
-    this._foldConflicts.clear();
     if (this._reviewer !== null) {
       const disk = loadStore(this._deps.storage, this._deps.config.project, this._reviewer);
-      if (disk) {
-        // Equal timestamps with different revisions is a CONFLICT between
-        // memory and disk (a hydration whose persist failed, a same-instant
-        // cross-tab write): the union must pick a side to render, but the
-        // clear must never delete a side of an unresolved conflict (0.10.0
-        // review #6).
-        const mem = new Map(this._store.comments.map((c) => [c.id, c]));
-        for (const d of disk.comments) {
-          const m = mem.get(d.id);
-          if (m && m.updatedAt === d.updatedAt && this._rev(m) !== this._rev(d))
-            this._foldConflicts.add(d.id);
-        }
+      if (disk)
         this._store = {
           ...this._store,
-          comments: unionByRecency(disk.comments, this._store.comments),
+          comments: this._unionTracked(disk.comments, this._store.comments),
         };
-      }
     }
     const cur = this._store.comments;
     const changed =
@@ -896,7 +903,8 @@ export class Annotator {
     clean: boolean;
   } {
     this._foldDurable();
-    const at = (c: Comment): boolean => rev.get(c.id) === this._rev(c);
+    const at = (c: Comment): boolean =>
+      rev.get(c.id) === this._rev(c) && !this._foldConflicts.has(c.id);
     const intent = this._store.comments.filter(at);
     if (!intent.length) return { tried: false, clean: true };
     for (let i = 0; i < 4; i++) {
@@ -2234,6 +2242,7 @@ export class Annotator {
     // scoped to exactly these revisions; anything at a different one since is
     // feedback (or disposition) the file does not hold.
     const rev = new Map(this._store.comments.map((c) => [c.id, this._rev(c)]));
+    this._foldConflicts.clear(); // conflict evidence is scoped to THIS batch
     download(md, filename);
     const startedFrom = this._panelEl;
     const copied = await copyToClipboard(md);
@@ -2314,23 +2323,30 @@ export class Annotator {
       // mid-gesture and skip the back-out swallow. Track the gesture and let
       // the pointer path finish it (0.10.0 review #6).
       let midPointer = false;
+      let fled = false; // focus left the panel while a gesture was in flight
       const pd = (): void => {
         midPointer = true;
       };
+      // On EVERY gesture end: a deferred focus departure must land — a
+      // pointercancel (scroll, zoom, browser gesture) or an inside release
+      // would otherwise strand an abandoned armed question after focus is
+      // long gone (0.10.0 review #7).
       const pu = (): void => {
         midPointer = false;
+        if (fled) {
+          fled = false;
+          disarm();
+        }
       };
       const live = () => this._exportedNow(rev);
       // Every path out of the armed state funnels here: the state drops, and
       // the host-page listener below is disposed (0.10.0 review #4).
       const unarm = (): void => {
         armed = false;
-        offOut?.();
+        fled = false;
+        offOut?.(); // the composite: outside-dismiss AND the gesture trackers
         if (this._sheetDismiss === offOut) this._sheetDismiss = null;
         offOut = null;
-        document.removeEventListener('pointerdown', pd, true);
-        document.removeEventListener('pointerup', pu, true);
-        document.removeEventListener('pointercancel', pu, true);
       };
       const disarm = (): void => {
         if (!armed) return;
@@ -2365,10 +2381,19 @@ export class Annotator {
             // so a stray tap minutes later cannot land on a decision nobody
             // is making (0.10.0 review #4). _closePanel owns the disposer via
             // the shared slot, so a Done-while-armed cannot leak it.
-            this._sheetDismiss = offOut = this._armOutsideDismiss(() => [panel], disarm);
+            // One composite disposer owns everything the armed state put on
+            // the document, and it lives in the shared slot — _closePanel and
+            // destroy() tear it all down even mid-arm (0.10.0 review #7).
+            const offDismiss = this._armOutsideDismiss(() => [panel], disarm);
             document.addEventListener('pointerdown', pd, true);
             document.addEventListener('pointerup', pu, true);
             document.addEventListener('pointercancel', pu, true);
+            this._sheetDismiss = offOut = (): void => {
+              offDismiss();
+              document.removeEventListener('pointerdown', pd, true);
+              document.removeEventListener('pointerup', pu, true);
+              document.removeEventListener('pointercancel', pu, true);
+            };
             clr.className = 'clr a';
             clr.textContent = `Clear ${this._n(n, 'comment')}?`;
             // Answers the only question a reviewer actually has here — which
@@ -2433,9 +2458,14 @@ export class Annotator {
       // leaving the question too (0.10.0 review #5). Retirement paths move
       // focus themselves, but only after unarm(), so their focusout is inert.
       panel.addEventListener('focusout', (e) => {
-        if (midPointer) return; // the pointer gesture owns this disarm
         const to = (e as FocusEvent).relatedTarget as Node | null;
-        if (armed && (!to || !panel.contains(to))) disarm();
+        const leaving = armed && (!to || !panel.contains(to));
+        if (!leaving) return;
+        if (midPointer) {
+          fled = true; // the gesture owns the disarm — but the departure lands
+          return;
+        }
+        disarm();
       });
       row.appendChild(clr);
     }
