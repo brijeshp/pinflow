@@ -481,6 +481,39 @@ it('a missing or non-string updatedAt is coerced at the boundary, never trusted'
   expect(kept?.updatedAt).toBe('2026-02-02T00:00:00.000Z');
 });
 
+it('duplicate ids are collapsed at the boundary — newest revision wins, later on ties', async () => {
+  // Two records sharing an id would collapse the clear's revision map and
+  // desync every by-id consumer (merge, union, render) — dedupe where all
+  // untrusted comment lists enter (0.10.0 review #5).
+  const { normalizeComments } = await import('../../src/core/storage');
+  const base = {
+    id: 'c1',
+    createdAt: '2026-01-01T00:00:00.000Z',
+    route: '/',
+    fullUrl: 'https://x/',
+    text: 'first',
+    modality: 'text',
+    anchor: {
+      selectors: { testid: null, id: null, css: 'body', xpath: '/html/body' },
+      textFingerprint: '',
+      positionPercent: { x: 1, y: 1 },
+      viewport: { width: 800, height: 600 },
+    },
+  };
+  const out = normalizeComments([
+    { ...base, updatedAt: '2026-01-02T00:00:00.000Z', text: 'newer' },
+    { ...base, updatedAt: '2026-01-01T00:00:00.000Z', text: 'older' },
+  ]);
+  expect(out).toHaveLength(1);
+  expect(out[0]?.text).toBe('newer');
+  const tie = normalizeComments([
+    { ...base, updatedAt: '2026-01-02T00:00:00.000Z', text: 'first write' },
+    { ...base, updatedAt: '2026-01-02T00:00:00.000Z', text: 'second write' },
+  ]);
+  expect(tie).toHaveLength(1);
+  expect(tie[0]?.text).toBe('second write');
+});
+
 it('#19 (r2): a legacy raw-key blob is rejected when its embedded scope mismatches', async () => {
   const { loadStore } = await import('../../src/core/storage');
   // Raw key "pinflow:c:a:b:c" is reachable as project "a", reviewer "b:c" —

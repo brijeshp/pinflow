@@ -145,6 +145,11 @@ export class Annotator {
   private _nameEl: HTMLInputElement | null = null;
   // Identifies the in-flight source hydration, so a newer one supersedes it.
   private _hydrationToken: object | null = null;
+  // True once ANY source() hydration has resolved and merged: "not in flight"
+  // is not "in sync" — a rejected or throwing source leaves the device blind
+  // to server truth, and the synced clear refuses in that state (0.10.0
+  // review #5).
+  private _hydrated = false;
   // Anytime-export affordance: the count chip, whichever element anchors the
   // open panel (control in toggle mode, chip for the export sheet), which KIND
   // of panel is up (a sheet summon must replace a menu/confirmation, not just
@@ -306,6 +311,7 @@ export class Annotator {
       (raw) => {
         if (this._pendingDeletes === tombstones) this._pendingDeletes = null;
         if (this._destroyed || this._hydrationToken !== token) return;
+        this._hydrated = true;
         const server = normalizeComments(raw).filter((c) => !tombstones.has(c.id));
         // Two repair cases (review r16): an id the server LACKS re-announces
         // as 'add'; an id the server has but with an older updatedAt (a lost
@@ -490,7 +496,14 @@ export class Annotator {
     const { storage, config } = this._deps;
     const remembered = rememberedReviewer(storage, config.project);
     if (!remembered || remembered === from) return;
-    renameReviewer(storage, config.project, from, remembered);
+    // Two different falses from renameReviewer (0.10.0 review #5): nothing
+    // under the old key means another tab already folded it — adopt the
+    // remembered name and union what landed. A refused COPY, though, means
+    // the corpus is still under the old key, and switching identity anyway
+    // would verify an empty destination while the durable copy survives
+    // elsewhere. Stay put; the next persist retries the fold.
+    const held = loadStore(storage, config.project, from);
+    if (held && !renameReviewer(storage, config.project, from, remembered)) return;
     const landed = loadStore(storage, config.project, remembered);
     this._reviewer = remembered;
     this._store = {
@@ -611,9 +624,12 @@ export class Annotator {
    * keeps the tuple injective for arbitrary strings (a NUL-delimited join was
    * not — 0.10.0 review #3), and status canonicalizes to 'open' exactly as the
    * exporter prints absence, so a server echo that merely makes the default
-   * explicit is not a new revision. */
+   * explicit is not a new revision. The text rides along so two records with
+   * degenerate (missing or equal-invalid) timestamps can never alias into one
+   * clearable revision — what the artifact quoted is what "exported" means
+   * (0.10.0 review #5). */
   private _rev(c: Comment): string {
-    return JSON.stringify([c.updatedAt, c.status ?? 'open', c.resolution ?? '']);
+    return JSON.stringify([c.updatedAt, c.status ?? 'open', c.resolution ?? '', c.text]);
   }
 
   /** The exported batch as it exists right now: comments still at an exported
@@ -2301,6 +2317,11 @@ export class Annotator {
           // this device has never seen. Wait it out (0.10.0 review #4).
           if (this._pendingDeletes)
             return this._say('Still syncing with the host. Try again in a moment.');
+          // A hydration that FAILED never becomes safe by settling: the
+          // device has not seen server truth, and an id-keyed delete could
+          // destroy a backend revision it never knew (0.10.0 review #5).
+          if (this._deps.config.source && !this._hydrated)
+            return this._say('Could not sync with the host. Reload to clear.');
           // Verify-then-report: the wipe re-selects against the durable truth,
           // and claims only what the final state supports (0.10.0 review #4).
           // The retries stay either way: this panel is the route to the file.
@@ -2331,6 +2352,13 @@ export class Annotator {
         },
         true,
       );
+      // Keyboard parity for the outside disarm: Tabbing out of the panel is
+      // leaving the question too (0.10.0 review #5). Retirement paths move
+      // focus themselves, but only after unarm(), so their focusout is inert.
+      panel.addEventListener('focusout', (e) => {
+        const to = (e as FocusEvent).relatedTarget as Node | null;
+        if (armed && (!to || !panel.contains(to))) disarm();
+      });
       row.appendChild(clr);
     }
     row.appendChild(done);

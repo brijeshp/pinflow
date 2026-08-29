@@ -19,8 +19,8 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 | Entry         | Budget (gz) |
 | ------------- | ----------- |
-| core IIFE     | 22.75 KB    |
-| core ESM      | 22.60 KB    |
+| core IIFE     | 22.90 KB    |
+| core ESM      | 22.75 KB    |
 | voice ESM     | 4.45 KB     |
 | react wrapper | 0.47 KB     |
 | vue wrapper   | 0.61 KB     |

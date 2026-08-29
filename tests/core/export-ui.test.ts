@@ -1240,6 +1240,147 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
   });
 
+  // A hydration that FAILED is not a pass: the device has never seen server
+  // truth, so an id-keyed delete could destroy an unseen backend revision.
+  // The wipe refuses outright instead of treating "not in flight" as "in
+  // sync" (0.10.0 review #5).
+  it('a failed hydration blocks the synced clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let rejectSource!: (e: Error) => void;
+    seedStore([makeComment('c1', 'never synced')]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((_r, rej) => (rejectSource = rej)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    rejectSource(new Error('backend down'));
+    await new Promise((r) => setTimeout(r, 0));
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('Could not sync');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  it('a synchronously-throwing source blocks the synced clear the same way', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'never synced')]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: (() => {
+        throw new Error('boom');
+      }) as unknown as () => Promise<Comment[]>,
+    });
+    await exportToConfirmation();
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('Could not sync');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
+  // A refused identity fold must not escape verification: when the rename
+  // copy fails, the corpus is still under the OLD key, and switching identity
+  // anyway would verify an empty destination while the durable copy survives
+  // behind an emitted delete (0.10.0 review #5).
+  it('a failed rename fold keeps the clear honest under the old key', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'renamed nowhere')]);
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (k.includes('Zed')) throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      storage,
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    // Another tab remembers a new name whose key cannot be written.
+    localStorage.setItem(`pinflow:r:${PROJECT}`, 'Zed');
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+    // The wipe landed under the key that actually held the corpus.
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
+    expect(loadStore(localStorage, PROJECT, 'Zed')).toBeNull();
+  });
+
+  // Degenerate timestamps must not alias two different comments into one
+  // clearable revision: the stamp anchors on the text the artifact actually
+  // quoted (0.10.0 review #5).
+  it('a changed comment with a degenerate timestamp still survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = { ...makeComment('c1', 'version one'), updatedAt: '' };
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    // Same id, same (degenerate) updatedAt — different text.
+    resolveSource([{ ...exported, text: 'version two' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('version two');
+  });
+
+  // Keyboard parity for the outside disarm: Tabbing out of the panel is
+  // leaving the question too (0.10.0 review #5).
+  it('focus leaving the panel disarms; focus moving within it does not', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    const clr = byLabel('Clear comments')!;
+    clr.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+
+    // Within-panel focus movement keeps the question armed.
+    const within = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(within, 'relatedTarget', { value: byLabel('Done')! });
+    byLabel('Clear 1 comment?')!.dispatchEvent(within);
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+
+    // Leaving for the host page disarms.
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    expect(byLabel('Clear comments')).toBeDefined();
+    expect(byLabel('Clear 1 comment?')).toBeUndefined();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
   // Arming is a question; leaving the panel is walking away from it. A tap on
   // the HOST PAGE disarms too, or a stray tap minutes later could still wipe
   // (0.10.0 review #4).
