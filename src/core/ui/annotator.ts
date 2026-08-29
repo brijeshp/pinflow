@@ -311,8 +311,20 @@ export class Annotator {
       (raw) => {
         if (this._pendingDeletes === tombstones) this._pendingDeletes = null;
         if (this._destroyed || this._hydrationToken !== token) return;
-        this._hydrated = true;
-        const server = normalizeComments(raw).filter((c) => !tombstones.has(c.id));
+        const all = normalizeComments(raw);
+        // Fulfilled is not accepted (0.10.0 review #6): a response that is
+        // not an array, or an array whose entries the normalizer dropped, has
+        // still never shown this device server truth — the id-keyed clear
+        // stays gated. An entry counts as seen when a record with its id
+        // survived normalization (duplicates collapse legitimately).
+        const ids = new Set(all.map((c) => c.id));
+        this._hydrated =
+          Array.isArray(raw) &&
+          (raw as unknown[]).every((e) => {
+            const id = (e as { id?: unknown } | null)?.id;
+            return typeof id === 'string' && ids.has(id);
+          });
+        const server = all.filter((c) => !tombstones.has(c.id));
         // Two repair cases (review r16): an id the server LACKS re-announces
         // as 'add'; an id the server has but with an older updatedAt (a lost
         // update — the merge keeps the local content) re-announces as
@@ -503,7 +515,25 @@ export class Annotator {
     // would verify an empty destination while the durable copy survives
     // elsewhere. Stay put; the next persist retries the fold.
     const held = loadStore(storage, config.project, from);
-    if (held && !renameReviewer(storage, config.project, from, remembered)) return;
+    if (held && !renameReviewer(storage, config.project, from, remembered)) {
+      // The pre-read and the rename's own read can straddle another tab's
+      // fold: if the old key is GONE now, this was a move, not a refusal —
+      // fall through and adopt, or a later persist would recreate the retired
+      // key and strand it behind the remembered marker (0.10.0 review #6).
+      if (loadStore(storage, config.project, from)) {
+        // Genuinely refused. The destination may still be OCCUPIED with newer
+        // revisions the fold could not move — read it in read-only, so what
+        // lives there joins every count and every verification instead of
+        // being deleted blind (0.10.0 review #6).
+        const parked = loadStore(storage, config.project, remembered);
+        if (parked)
+          this._store = {
+            ...this._store,
+            comments: unionByRecency(parked.comments, this._store.comments),
+          };
+        return;
+      }
+    }
     const landed = loadStore(storage, config.project, remembered);
     this._reviewer = remembered;
     this._store = {
@@ -627,15 +657,32 @@ export class Annotator {
    * explicit is not a new revision. The text rides along so two records with
    * degenerate (missing or equal-invalid) timestamps can never alias into one
    * clearable revision — what the artifact quoted is what "exported" means
-   * (0.10.0 review #5). */
+   * (0.10.0 review #5). Route and createdAt ride too — location moved on a
+   * timestamp tie is content the artifact did not show (0.10.0 review #6);
+   * anchor drift without an updatedAt bump is off-contract by PROTOCOL's
+   * whole-comment content merge and stays outside the stamp. */
   private _rev(c: Comment): string {
-    return JSON.stringify([c.updatedAt, c.status ?? 'open', c.resolution ?? '', c.text]);
+    return JSON.stringify([
+      c.updatedAt,
+      c.status ?? 'open',
+      c.resolution ?? '',
+      c.text,
+      c.route,
+      c.createdAt,
+    ]);
   }
 
+  // Ids whose memory and disk copies tie on updatedAt but differ in revision —
+  // recomputed by every fold, excluded from every clear (0.10.0 review #6).
+  private readonly _foldConflicts = new Set<string>();
+
   /** The exported batch as it exists right now: comments still at an exported
-   * revision. Anything added, edited, or dispositioned since is excluded. */
+   * revision. Anything added, edited, dispositioned, or CONFLICTED since is
+   * excluded. */
   private _exportedNow(rev: ReadonlyMap<string, string>): Comment[] {
-    return this._store.comments.filter((c) => rev.get(c.id) === this._rev(c));
+    return this._store.comments.filter(
+      (c) => rev.get(c.id) === this._rev(c) && !this._foldConflicts.has(c.id),
+    );
   }
 
   private _sheetTitle(): string {
@@ -801,13 +848,26 @@ export class Annotator {
   private _foldDurable(): void {
     const before = this._store.comments;
     this._reconcileIdentity();
+    this._foldConflicts.clear();
     if (this._reviewer !== null) {
       const disk = loadStore(this._deps.storage, this._deps.config.project, this._reviewer);
-      if (disk)
+      if (disk) {
+        // Equal timestamps with different revisions is a CONFLICT between
+        // memory and disk (a hydration whose persist failed, a same-instant
+        // cross-tab write): the union must pick a side to render, but the
+        // clear must never delete a side of an unresolved conflict (0.10.0
+        // review #6).
+        const mem = new Map(this._store.comments.map((c) => [c.id, c]));
+        for (const d of disk.comments) {
+          const m = mem.get(d.id);
+          if (m && m.updatedAt === d.updatedAt && this._rev(m) !== this._rev(d))
+            this._foldConflicts.add(d.id);
+        }
         this._store = {
           ...this._store,
           comments: unionByRecency(disk.comments, this._store.comments),
         };
+      }
     }
     const cur = this._store.comments;
     const changed =
@@ -2249,6 +2309,17 @@ export class Annotator {
       let armed = false;
       let at = 0;
       let offOut: (() => void) | null = null;
+      // A click on a FOCUSABLE host control fires focusout between pointerdown
+      // and pointerup; disarming there would tear the pointer listener down
+      // mid-gesture and skip the back-out swallow. Track the gesture and let
+      // the pointer path finish it (0.10.0 review #6).
+      let midPointer = false;
+      const pd = (): void => {
+        midPointer = true;
+      };
+      const pu = (): void => {
+        midPointer = false;
+      };
       const live = () => this._exportedNow(rev);
       // Every path out of the armed state funnels here: the state drops, and
       // the host-page listener below is disposed (0.10.0 review #4).
@@ -2257,6 +2328,9 @@ export class Annotator {
         offOut?.();
         if (this._sheetDismiss === offOut) this._sheetDismiss = null;
         offOut = null;
+        document.removeEventListener('pointerdown', pd, true);
+        document.removeEventListener('pointerup', pu, true);
+        document.removeEventListener('pointercancel', pu, true);
       };
       const disarm = (): void => {
         if (!armed) return;
@@ -2292,6 +2366,9 @@ export class Annotator {
             // is making (0.10.0 review #4). _closePanel owns the disposer via
             // the shared slot, so a Done-while-armed cannot leak it.
             this._sheetDismiss = offOut = this._armOutsideDismiss(() => [panel], disarm);
+            document.addEventListener('pointerdown', pd, true);
+            document.addEventListener('pointerup', pu, true);
+            document.addEventListener('pointercancel', pu, true);
             clr.className = 'clr a';
             clr.textContent = `Clear ${this._n(n, 'comment')}?`;
             // Answers the only question a reviewer actually has here — which
@@ -2356,6 +2433,7 @@ export class Annotator {
       // leaving the question too (0.10.0 review #5). Retirement paths move
       // focus themselves, but only after unarm(), so their focusout is inert.
       panel.addEventListener('focusout', (e) => {
+        if (midPointer) return; // the pointer gesture owns this disarm
         const to = (e as FocusEvent).relatedTarget as Node | null;
         if (armed && (!to || !panel.contains(to))) disarm();
       });
