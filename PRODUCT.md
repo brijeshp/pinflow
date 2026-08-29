@@ -78,8 +78,10 @@ personality in error copy. The widget is a guest on someone else's page and beha
 4. **Disappear into the host page.** Pinflow renders over someone else's work. One standing
    affordance, in the pins' own visual vocabulary, that exists only when it has something to do.
 
-5. **Every byte is argued for.** Size ceilings are enforced by CI and only ever ratchet down. A
-   refinement that cannot justify its weight is not a refinement.
+5. **Every byte is argued for.** Size ceilings are enforced by CI and ratchet down between
+   features; a ceiling moves up only as a deliberate, changeset-documented trade that is
+   re-ratcheted razor-thin afterwards. A refinement that cannot justify its weight is not a
+   refinement.
 
 ## Accessibility & Inclusion
 
@@ -94,7 +96,9 @@ Target WCAG 2.1 AA.
   host retint without patching CSS.
 - **Never colour alone.** Comment status is carried by shape and glyph as well as tint: resolved
   pins swap the number for a check, declined pins strike it through.
-- **Labelled controls.** The count chip and arm segment carry `aria-label` and `title`; the optional
+- **Labelled controls.** The count chip carries `aria-label` and `title`, the arm segment an
+  `aria-label`; the optional
   name field is labelled as what it does, not what it is.
-- **Destructive actions are confirmed, never undone.** Deletes go out per-comment on the sync wire
-  with no bulk reversal, so friction belongs before the act rather than after it.
+- **Bulk-destructive actions are confirmed, never undone.** Deletes go out per-comment on the sync
+  wire with no bulk reversal, so friction belongs before the act rather than after it. A
+  single-comment delete stays one tap, inside a popup whose scope is already visible.

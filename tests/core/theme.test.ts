@@ -52,7 +52,9 @@ describe('theme tokens (A1)', () => {
     expect(STYLES).toContain('var(--pf-accent,#2563eb)');
     expect(STYLES).toContain('var(--pf-surface,light-dark(#fff,#1e222b))');
     expect(STYLES).toContain('var(--pf-radius,12px)');
-    expect(STYLES).toContain('var(--pf-danger,#dc2626)');
+    // Scheme-aware stock fallback (0.10.0): the armed clear is a standing
+    // state, and #dc2626 alone reads 3.3:1 on the dark surface.
+    expect(STYLES).toContain('var(--pf-danger,light-dark(#dc2626,#f87171))');
     expect(STYLES).toContain('var(--pf-shadow,');
     // Chrome drops a var()-dependent longhand sharing a block with all:initial,
     // so the font token must be consumed on .root — never inside :host.

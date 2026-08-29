@@ -85,7 +85,9 @@ export const STYLES =
   '.chip{min-width:26px;padding:0 8px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);font-size:12px;transform:scale(0);animation:chippop .18s ease forwards}' +
   '@keyframes chippop{to{transform:scale(1)}}' +
   '@media (prefers-reduced-motion:reduce){.pin{animation:none;transform:translate(-50%,-50%)}.chip{animation:none;transform:none}.hl{transition:none}.area{animation:none}.arm::before{transition:none}}' +
-  '@media (max-width:640px){.pin,.arm{width:32px;height:32px;font-size:13px}.chip{min-width:32px;height:32px;font-size:13px}}' +
+  // Spec 'Mobile considerations': hit targets >=44px. The panel's buttons —
+  // including the destructive clear — get their floor raised on phones.
+  '@media (max-width:640px){.pin,.arm{width:32px;height:32px;font-size:13px}.chip{min-width:32px;height:32px;font-size:13px}.panel button{min-height:44px}}' +
   '.input{position:fixed;pointer-events:auto;min-width:240px;max-width:320px;background:var(--pf-surface,light-dark(#fff,#1e222b));color:var(--pf-text,light-dark(#0f172a,#e7eaf1));border-radius:var(--pf-radius,10px);padding:10px;box-shadow:var(--pf-shadow,0 12px 32px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.08))}' +
   '.input textarea{-webkit-user-select:text;user-select:text;width:100%;min-height:64px;max-height:160px;resize:none;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5}' +
   // iOS Safari auto-zooms the page when a focused input is under 16px; the
@@ -95,9 +97,13 @@ export const STYLES =
   '.input .actions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--pf-text-muted,inherit)}' +
   // Read-only disposition line in a resolved comment's popup ("✓ Done — note").
   '.input .res{margin-top:8px;font-size:12px;color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
-  '.input .delete,.input .exportall,.panel .clr{background:transparent;border:0;color:inherit;cursor:pointer;opacity:.55;font:inherit;padding:0}' +
+  // .62, not .55: the quiet state must still clear AA 4.5:1 at 13px on both
+  // light-dark surfaces (r1 review measured .55 at ~4.0:1 on light).
+  '.input .delete,.input .exportall,.panel .clr{background:transparent;border:0;color:inherit;cursor:pointer;opacity:.62;font:inherit;padding:0}' +
   '.panel .row+.row{margin-top:8px}.panel .clr{flex:none}' +
-  '.input .delete:hover,.panel .clr:hover,.panel .clr.a{opacity:1;color:var(--pf-danger,#dc2626)}' +
+  // Dark fallback lightens: #dc2626 is 4.8:1 on the light surface but 3.3:1
+  // on the dark one, and the armed clear is a standing state, not a flash.
+  '.input .delete:hover,.panel .clr:hover,.panel .clr.a{opacity:1;color:var(--pf-danger,light-dark(#dc2626,#f87171))}' +
   '.input .exportall:hover{opacity:1}' +
   '.input .save{background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);border:0;border-radius:8px;padding:6px 16px;min-height:30px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}' +
   '.input .save:hover{filter:brightness(.95)}' +

@@ -131,6 +131,8 @@ describe('naming yourself at export', () => {
     // Disposition lives a panel later now, so the settled name has to survive
     // the gap. Clearing the PRE-rename key would leave the corpus behind under
     // the old handle and silently resurrect it on the next visit.
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => (t += 700)); // past the arming swallow window
     clickButton('Clear comments');
     clickButton('Clear 1 comment?');
 

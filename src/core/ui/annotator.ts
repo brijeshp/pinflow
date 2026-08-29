@@ -150,6 +150,8 @@ export class Annotator {
   // toggle it away — review #4), and the sheet's outside-dismiss teardown.
   private _chipEl: HTMLButtonElement | null = null;
   private _panelAnchor: HTMLElement | null = null;
+  // Status-line write generation — see _say().
+  private _sayGen = 0;
   private _sheetOpen = false;
   private _sheetDismiss: (() => void) | null = null;
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
@@ -759,9 +761,12 @@ export class Annotator {
 
   // Synced hosts stay consistent: every removal goes out as its own delete
   // (PROTOCOL deletes are per-comment; there is no bulk op on the wire).
-  private _clearReviewerComments(): void {
-    const removed = this._store.comments;
-    this._store = { ...this._store, comments: [] };
+  private _clearReviewerComments(removed: readonly Comment[]): void {
+    const gone = new Set(removed.map((c) => c.id));
+    this._store = {
+      ...this._store,
+      comments: this._store.comments.filter((c) => !gone.has(c.id)),
+    };
     this._persist();
     for (const c of removed) this._emitChange('delete', c);
     this._renderPins();
@@ -2074,7 +2079,12 @@ export class Annotator {
     // confirmation appears only if the EXACT surface that launched the export
     // is still open — a closed or replaced panel invalidates it entirely.
     if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
-    this._showConfirmation(copied, [md, filename]);
+    // The artifact's exact contents, as (id, updatedAt) revisions. The clear on
+    // the confirmation is scoped to THESE — a comment added or edited after
+    // this line is feedback the file does not hold, so no later action may
+    // treat it as exported (r1 review, both reviewers).
+    const rev = new Map(this._store.comments.map((c) => [c.id, c.updatedAt]));
+    this._showConfirmation(copied, [md, filename], rev);
   }
 
   // Spec §5.6: after reviewer export, confirm rather than closing silently.
@@ -2092,30 +2102,33 @@ export class Annotator {
   // this is the first surface with any evidence about delivery, so it is the
   // first place the reviewer can decide to discard the originals without
   // guessing. The retries deliberately outlive the wipe.
-  private _showConfirmation(copied: boolean, artifact?: [md: string, filename: string]): void {
+  private _showConfirmation(
+    copied: boolean,
+    artifact?: [md: string, filename: string],
+    rev?: ReadonlyMap<string, string>,
+  ): void {
     this._closePanel();
-    const panel = this._makePanel(
-      'Your feedback is ready',
-      copied
-        ? 'Copied to your clipboard. If no file downloaded, paste it instead.'
-        : 'Check your downloads for the file.',
-      [
-        // NOT downloadExport(): that also writes the clipboard, which would make
-        // this button silently clobber it behind the reviewer's back — the panel
-        // offers the two channels separately on purpose.
-        //
-        // Retries re-send the artifact that was ALREADY built. Rebuilding here
-        // would re-derive attribution from the stored identity, after the sheet
-        // and its name field are gone (review #5) — and, since 0.9.x, would
-        // rebuild from a store the Clear below may have just emptied. Holding
-        // the artifact is what lets both retries outlive the wipe.
-        this._makeButton('Download Feedback Markdown', () => {
-          const [md, filename] = artifact ?? this._buildArtifact();
-          download(md, filename);
-        }),
-        this._makeButton('Copy to Clipboard', () => void this._reCopy(artifact?.[0])),
-      ],
-    );
+    // The resting body is also the disarm target: backing out of an armed
+    // clear restores THIS line, not whatever the last action wrote.
+    const base = copied
+      ? 'Copied to your clipboard. If no file downloaded, paste it instead.'
+      : 'Check your downloads for the file.';
+    const panel = this._makePanel('Your feedback is ready', base, [
+      // NOT downloadExport(): that also writes the clipboard, which would make
+      // this button silently clobber it behind the reviewer's back — the panel
+      // offers the two channels separately on purpose.
+      //
+      // Retries re-send the artifact that was ALREADY built. Rebuilding here
+      // would re-derive attribution from the stored identity, after the sheet
+      // and its name field are gone (review #5) — and, since 0.10.0, would
+      // rebuild from a store the Clear below may have just emptied. Holding
+      // the artifact is what lets both retries outlive the wipe.
+      this._makeButton('Download Feedback Markdown', () => {
+        const [md, filename] = artifact ?? this._buildArtifact();
+        download(md, filename);
+      }),
+      this._makeButton('Copy to Clipboard', () => void this._reCopy(artifact?.[0])),
+    ]);
     // Disposition, in its own row: quiet-left / affirmative-right, the comment
     // popup's delete/save grammar. Neither retry takes the primary — the
     // download already fired on the way here, and where it silently no-ops
@@ -2123,42 +2136,90 @@ export class Annotator {
     // the body copy points at the clipboard instead. Finishing is the common
     // path, so Done is what carries the accent.
     const row = el('div', 'row');
-    if (this._store.comments.length) {
+    const done = this._makeButton('Done', () => this._closePanel(), 'primary');
+    if (rev?.size) {
       let armed = false;
+      let at = 0;
+      // What of the exported batch still exists at THIS revision. A comment
+      // added after the export is not in `rev`; one edited since carries a
+      // newer updatedAt. Neither is in the file, so neither is cleared.
+      const live = () => this._store.comments.filter((c) => rev.get(c.id) === c.updatedAt);
+      // Both retirement paths park focus on Done: the activation just removed
+      // the focused element, and a keyboard reviewer must land inside the
+      // still-open panel, not on the host page (r1 review).
+      const spend = (msg: string): void => {
+        clr.remove();
+        done.focus();
+        this._say(msg);
+      };
       const clr = this._makeButton(
         'Clear comments',
         () => {
-          // Counted at CLICK time, not panel-build time: a hydration merge in
-          // between would otherwise name a number the wipe does not match.
-          const many = this._n(this._store.comments.length, 'comment');
-          if (armed) {
-            this._clearReviewerComments();
-            clr.remove();
-            // The retries stay: this panel is now the only route to the file.
-            this._say('Comments cleared. You can still download or copy the file.');
-            return;
+          if (!armed) {
+            const n = live().length;
+            if (!n) return spend('Nothing left to clear.');
+            armed = true;
+            at = performance.now();
+            clr.className = 'clr a';
+            clr.textContent = `Clear ${this._n(n, 'comment')}?`;
+            // Answers the only question a reviewer actually has here — which
+            // depends on what this panel can honestly claim: with a verified
+            // clipboard the file is safe; without one, say so instead. Two
+            // taps rather than an undo: deletes go out per-comment on the
+            // sync wire (PROTOCOL has no bulk op), so there is no reversal.
+            return this._say(
+              `Deletes your ${this._n(n, 'comment')} from this browser. ` +
+                (copied
+                  ? 'The exported file is unaffected.'
+                  : 'Check the file downloaded first: there is no other copy.'),
+            );
           }
-          armed = true;
-          clr.className = 'clr a';
-          clr.textContent = `Clear ${many}?`;
-          // Answers the only question a reviewer actually has here. Two taps
-          // rather than an undo: deletes go out per-comment on the sync wire
-          // (PROTOCOL has no bulk op), so there is nothing to reverse.
-          this._say(`Deletes your ${many} from this browser. The exported file is unaffected.`);
+          // One physical gesture must never be both taps: a double-tap (or a
+          // key-repeat burst) delivers its second activation well inside this
+          // window, and the whole safety of the control is that the second
+          // tap is a SEPARATE decision. Same idiom as the gesture layer's
+          // swallow window.
+          if (performance.now() - at < 600) return;
+          this._clearReviewerComments(live());
+          // The retries stay: this panel is now the only route to the file.
+          spend('Comments cleared. You can still download or copy the file.');
         },
         'clr',
       );
+      // Enter activates a focused button once per keydown INCLUDING repeats —
+      // a held key would sail past the window above on its own cadence.
+      clr.addEventListener('keydown', (e) => {
+        if ((e as KeyboardEvent).repeat) e.preventDefault();
+      });
+      // Reaching for any other control is leaving the question — disarm, so a
+      // stray tap minutes later cannot land on a decision nobody is making.
+      panel.addEventListener(
+        'click',
+        (e) => {
+          if (armed && e.target !== clr) {
+            armed = false;
+            clr.className = 'clr';
+            clr.textContent = 'Clear comments';
+            this._say(base);
+          }
+        },
+        true,
+      );
       row.appendChild(clr);
     }
-    row.appendChild(this._makeButton('Done', () => this._closePanel(), 'primary'));
+    row.appendChild(done);
     panel.appendChild(row);
     this._panelEl = panel;
     this._ui.root.appendChild(panel);
     this._positionPanel();
   }
 
-  /** The panel's status line. Live-region'd in _makePanel, so writes announce. */
+  /** The panel's status line. Live-region'd in _makePanel, so writes announce.
+   * Every write bumps the generation: an async narrator that captured an older
+   * one must stay silent, or a slow clipboard would overwrite the armed
+   * warning at the decision moment (r1 review). */
   private _say(text: string): void {
+    this._sayGen++;
     const p = this._panelEl?.querySelector('p');
     if (p) p.textContent = text;
   }
@@ -2168,8 +2229,11 @@ export class Annotator {
   // already dismissed or replaced.
   private async _reCopy(md?: string): Promise<void> {
     const startedFrom = this._panelEl;
+    const gen = this._sayGen;
     const ok = await copyToClipboard(md ?? this._buildArtifact()[0]);
-    if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
+    // Panel identity is not enough: the SAME panel may have moved on (armed
+    // clear, wipe report). Anything said since this write began outranks it.
+    if (this._destroyed || this._panelEl !== startedFrom || gen !== this._sayGen) return;
     this._say(ok ? 'Copied to your clipboard.' : 'Copy failed — use the download instead.');
   }
 

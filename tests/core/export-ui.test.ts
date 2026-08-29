@@ -609,12 +609,17 @@ describe('late clipboard vs closed surfaces (review #23, r2)', () => {
   });
 });
 
-// Disposition moved here from the export sheet (0.9.x UX pass). The sheet asked
-// "export, or export and wipe?" BEFORE either channel had run, which is a
+// Disposition moved here from the export sheet (0.10.0 UX pass). The sheet
+// asked "export, or export and wipe?" BEFORE either channel had run, which is a
 // decision without its evidence: download() fires a detached a.click() and
 // returns void, so a reviewer in an in-app webview could authorise the wipe and
 // receive nothing. The confirmation is the first moment delivery is knowable,
 // so it is the only honest place to offer the wipe.
+//
+// The wipe is REVISION-SCOPED (r1 review, both reviewers): it removes exactly
+// the (id, updatedAt) pairs the artifact was built from, so a comment added or
+// edited after the export survives — "The exported file is unaffected" stays
+// true by construction, not by hope.
 describe('reviewer batch controls — post-export disposition (clear after delivery)', () => {
   let annotator: Annotator | null = null;
 
@@ -637,9 +642,17 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     return shadow().querySelector('.panel p')?.textContent ?? '';
   }
 
+  // The two-tap confirm swallows a second activation inside its arming window
+  // (one physical gesture must never be both taps — r1 review). Tests that
+  // legitimately confirm step a fake clock past the window per call.
+  function spacedClock(): void {
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => (t += 700));
+  }
+
   // Records every clipboard write so a re-copy can be proved to carry the
   // ALREADY-BUILT artifact rather than a rebuild from the (possibly wiped) store.
-  function captureClipboard(): string[] {
+  function captureClipboard(impl?: (t: string) => Promise<void>): string[] {
     const writes: string[] = [];
     vi.stubGlobal(
       'navigator',
@@ -648,7 +661,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
           value: {
             writeText: (t: string) => {
               writes.push(t);
-              return Promise.resolve();
+              return impl ? impl(t) : Promise.resolve();
             },
           },
           configurable: true,
@@ -658,15 +671,24 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     return writes;
   }
 
-  async function exportToConfirmation(): Promise<void> {
-    vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:mock');
+  function captureBlobs(): Blob[] {
+    const blobs: Blob[] = [];
+    vi.spyOn(URL, 'createObjectURL').mockImplementation((b: Blob | MediaSource) => {
+      blobs.push(b as Blob);
+      return 'blob:mock';
+    });
     vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {});
+    return blobs;
+  }
+
+  async function exportToConfirmation(): Promise<void> {
     chip()!.click();
     byLabel('Export & share')!.click();
     await new Promise((r) => setTimeout(r, 0));
   }
 
   it('the sheet no longer forks on clear: one export action, no destructive branch', () => {
+    captureBlobs();
     seedStore([makeComment('c1', 'a')]);
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     chip()!.click();
@@ -677,6 +699,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   it('the confirmation offers clear, and the first click arms rather than wipes', async () => {
+    captureBlobs();
+    captureClipboard();
     seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     await exportToConfirmation();
@@ -690,7 +714,89 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(body()).toContain('The exported file is unaffected');
   });
 
+  it('when the clipboard was unavailable, the armed warning says the file is the only copy', async () => {
+    captureBlobs();
+    // No clipboard at all (http context): copied=false — delivery is unverifiable,
+    // so the armed copy must carry the risk instead of the reassurance. Stubbed
+    // explicitly: an earlier describe leaks a WORKING clipboard onto the shared
+    // navigator via defineProperty, so absence must be forced, not assumed.
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, { clipboard: { value: undefined, configurable: true } }),
+    );
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Check the file downloaded first');
+    expect(body()).not.toContain('The exported file is unaffected');
+  });
+
+  it('one physical gesture cannot be both taps: a double-tap arms but never wipes', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    const clr = byLabel('Clear comments')!;
+    clr.click(); // arm (real clock)
+    clr.click(); // same gesture, ~0ms later — inside the swallow window
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // still armed, not spent
+  });
+
+  it('any other panel action disarms: a Copy click returns the control to resting', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    byLabel('Copy to Clipboard')!.click();
+    expect(byLabel('Clear comments')).toBeDefined();
+    expect(byLabel('Clear 1 comment?')).toBeUndefined();
+    const store = loadStore(localStorage, PROJECT, REVIEWER);
+    expect(store?.comments).toHaveLength(1);
+  });
+
+  it('a slow re-copy resolving after the arm cannot overwrite the armed warning', async () => {
+    captureBlobs();
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const writes = captureClipboard(() => gate);
+    spacedClock();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    // The export's own copy also rides the gate — release it for the export,
+    // then re-gate for the retry.
+    const exporting = exportToConfirmation();
+    release();
+    await exporting;
+    await new Promise((r) => setTimeout(r, 0));
+
+    let releaseRetry!: () => void;
+    const retryGate = new Promise<void>((r) => (releaseRetry = r));
+    writes.length = 0;
+    captureClipboard(() => retryGate);
+
+    byLabel('Copy to Clipboard')!.click(); // starts a slow write
+    byLabel('Clear comments')!.click(); // arms — the warning is now the status
+    expect(body()).toContain('Deletes your 1 comment');
+    releaseRetry();
+    await new Promise((r) => setTimeout(r, 0));
+    // The stale "Copied to your clipboard." must not replace the destructive
+    // warning at the decision moment (r1 review).
+    expect(body()).toContain('Deletes your 1 comment');
+  });
+
   it('the second click wipes the store, removes the pins, and emits a delete per comment', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
     seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
     const deltas: string[] = [];
     annotator = makeAnnotator({
@@ -711,6 +817,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   it('pluralises the armed label for a single comment', async () => {
+    captureBlobs();
+    captureClipboard();
     seedStore([makeComment('c1', 'a')]);
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     await exportToConfirmation();
@@ -718,12 +826,76 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(byLabel('Clear 1 comment?')).toBeDefined();
   });
 
+  // The wipe is scoped to the exported revisions: a comment the server adds
+  // while the confirmation is open is NOT in the artifact, so the clear must
+  // not take it (r1 review P1 — the add corridor).
+  it('a comment added after the export survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let resolveSource!: (c: Comment[]) => void;
+    seedStore([makeComment('c1', 'exported one')]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    // Hydration lands a NEW server comment while the confirmation is open.
+    resolveSource([makeComment('c9', 'added after export')]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(2);
+
+    byLabel('Clear comments')!.click();
+    // Only the exported comment is offered for deletion.
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    byLabel('Clear 1 comment?')!.click();
+
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept.map((c) => c.id)).toEqual(['c9']);
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+    // The surviving comment keeps its chip and pin.
+    expect(chip()).not.toBeNull();
+  });
+
+  // The edit corridor of the same P1: a newer revision of an exported id is
+  // feedback the artifact does NOT hold, so it survives too — and when nothing
+  // of the exported batch remains, the control retires instead of arming a
+  // nonsense "Clear 0 comments?".
+  it('an exported comment edited to a newer revision survives, and the control retires', async () => {
+    captureBlobs();
+    captureClipboard();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = makeComment('c1', 'old text');
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    // Server-newer revision of the SAME id merges in (updatedAt moves on).
+    resolveSource([{ ...exported, text: 'newer text', updatedAt: '2026-01-02T00:00:00.000Z' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 0 comments?')).toBeUndefined();
+    expect(body()).toContain('Nothing left to clear');
+    expect(byLabel('Clear comments')).toBeUndefined(); // retired, not armed
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+  });
+
   // The safety property the whole redesign rests on: clearing must not remove
-  // the recovery that makes clearing safe. A reviewer whose download silently
-  // no-oped can still retrieve the file AFTER wiping, because the artifact is
-  // held in the closure rather than rebuilt from the store.
+  // the recovery that makes clearing safe. Both retries stay live and re-send
+  // the HELD artifact — never a rebuild from the wiped store.
   it('clearing keeps the confirmation open with both retry channels live', async () => {
+    const blobs = captureBlobs();
     const writes = captureClipboard();
+    spacedClock();
     seedStore([makeComment('c1', 'still recoverable')]);
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     await exportToConfirmation();
@@ -733,7 +905,12 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     expect(shadow().querySelector('.panel')).not.toBeNull();
     expect(chip()).toBeNull(); // the corpus really is gone
-    expect(byLabel('Download Feedback Markdown')).toBeDefined();
+
+    // Download retry: the blob handed to createObjectURL after the wipe must
+    // carry the held artifact, not an empty rebuild (r1 review test gap).
+    byLabel('Download Feedback Markdown')!.click();
+    expect(blobs).toHaveLength(2);
+    await expect(blobs[1]!.text()).resolves.toContain('still recoverable');
 
     byLabel('Copy to Clipboard')!.click();
     await new Promise((r) => setTimeout(r, 0));
@@ -741,9 +918,26 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(writes[1]).toContain('still recoverable');
   });
 
+  it('the confirming activation moves focus to Done, not to the void', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment?')!.click();
+    // The focused element was just removed; a keyboard user must land on a
+    // surviving control inside the still-open panel (r1 review).
+    expect(shadow().activeElement).toBe(byLabel('Done'));
+  });
+
   // Recovery is an exception path; finishing is the common one. The download
   // already fired on the way here, so re-firing it is not the primary action.
   it('gives primary emphasis to Done, not to a retry that already ran', async () => {
+    captureBlobs();
+    captureClipboard();
     seedStore([makeComment('c1', 'a')]);
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     await exportToConfirmation();
@@ -752,6 +946,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   it('announces body changes: the panel paragraph is a polite live region', async () => {
+    captureBlobs();
+    captureClipboard();
     seedStore([makeComment('c1', 'a')]);
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     await exportToConfirmation();
