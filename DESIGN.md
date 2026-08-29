@@ -10,7 +10,8 @@ colors:
   text-dark: '#e7eaf1'
   text-muted-light: '#64748b'
   text-muted-dark: '#99a1b3'
-  danger: '#dc2626'
+  danger-light: '#dc2626'
+  danger-dark: '#f87171'
   ink: '#0f172a'
   ink-contrast: '#f8fafc'
   orphan: '#a3a3a3'
@@ -166,8 +167,8 @@ a single red reserved for destruction.
 
 ### Tertiary
 
-- **Danger Red** (`#dc2626`, `--pf-danger`): delete affordances and the voice
-  recording indicator. Reserved. Uncertainty, warnings, and low confidence must
+- **Danger Red** (`light-dark(#dc2626, #f87171)`, `--pf-danger`): delete
+  affordances and the voice recording indicator. Reserved. Uncertainty, warnings, and low confidence must
   never borrow it.
 
 ### Neutral
