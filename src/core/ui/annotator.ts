@@ -136,7 +136,8 @@ export class Annotator {
   private _activeInput: ActiveInput | null = null;
   // Bottom-left dock (0.5.0): THE one standing affordance. Reviewer gets an
   // arm segment (+/× toggle) unless stealth; the count chip joins it when
-  // there is something to export (builder: the chip toggles the drawer).
+  // there is something to export. Builder renders no dock chrome at all
+  // (0.9.0 removed the drawer).
   private _dockEl: HTMLDivElement | null = null;
   private _armEl: HTMLButtonElement | null = null;
   private _panelEl: HTMLDivElement | null = null;
@@ -604,6 +605,19 @@ export class Annotator {
     return `${v} ${w}${v === 1 ? '' : 's'}`;
   }
 
+  /** Batch-scoping revision stamp: content recency PLUS the server-owned
+   * disposition — PROTOCOL moves status/resolution without touching updatedAt,
+   * and state the artifact never captured must never be cleared by it. */
+  private _rev(c: Comment): string {
+    return `${c.updatedAt}\0${c.status ?? ''}\0${c.resolution ?? ''}`;
+  }
+
+  /** The exported batch as it exists right now: comments still at an exported
+   * revision. Anything added, edited, or dispositioned since is excluded. */
+  private _exportedNow(rev: ReadonlyMap<string, string>): Comment[] {
+    return this._store.comments.filter((c) => rev.get(c.id) === this._rev(c));
+  }
+
   private _sheetTitle(): string {
     const comments = this._store.comments;
     const screens = new Set(comments.map((c) => c.route)).size;
@@ -761,15 +775,25 @@ export class Annotator {
 
   // Synced hosts stay consistent: every removal goes out as its own delete
   // (PROTOCOL deletes are per-comment; there is no bulk op on the wire).
-  private _clearReviewerComments(removed: readonly Comment[]): void {
-    const gone = new Set(removed.map((c) => c.id));
-    this._store = {
-      ...this._store,
-      comments: this._store.comments.filter((c) => !gone.has(c.id)),
-    };
-    this._persist();
-    for (const c of removed) this._emitChange('delete', c);
-    this._renderPins();
+  // Identity reconciles FIRST: _persist would otherwise union a cross-tab
+  // rename's on-disk corpus back into the just-emptied store AFTER the filter,
+  // resurrecting locally what the wire was told to delete (r2 review) — and
+  // the removal set is computed after the fold for the same reason. Returns
+  // what was actually removed; an empty batch touches nothing.
+  private _clearReviewerComments(rev: ReadonlyMap<string, string>): Comment[] {
+    this._reconcileIdentity();
+    const removed = this._exportedNow(rev);
+    if (removed.length) {
+      const gone = new Set(removed.map((c) => c.id));
+      this._store = {
+        ...this._store,
+        comments: this._store.comments.filter((c) => !gone.has(c.id)),
+      };
+      this._persist();
+      for (const c of removed) this._emitChange('delete', c);
+      this._renderPins();
+    }
+    return removed;
   }
 
   // Built imperatively to keep reviewer names out of innerHTML.
@@ -2072,6 +2096,12 @@ export class Annotator {
     if (this._annotating) this._exitAnnotateMode();
     // Read the field BEFORE the artifact is built; it decides the attribution.
     const [md, filename] = this._buildArtifact(this._settleName());
+    // The batch freezes WITH the artifact, in this same synchronous block — a
+    // hydration merge or voice commit landing during the clipboard await below
+    // is already outside it (r2 review). The clear on the confirmation is
+    // scoped to exactly these revisions; anything at a different one since is
+    // feedback (or disposition) the file does not hold.
+    const rev = new Map(this._store.comments.map((c) => [c.id, this._rev(c)]));
     download(md, filename);
     const startedFrom = this._panelEl;
     const copied = await copyToClipboard(md);
@@ -2079,11 +2109,6 @@ export class Annotator {
     // confirmation appears only if the EXACT surface that launched the export
     // is still open — a closed or replaced panel invalidates it entirely.
     if (this._destroyed || this._panelEl === null || this._panelEl !== startedFrom) return;
-    // The artifact's exact contents, as (id, updatedAt) revisions. The clear on
-    // the confirmation is scoped to THESE — a comment added or edited after
-    // this line is feedback the file does not hold, so no later action may
-    // treat it as exported (r1 review, both reviewers).
-    const rev = new Map(this._store.comments.map((c) => [c.id, c.updatedAt]));
     this._showConfirmation(copied, [md, filename], rev);
   }
 
@@ -2113,6 +2138,9 @@ export class Annotator {
     const base = copied
       ? 'Copied to your clipboard. If no file downloaded, paste it instead.'
       : 'Check your downloads for the file.';
+    // Delivery is mutable: a Copy retry that succeeds AFTER a failed export
+    // write upgrades what the armed warning below may honestly claim (r2).
+    let delivered = copied;
     const panel = this._makePanel('Your feedback is ready', base, [
       // NOT downloadExport(): that also writes the clipboard, which would make
       // this button silently clobber it behind the reviewer's back — the panel
@@ -2127,7 +2155,13 @@ export class Annotator {
         const [md, filename] = artifact ?? this._buildArtifact();
         download(md, filename);
       }),
-      this._makeButton('Copy to Clipboard', () => void this._reCopy(artifact?.[0])),
+      this._makeButton(
+        'Copy to Clipboard',
+        () =>
+          void this._reCopy(artifact?.[0]).then((ok) => {
+            if (ok) delivered = true;
+          }),
+      ),
     ]);
     // Disposition, in its own row: quiet-left / affirmative-right, the comment
     // popup's delete/save grammar. Neither retry takes the primary — the
@@ -2140,14 +2174,14 @@ export class Annotator {
     if (rev?.size) {
       let armed = false;
       let at = 0;
-      // What of the exported batch still exists at THIS revision. A comment
-      // added after the export is not in `rev`; one edited since carries a
-      // newer updatedAt. Neither is in the file, so neither is cleared.
-      const live = () => this._store.comments.filter((c) => rev.get(c.id) === c.updatedAt);
+      const live = () => this._exportedNow(rev);
       // Both retirement paths park focus on Done: the activation just removed
       // the focused element, and a keyboard reviewer must land inside the
-      // still-open panel, not on the host page (r1 review).
+      // still-open panel, not on the host page (r1 review). armed drops too,
+      // or the disarm listener below would fire once over the spent control
+      // and overwrite its report with the resting body (r2 review).
       const spend = (msg: string): void => {
+        armed = false;
         clr.remove();
         done.focus();
         this._say(msg);
@@ -2169,7 +2203,7 @@ export class Annotator {
             // sync wire (PROTOCOL has no bulk op), so there is no reversal.
             return this._say(
               `Deletes your ${this._n(n, 'comment')} from this browser. ` +
-                (copied
+                (delivered
                   ? 'The exported file is unaffected.'
                   : 'Check the file downloaded first: there is no other copy.'),
             );
@@ -2180,16 +2214,24 @@ export class Annotator {
           // tap is a SEPARATE decision. Same idiom as the gesture layer's
           // swallow window.
           if (performance.now() - at < 600) return;
-          this._clearReviewerComments(live());
-          // The retries stay: this panel is now the only route to the file.
-          spend('Comments cleared. You can still download or copy the file.');
+          // Vacuity re-checked at the WIPE, not just the arm: a batch that
+          // emptied between the taps must not report success (r2 review).
+          // The retries stay either way: this panel is the route to the file.
+          spend(
+            this._clearReviewerComments(rev).length
+              ? 'Comments cleared. You can still download or copy the file.'
+              : 'Nothing left to clear.',
+          );
         },
         'clr',
       );
       // Enter activates a focused button once per keydown INCLUDING repeats —
       // a held key would sail past the window above on its own cadence.
       clr.addEventListener('keydown', (e) => {
-        if ((e as KeyboardEvent).repeat) e.preventDefault();
+        const k = e as KeyboardEvent;
+        // Enter alone: it activates per-keydown including repeats. Arrows and
+        // paging must keep scrolling (r2 review).
+        if (k.repeat && k.key === 'Enter') k.preventDefault();
       });
       // Reaching for any other control is leaving the question — disarm, so a
       // stray tap minutes later cannot land on a decision nobody is making.
@@ -2224,17 +2266,19 @@ export class Annotator {
     if (p) p.textContent = text;
   }
 
-  // Reports only what it can verify. Ownership-checked like the export path
-  // (review #23): a slow write must not narrate into a panel the reviewer has
-  // already dismissed or replaced.
-  private async _reCopy(md?: string): Promise<void> {
+  // Reports only what it can verify, and only when nothing outranked it.
+  // Ownership-checked like the export path (review #23), plus two generation
+  // rules: the request RESERVES a generation at start, so of two overlapping
+  // retries the latest wins; and anything said since (armed clear, wipe
+  // report) outranks the narration entirely. Returns the clipboard result
+  // either way — delivery and narration are separate facts (r2 review).
+  private async _reCopy(md?: string): Promise<boolean> {
     const startedFrom = this._panelEl;
-    const gen = this._sayGen;
+    const gen = ++this._sayGen;
     const ok = await copyToClipboard(md ?? this._buildArtifact()[0]);
-    // Panel identity is not enough: the SAME panel may have moved on (armed
-    // clear, wipe report). Anything said since this write began outranks it.
-    if (this._destroyed || this._panelEl !== startedFrom || gen !== this._sayGen) return;
-    this._say(ok ? 'Copied to your clipboard.' : 'Copy failed — use the download instead.');
+    if (!this._destroyed && this._panelEl === startedFrom && gen === this._sayGen)
+      this._say(ok ? 'Copied to your clipboard.' : 'Copy failed — use the download instead.');
+    return ok;
   }
 
   private async _handleOnSubmit(): Promise<void> {

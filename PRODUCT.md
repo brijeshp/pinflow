@@ -87,9 +87,10 @@ personality in error copy. The widget is a guest on someone else's page and beha
 
 Target WCAG 2.1 AA.
 
-- **Touch first.** Interactive targets grow to 32px under 640px; panel buttons hold a 36px floor.
-  Text inputs use 16px on coarse pointers, because iOS Safari auto-zooms below that and the
-  reviewer's recovery pinch eats the draft.
+- **Touch first.** Pins and dock controls grow to 32px under 640px; panel buttons hold a 36px
+  floor with a mouse and a 44px floor on coarse pointers, keyed to the pointer rather than the
+  viewport so a landscape phone still qualifies. Text inputs use 16px on coarse pointers, because
+  iOS Safari auto-zooms below that and the reviewer's recovery pinch eats the draft.
 - **Reduced motion is honoured.** `prefers-reduced-motion: reduce` disables the pin pop, the chip
   pop, the marching-ants area border, and the arm glyph rotation.
 - **Both colour schemes.** Surfaces resolve through `light-dark()`, and the nine theme tokens let a

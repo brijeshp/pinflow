@@ -85,15 +85,15 @@ export const STYLES =
   '.chip{min-width:26px;padding:0 8px;background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);font-size:12px;transform:scale(0);animation:chippop .18s ease forwards}' +
   '@keyframes chippop{to{transform:scale(1)}}' +
   '@media (prefers-reduced-motion:reduce){.pin{animation:none;transform:translate(-50%,-50%)}.chip{animation:none;transform:none}.hl{transition:none}.area{animation:none}.arm::before{transition:none}}' +
-  // Spec 'Mobile considerations': hit targets >=44px. The panel's buttons —
-  // including the destructive clear — get their floor raised on phones.
-  '@media (max-width:640px){.pin,.arm{width:32px;height:32px;font-size:13px}.chip{min-width:32px;height:32px;font-size:13px}.panel button{min-height:44px}}' +
+  '@media (max-width:640px){.pin,.arm{width:32px;height:32px;font-size:13px}.chip{min-width:32px;height:32px;font-size:13px}}' +
   '.input{position:fixed;pointer-events:auto;min-width:240px;max-width:320px;background:var(--pf-surface,light-dark(#fff,#1e222b));color:var(--pf-text,light-dark(#0f172a,#e7eaf1));border-radius:var(--pf-radius,10px);padding:10px;box-shadow:var(--pf-shadow,0 12px 32px rgba(15,23,42,.18),0 2px 6px rgba(15,23,42,.08))}' +
   '.input textarea{-webkit-user-select:text;user-select:text;width:100%;min-height:64px;max-height:160px;resize:none;border:0;outline:0;background:transparent;color:inherit;font:inherit;font-size:13px;line-height:1.5}' +
   // iOS Safari auto-zooms the page when a focused input is under 16px; the
   // reviewer's recovery pinch then eats the draft. 16px on touch kills the
   // zoom trigger at the source.
-  '@media (pointer:coarse){.input textarea,.panel input.name{font-size:16px}}' +
+  // Spec 'Mobile considerations': hit targets >=44px. Keyed to the POINTER,
+  // not the viewport — a landscape phone is 844px wide and still a thumb.
+  '@media (pointer:coarse){.input textarea,.panel input.name{font-size:16px}.panel button{min-height:44px}}' +
   '.input .actions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--pf-text-muted,inherit)}' +
   // Read-only disposition line in a resolved comment's popup ("✓ Done — note").
   '.input .res{margin-top:8px;font-size:12px;color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +

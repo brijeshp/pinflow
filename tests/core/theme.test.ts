@@ -69,7 +69,9 @@ describe('theme tokens (A1)', () => {
     // devices removes the zoom trigger at the source. Every field a reviewer
     // can type into needs it, not just the draft — the export sheet's name
     // field is the last thing they touch on a phone.
-    const rule = STYLES.match(/@media \(pointer:coarse\)\{([^}]*)\{font-size:16px\}\}/);
+    // The block also carries the 44px panel-button floor (0.10.0), so the
+    // 16px rule is matched inside the block rather than as its sole content.
+    const rule = STYLES.match(/@media \(pointer:coarse\)\{([^{}]*)\{font-size:16px\}/);
     expect(rule).not.toBeNull();
     const selectors = (rule?.[1] ?? '').split(',');
     expect(selectors).toContain('.input textarea');

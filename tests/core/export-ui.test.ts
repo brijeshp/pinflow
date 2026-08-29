@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { emptyStore, loadStore, saveStore } from '../../src/core/storage';
+import { emptyStore, loadStore, renameReviewer, saveStore } from '../../src/core/storage';
 import { routeKey } from '../../src/core/route-key';
 import type { Comment } from '../../src/core/types';
 import { Annotator } from '../../src/core/ui/annotator';
@@ -826,6 +826,39 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(byLabel('Clear 1 comment?')).toBeDefined();
   });
 
+  // The batch is frozen in the same synchronous block as the artifact: a merge
+  // landing inside the export's clipboard await is already outside it (r2
+  // review P1 — the await-window corridor).
+  it('feedback arriving while the export clipboard is pending is outside the batch', async () => {
+    captureBlobs();
+    let releaseCopy!: () => void;
+    const copyGate = new Promise<void>((r) => (releaseCopy = r));
+    captureClipboard(() => copyGate);
+    spacedClock();
+    let resolveSource!: (c: Comment[]) => void;
+    seedStore([makeComment('c1', 'exported one')]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    chip()!.click();
+    byLabel('Export & share')!.click(); // artifact + batch freeze HERE
+    resolveSource([makeComment('c9', 'landed mid-copy')]); // inside the await
+    await new Promise((r) => setTimeout(r, 0));
+    releaseCopy();
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // c9 is not in the batch
+    byLabel('Clear 1 comment?')!.click();
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept.map((c) => c.id)).toEqual(['c9']);
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+  });
+
   // The wipe is scoped to the exported revisions: a comment the server adds
   // while the confirmation is open is NOT in the artifact, so the clear must
   // not take it (r1 review P1 — the add corridor).
@@ -889,6 +922,83 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
   });
 
+  // Disposition is server-owned and merges WITHOUT an updatedAt bump
+  // (PROTOCOL): a comment the team resolved since the export carries state the
+  // artifact does not hold, so the clear must not destroy it (r2 review P1).
+  it('a comment the team resolved since the export survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = makeComment('c1', 'resolved later');
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    // Same id, same updatedAt — only the server-owned disposition moved.
+    resolveSource([{ ...exported, status: 'done', resolution: 'shipped in 0.9.2' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.status).toBe('done');
+  });
+
+  // The confirming tap re-checks vacuity: a batch that emptied between the
+  // taps must not report success over a wipe that removed nothing (r2 review).
+  it('a batch that empties between arm and confirm reports nothing to clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = makeComment('c1', 'old text');
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    // The exported revision is replaced while the control is armed.
+    resolveSource([{ ...exported, text: 'newer', updatedAt: '2026-01-02T00:00:00.000Z' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    expect(body()).not.toContain('Comments cleared');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+    expect(shadow().querySelectorAll('button.pin').length).toBeGreaterThan(0);
+  });
+
+  // A cross-tab rename between export and clear: identity must reconcile
+  // BEFORE the wipe computes, or _persist unions the on-disk corpus back into
+  // the emptied store while deletes go out on the wire (r2 review P1).
+  it('a clear that races a cross-tab rename still lands: no resurrection', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'renamed away')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    // Another tab renames the reviewer while the control is armed.
+    expect(renameReviewer(localStorage, PROJECT, REVIEWER, 'Zed')).toBe(true);
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('cleared');
+    expect(loadStore(localStorage, PROJECT, 'Zed')?.comments ?? []).toHaveLength(0);
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
+  });
+
   // The safety property the whole redesign rests on: clearing must not remove
   // the recovery that makes clearing safe. Both retries stay live and re-send
   // the HELD artifact — never a rebuild from the wiped store.
@@ -909,6 +1019,9 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     // Download retry: the blob handed to createObjectURL after the wipe must
     // carry the held artifact, not an empty rebuild (r1 review test gap).
     byLabel('Download Feedback Markdown')!.click();
+    // A spent control must stay spent: this click used to trip the disarm
+    // branch and overwrite the cleared report with the resting body (r2).
+    expect(body()).toContain('cleared');
     expect(blobs).toHaveLength(2);
     await expect(blobs[1]!.text()).resolves.toContain('still recoverable');
 
@@ -952,6 +1065,102 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     await exportToConfirmation();
     expect(shadow().querySelector('.panel p')?.getAttribute('aria-live')).toBe('polite');
+  });
+
+  // Latest retry wins: an older failed write must not shout over a newer
+  // success (r2 review — request generation reserved at retry START).
+  it('concurrent copy retries resolve latest-wins', async () => {
+    captureBlobs();
+    const pend: Array<(ok: boolean) => void> = [];
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: {
+            writeText: () =>
+              new Promise<void>((res, rej) =>
+                pend.push((ok) => (ok ? res() : rej(new Error('x')))),
+              ),
+          },
+          configurable: true,
+        },
+      }),
+    );
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    pend[0]!(true); // the export's own copy
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Copy to Clipboard')!.click(); // retry A
+    byLabel('Copy to Clipboard')!.click(); // retry B
+    pend[1]!(false); // A fails first…
+    await new Promise((r) => setTimeout(r, 0));
+    pend[2]!(true); // …B succeeds after
+    await new Promise((r) => setTimeout(r, 0));
+    expect(body()).toBe('Copied to your clipboard.');
+  });
+
+  // Delivery is mutable state: a successful retry upgrades what the armed
+  // warning may honestly claim (r2 review).
+  it('a successful copy retry upgrades the armed warning', async () => {
+    captureBlobs();
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, { clipboard: { value: undefined, configurable: true } }),
+    );
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation(); // copied=false — no clipboard at all
+    expect(body()).toContain('downloads');
+
+    captureClipboard(); // clipboard becomes available (e.g. permission granted)
+    byLabel('Copy to Clipboard')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    expect(body()).toBe('Copied to your clipboard.');
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('The exported file is unaffected');
+    expect(body()).not.toContain('there is no other copy');
+  });
+
+  // The armed control guards key-repeat on Enter alone — held Enter activates
+  // per keydown, but arrow-key scrolling must keep working (r2 review).
+  it('the repeat guard swallows held Enter and nothing else', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+    const clr = byLabel('Clear comments')!;
+    clr.click(); // armed
+
+    const repeatEnter = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      repeat: true,
+      cancelable: true,
+      bubbles: true,
+    });
+    clr.dispatchEvent(repeatEnter);
+    expect(repeatEnter.defaultPrevented).toBe(true);
+
+    const firstEnter = new KeyboardEvent('keydown', {
+      key: 'Enter',
+      cancelable: true,
+      bubbles: true,
+    });
+    clr.dispatchEvent(firstEnter);
+    expect(firstEnter.defaultPrevented).toBe(false);
+
+    const repeatArrow = new KeyboardEvent('keydown', {
+      key: 'ArrowDown',
+      repeat: true,
+      cancelable: true,
+      bubbles: true,
+    });
+    clr.dispatchEvent(repeatArrow);
+    expect(repeatArrow.defaultPrevented).toBe(false);
   });
 
   it('the sheet offers Send to builder when onSubmit is configured; clicking it calls the handler', async () => {
