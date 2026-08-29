@@ -150,6 +150,7 @@ Generated: <timestamp>
 **Position:** X% from left, Y% from top of element
 **Area:** W% × H% of the element, from X%, Y% (marquee comments only; numbers only)
 **Area covers:** “label”, “label”, “label” (marquee comments that sampled blocks; split-then-escaped per item, capped at 3)
+**Motion:** `<div>` (“label”) — `css` animates `props` — the nearest element at or above the change set that actually moves; a LEAD, often outside `members`
 **Scope:** `<div>` — `css` (rung: …, confidence: …, gen: N[ — older tuning][, stale][, truncated]) — the edit ceiling. `gen` is the tuning that WROTE the record: scope is stored, not re-derived at export, so an old comment renders its old boundary and the marker is the only thing that says so.
 **Source hint (page-supplied, unverified):** `path` — resolved from the boundary OR any ancestor
 **Change — N element(s) this note may alter:** / **Change — N of M `<tag>` this note may alter:** when the region sliced a repeated set
