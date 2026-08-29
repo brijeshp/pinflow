@@ -1,0 +1,62 @@
+import { test, expect } from '@playwright/test';
+
+// The armed clear's back-out grammar, on real DOM (0.10.0 review #8): a click
+// on a focusable host control while armed must DISARM and be SWALLOWED — the
+// tap meant "back out of the question", not "operate what is under it". This
+// ordering (pointerdown → native focus transfer → focusout → pointerup →
+// click) cannot be discriminated in happy-dom, which clones listener lists
+// mid-dispatch; only a real engine proves the swallow survives the disarm.
+
+const CONTROL = 'button.arm';
+const CHIP = 'button.chip';
+const EXPORT_BTN = 'button:has-text("Export & share")';
+const TEXTAREA = '[data-pinflow-root] textarea';
+const SAVE_BUTTON = '[data-pinflow-root] button.save';
+const CLEAR_RESTING = 'button:has-text("Clear comments")';
+const HOST_LINK = 'a[data-link][href="/pricing"]';
+
+async function armClear(page: import('@playwright/test').Page): Promise<void> {
+  await page.locator(CONTROL).click();
+  await page.locator('[data-testid="primary-cta"]').click({ force: true });
+  await page.locator(TEXTAREA).fill('disarm me');
+  await page.locator(SAVE_BUTTON).click();
+  await page.locator(CHIP).click();
+  await page.locator(EXPORT_BTN).click();
+  await page.locator(CLEAR_RESTING).click();
+  await expect(page.locator('button:has-text("Clear 1 comment?")')).toBeVisible();
+}
+
+test('a host-control click while armed disarms AND is swallowed', async ({ page }) => {
+  await page.goto('/?reviewer=Disarmer');
+  await armClear(page);
+
+  // A focusable host control with a click probe: pinflow must let the tap
+  // back out of the armed question WITHOUT operating the control underneath.
+  await page.evaluate(() => {
+    const w = window as unknown as { ctaClicks: number };
+    w.ctaClicks = 0;
+    document
+      .querySelector('a[data-link][href="/pricing"]')!
+      .addEventListener('click', () => w.ctaClicks++);
+  });
+  await page.locator(HOST_LINK).click();
+
+  // Backed out of the question…
+  await expect(page.locator(CLEAR_RESTING)).toBeVisible();
+  // …and the tap did NOT operate the host control underneath.
+  expect(await page.evaluate(() => (window as unknown as { ctaClicks: number }).ctaClicks)).toBe(0);
+
+  // The swallow is one-shot: the next deliberate click works normally.
+  await page.locator(HOST_LINK).click();
+  expect(await page.evaluate(() => (window as unknown as { ctaClicks: number }).ctaClicks)).toBe(1);
+});
+
+test('the comment survives the backed-out arm', async ({ page }) => {
+  await page.goto('/?reviewer=Disarmer2');
+  await armClear(page);
+  await page.locator(HOST_LINK).click();
+  await expect(page.locator(CLEAR_RESTING)).toBeVisible();
+  // Nothing was cleared by the back-out.
+  await page.locator('button:has-text("Done")').click();
+  await expect(page.locator('button.pin')).toHaveCount(1);
+});

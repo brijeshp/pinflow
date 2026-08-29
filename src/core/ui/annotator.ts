@@ -515,6 +515,12 @@ export class Annotator {
     // would verify an empty destination while the durable copy survives
     // elsewhere. Stay put; the next persist retries the fold.
     const held = loadStore(storage, config.project, from);
+    // The rename's own union is storage-level and tie-dropping: record any
+    // source-vs-destination tie divergence BEFORE the move (0.10.0 review #8).
+    if (held) {
+      const dest = loadStore(storage, config.project, remembered);
+      if (dest) this._trackTies(dest.comments, held.comments);
+    }
     if (held && !renameReviewer(storage, config.project, from, remembered)) {
       // The pre-read and the rename's own read can straddle another tab's
       // fold: if the old key is GONE now, this was a move, not a refusal —
@@ -676,23 +682,32 @@ export class Annotator {
     ]);
   }
 
-  // Ids whose two copies tie on updatedAt but differ in revision — BATCH
-  // state, not fold state: discovered by any union (a fold can overwrite the
-  // divergent side, so a later recomputation could not rediscover it), reset
-  // only when a new batch freezes, excluded from every clear (0.10.0 review
-  // #6, #7).
-  private readonly _foldConflicts = new Set<string>();
+  // Ids whose two copies tie on updatedAt but differ in revision, mapped to
+  // the tie timestamp. This is EVIDENCE with a lifetime, not fold state: a
+  // union can overwrite the divergent side, and a later export can freeze the
+  // surviving tie winner into a legitimate-looking batch — but the discarded
+  // revision appeared in NO artifact. An entry is pruned only when its
+  // comment moves to a strictly different updatedAt or leaves the board
+  // (0.10.0 review #6, #7, #8). Unresolvable by design otherwise: PROTOCOL
+  // has no way to verify the backend copy, so a standing tie is standing
+  // ambiguity.
+  private readonly _foldConflicts = new Map<string, string>();
 
-  /** Union with conflict tracking: same id, same updatedAt, different
-   * revision on the two sides is an unresolved conflict — record it BEFORE
-   * unionByRecency picks a tie winner (0.10.0 review #7). */
-  private _unionTracked(base: Comment[], mine: Comment[]): Comment[] {
-    const byId = new Map(mine.map((c) => [c.id, c]));
-    for (const b of base) {
-      const m = byId.get(b.id);
-      if (m && m.updatedAt === b.updatedAt && this._rev(m) !== this._rev(b))
-        this._foldConflicts.add(b.id);
+  /** Record tie conflicts between two comment lists — same id, same
+   * updatedAt, different revision — BEFORE any union picks a winner
+   * (0.10.0 review #7, #8). */
+  private _trackTies(a: Comment[], b: Comment[]): void {
+    const byId = new Map(b.map((c) => [c.id, c]));
+    for (const x of a) {
+      const m = byId.get(x.id);
+      if (m && m.updatedAt === x.updatedAt && this._rev(m) !== this._rev(x))
+        this._foldConflicts.set(x.id, x.updatedAt);
     }
+  }
+
+  /** Union with conflict tracking (0.10.0 review #7). */
+  private _unionTracked(base: Comment[], mine: Comment[]): Comment[] {
+    this._trackTies(base, mine);
     return unionByRecency(base, mine);
   }
 
@@ -2220,9 +2235,22 @@ export class Annotator {
     const from = this._reviewer;
     if (from === null) return false;
     const { storage, config } = this._deps;
+    // Track source-vs-destination tie divergence before the storage-level
+    // union drops a side, and FOLD the reloaded corpus with memory instead of
+    // replacing it — memory may hold a failed-persist revision that exists
+    // nowhere else (0.10.0 review #8).
+    {
+      const held = loadStore(storage, config.project, from);
+      const dest = loadStore(storage, config.project, name);
+      if (held && dest) this._trackTies(dest.comments, held.comments);
+    }
     if (!renameReviewer(storage, config.project, from, name)) return false;
     this._reviewer = name;
-    this._store = loadStore(storage, config.project, name) ?? emptyStore(config.project, name);
+    const landed = loadStore(storage, config.project, name) ?? emptyStore(config.project, name);
+    this._store = {
+      ...landed,
+      comments: this._unionTracked(landed.comments, this._store.comments),
+    };
     // Folding into an existing corpus changes what belongs on screen; without
     // this the pins and the chip disagree with the artifact (review #6).
     this._renderPins();
@@ -2242,7 +2270,12 @@ export class Annotator {
     // scoped to exactly these revisions; anything at a different one since is
     // feedback (or disposition) the file does not hold.
     const rev = new Map(this._store.comments.map((c) => [c.id, this._rev(c)]));
-    this._foldConflicts.clear(); // conflict evidence is scoped to THIS batch
+    // Conflict evidence is pruned, never cleared: an entry survives every
+    // batch until its comment moves past the tie or leaves the board (0.10.0
+    // review #8).
+    const byId = new Map(this._store.comments.map((c) => [c.id, c.updatedAt]));
+    for (const [id, ts] of this._foldConflicts)
+      if (byId.get(id) !== ts) this._foldConflicts.delete(id);
     download(md, filename);
     const startedFrom = this._panelEl;
     const copied = await copyToClipboard(md);
@@ -2327,11 +2360,23 @@ export class Annotator {
       const pd = (): void => {
         midPointer = true;
       };
-      // On EVERY gesture end: a deferred focus departure must land — a
-      // pointercancel (scroll, zoom, browser gesture) or an inside release
-      // would otherwise strand an abandoned armed question after focus is
-      // long gone (0.10.0 review #7).
+      // On EVERY gesture end a deferred focus departure must land (0.10.0
+      // review #7) — but a pointerup defers ITS disarm to the next task: this
+      // listener runs before the outside-dismiss's, and a synchronous disarm
+      // would remove that later listener mid-dispatch, skipping the back-out
+      // swallow in real DOM (0.10.0 review #8). An outside release disarms
+      // via the dismiss itself; the timeout only catches inside releases.
       const pu = (): void => {
+        midPointer = false;
+        if (fled) {
+          fled = false;
+          setTimeout(() => {
+            if (armed) disarm();
+          }, 0);
+        }
+      };
+      // No click follows a cancel — the departure lands immediately.
+      const pc = (): void => {
         midPointer = false;
         if (fled) {
           fled = false;
@@ -2387,12 +2432,12 @@ export class Annotator {
             const offDismiss = this._armOutsideDismiss(() => [panel], disarm);
             document.addEventListener('pointerdown', pd, true);
             document.addEventListener('pointerup', pu, true);
-            document.addEventListener('pointercancel', pu, true);
+            document.addEventListener('pointercancel', pc, true);
             this._sheetDismiss = offOut = (): void => {
               offDismiss();
               document.removeEventListener('pointerdown', pd, true);
               document.removeEventListener('pointerup', pu, true);
-              document.removeEventListener('pointercancel', pu, true);
+              document.removeEventListener('pointercancel', pc, true);
             };
             clr.className = 'clr a';
             clr.textContent = `Clear ${this._n(n, 'comment')}?`;

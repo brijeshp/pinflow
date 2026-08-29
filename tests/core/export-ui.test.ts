@@ -1520,15 +1520,11 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     const exported = { ...makeComment('c1', 'text A'), updatedAt: '' };
     seedStore([exported]);
     let resolveSource!: (c: Comment[]) => void;
-    let failNext = false;
     const storage = new Proxy(localStorage, {
       get(t, prop: string) {
         if (prop === 'setItem') {
           return (k: string, v: string) => {
-            if (failNext) {
-              failNext = false;
-              throw new Error('QuotaExceededError');
-            }
+            if (v.includes('text B')) throw new Error('QuotaExceededError');
             t.setItem(k, v);
           };
         }
@@ -1548,7 +1544,6 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     // Hydration lands text B on the same timestamp, and its persist fails —
     // memory holds B while disk still holds A.
-    failNext = true;
     resolveSource([{ ...exported, text: 'text B' }]);
     await new Promise((r) => setTimeout(r, 0));
 
@@ -1572,15 +1567,14 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     const c2 = makeComment('c2', 'plain');
     seedStore([c1, c2]);
     let resolveSource!: (c: Comment[]) => void;
-    let failNext = false;
+    // VALUE-targeted: only the write carrying the hydrated revision fails.
+    // A one-shot flag was consumed by an unrelated heal persist when the
+    // suite ran in file order — the order mask of the r8 disclosure.
     const storage = new Proxy(localStorage, {
       get(t, prop: string) {
         if (prop === 'setItem') {
           return (k: string, v: string) => {
-            if (failNext) {
-              failNext = false;
-              throw new Error('QuotaExceededError');
-            }
+            if (v.includes('text B')) throw new Error('QuotaExceededError');
             t.setItem(k, v);
           };
         }
@@ -1598,8 +1592,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     });
     await exportToConfirmation();
 
-    failNext = true;
-    resolveSource([{ ...c1, text: 'text B' }]); // tie on c1; persist fails
+    resolveSource([{ ...c1, text: 'text B' }]); // tie on c1; its persist fails
     await new Promise((r) => setTimeout(r, 0));
 
     byLabel('Clear comments')!.click();
@@ -1610,6 +1603,63 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c2']);
     const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
     expect(kept.map((c) => c.id)).toEqual(['c1']);
+
+    // The evidence outlives the batch (0.10.0 review #8): a SECOND export
+    // freezes the surviving tie winner into its artifact, but the divergent
+    // backend revision appeared in neither file — the conflict still shields.
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    const after = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(after.map((c) => c.id)).toEqual(['c1']);
+  });
+
+  // The export sheet's own name edit moves the corpus and used to REPLACE
+  // memory wholesale, discarding a failed-persist revision with no union at
+  // all (0.10.0 review #8).
+  it('renaming at the export sheet folds, and the conflict survives the move', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = { ...makeComment('c1', 'text A'), updatedAt: '' };
+    seedStore([c1]);
+    let resolveSource!: (c: Comment[]) => void;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (v.includes('text B')) throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    resolveSource([{ ...c1, text: 'text B' }]); // memory B; disk keeps A
+    await new Promise((r) => setTimeout(r, 0));
+
+    chip()!.click();
+    const name = shadow().querySelector<HTMLInputElement>('input.name')!;
+    name.value = 'Sam';
+    name.dispatchEvent(new Event('input', { bubbles: true }));
+    byLabel('Export & share')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    expect(loadStore(localStorage, PROJECT, 'Sam')?.comments).toHaveLength(1);
   });
 
   // The identity-adoption union must not pick a tie winner over an undetected
@@ -1622,15 +1672,11 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     const c1 = { ...makeComment('c1', 'text A'), updatedAt: '' };
     seedStore([c1]);
     let resolveSource!: (c: Comment[]) => void;
-    let failNext = false;
     const storage = new Proxy(localStorage, {
       get(t, prop: string) {
         if (prop === 'setItem') {
           return (k: string, v: string) => {
-            if (failNext) {
-              failNext = false;
-              throw new Error('QuotaExceededError');
-            }
+            if (v.includes('text B')) throw new Error('QuotaExceededError');
             t.setItem(k, v);
           };
         }
@@ -1648,7 +1694,6 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     });
     await exportToConfirmation();
 
-    failNext = true;
     resolveSource([{ ...c1, text: 'text B' }]); // memory B, disk A
     await new Promise((r) => setTimeout(r, 0));
     // Another tab folds the disk copy to a remembered new name.
@@ -2038,6 +2083,58 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     });
     clr.dispatchEvent(repeatArrow);
     expect(repeatArrow.defaultPrevented).toBe(false);
+  });
+
+  // Destroying (or closing) an ARMED confirmation must tear down every
+  // document listener the armed state registered (0.10.0 review #8).
+  it('destroy while armed removes the gesture and dismiss listeners', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+
+    const removed: string[] = [];
+    const spy = vi.spyOn(document, 'removeEventListener');
+    spy.mockImplementation(function (this: Document, ...args: unknown[]) {
+      removed.push(String(args[0]));
+      return (Document.prototype.removeEventListener as (...a: unknown[]) => void).apply(
+        this,
+        args,
+      );
+    } as never);
+    annotator!.destroy();
+    annotator = null;
+    for (const type of ['pointerdown', 'pointerup', 'pointercancel']) {
+      expect(removed).toContain(type);
+    }
+  });
+
+  // An INSIDE release after a mid-gesture focus departure defers its disarm to
+  // the next task: a synchronous disarm would remove the outside-dismiss
+  // listener mid-dispatch and skip the swallow in real DOM (0.10.0 review #8;
+  // happy-dom clones listener lists, so ordering itself is covered by e2e).
+  it('an inside release after a deferred departure disarms on the next task', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    await new Promise((r) => setTimeout(r, 0));
+    const opts = { bubbles: true, composed: true };
+    document.body.dispatchEvent(new Event('pointerdown', opts));
+    const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
+    Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
+    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    // Released back INSIDE the panel: the outside-dismiss will not fire.
+    byLabel('Clear 1 comment?')!.dispatchEvent(new Event('pointerup', opts));
+    expect(byLabel('Clear 1 comment?')).toBeDefined(); // not synchronous
+    await new Promise((r) => setTimeout(r, 0));
+    expect(byLabel('Clear comments')).toBeDefined(); // the departure landed
   });
 
   it('the sheet offers Send to builder when onSubmit is configured; clicking it calls the handler', async () => {
