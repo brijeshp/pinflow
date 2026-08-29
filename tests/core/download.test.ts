@@ -148,6 +148,10 @@ describe('copyToClipboard', () => {
     const hung = copyToClipboard('same artifact');
     wall += 3001; // the Mac slept past the bound; performance.now() saw nothing
     await expect(copyToClipboard('same artifact')).resolves.toBe(false);
+    // Expiry is LATCHED: a wall-clock rollback after the bound must not make
+    // the hung share eligible again (0.10.0 review #15).
+    wall -= 2001; // NTP steps the wall clock back under the bound
+    await expect(copyToClipboard('same artifact')).resolves.toBe(false);
     settle();
     await expect(hung).resolves.toBe(true);
   });

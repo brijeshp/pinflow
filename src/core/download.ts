@@ -28,14 +28,17 @@ export function download(content: string, filename: string, type = 'text/markdow
 // page suspends past any wall-clock promise (0.10.0 review #13) — measured on
 // BOTH clocks, expiring on either: WebKit's performance.now() freezes through
 // system sleep, and Date.now() can step under clock adjustment, so each
-// covers the other's blind spot (0.10.0 review #14). A late settle simply
-// drains the slot.
+// covers the other's blind spot (0.10.0 review #14). Expiry LATCHES: once
+// either clock has crossed the bound the record is dead for sharing, whatever
+// the clocks do afterwards — a wall-clock rollback must not resurrect a hung
+// share (0.10.0 review #15). A late settle still drains the slot.
 const CLIP_SETTLE_MS = 3000;
 let inFlight: {
   content: string;
   p: Promise<boolean>;
   at: number;
   wall: number;
+  dead: boolean;
 } | null = null;
 
 async function rawCopy(content: string): Promise<boolean> {
@@ -53,14 +56,23 @@ async function rawCopy(content: string): Promise<boolean> {
 export function copyToClipboard(content: string): Promise<boolean> {
   if (inFlight) {
     if (
-      performance.now() - inFlight.at < CLIP_SETTLE_MS &&
-      Date.now() - inFlight.wall < CLIP_SETTLE_MS &&
-      inFlight.content === content
-    )
-      return inFlight.p;
-    return Promise.resolve(false);
+      inFlight.dead ||
+      performance.now() - inFlight.at >= CLIP_SETTLE_MS ||
+      Date.now() - inFlight.wall >= CLIP_SETTLE_MS
+    ) {
+      inFlight.dead = true; // latched — only native settlement clears the slot
+      return Promise.resolve(false);
+    }
+    if (inFlight.content === content) return inFlight.p;
+    return Promise.resolve(false); // different content: refused, not latched
   }
-  const rec = { content, at: performance.now(), wall: Date.now(), p: Promise.resolve(false) };
+  const rec = {
+    content,
+    at: performance.now(),
+    wall: Date.now(),
+    dead: false,
+    p: Promise.resolve(false),
+  };
   rec.p = rawCopy(content).then((ok) => {
     if (inFlight === rec) inFlight = null;
     return ok;
