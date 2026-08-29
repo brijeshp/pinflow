@@ -23,10 +23,12 @@ export function download(content: string, filename: string, type = 'text/markdow
 // write is in flight. A caller with the SAME content shares its result (a
 // retry of the same artifact is the same delivery); different content while
 // busy fails fast — refused, never reordered, so a stale write can never land
-// after a newer artifact was delivered. A write pending past the settle bound
-// stops being shareable, and a late settle simply drains the slot.
+// after a newer artifact was delivered. The settle bound is ELAPSED time
+// checked synchronously at share time — never a timer, which a backgrounded
+// page suspends past any wall-clock promise (0.10.0 review #13) — and a late
+// settle simply drains the slot.
 const CLIP_SETTLE_MS = 3000;
-let inFlight: { content: string; p: Promise<boolean>; stuck: boolean } | null = null;
+let inFlight: { content: string; p: Promise<boolean>; at: number } | null = null;
 
 async function rawCopy(content: string): Promise<boolean> {
   try {
@@ -42,15 +44,12 @@ async function rawCopy(content: string): Promise<boolean> {
 
 export function copyToClipboard(content: string): Promise<boolean> {
   if (inFlight) {
-    if (!inFlight.stuck && inFlight.content === content) return inFlight.p;
+    if (performance.now() - inFlight.at < CLIP_SETTLE_MS && inFlight.content === content)
+      return inFlight.p;
     return Promise.resolve(false);
   }
-  const rec = { content, stuck: false, p: Promise.resolve(false) };
-  const guard = setTimeout(() => {
-    rec.stuck = true;
-  }, CLIP_SETTLE_MS);
+  const rec = { content, at: performance.now(), p: Promise.resolve(false) };
   rec.p = rawCopy(content).then((ok) => {
-    clearTimeout(guard);
     if (inFlight === rec) inFlight = null;
     return ok;
   });

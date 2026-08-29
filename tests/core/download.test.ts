@@ -101,7 +101,12 @@ describe('copyToClipboard', () => {
   });
 
   it('a write pending past the settle bound stops being shareable — fail fast, never wedge', async () => {
-    vi.useFakeTimers();
+    // ELAPSED time, not timer execution: a backgrounded page can suspend
+    // timers past the wall-clock bound, so the expiry is checked
+    // synchronously at share time (0.10.0 review #13). The clock is mocked so
+    // no timer callback ever runs between the calls.
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => t);
     let settle!: () => void;
     Object.defineProperty(navigator, 'clipboard', {
       value: { writeText: () => new Promise<void>((r) => (settle = r)) },
@@ -109,15 +114,15 @@ describe('copyToClipboard', () => {
     });
     const hung = copyToClipboard('same artifact');
     // Same content while healthy: shared, no second native write.
+    t = 100;
     const shared = copyToClipboard('same artifact');
     expect(shared).toBe(hung);
-    // Past the bound, even same-content callers are refused instead of
-    // joining a write the engine may never settle (0.10.0 review #12).
-    vi.advanceTimersByTime(3000);
+    // Past the bound — with NO timer having fired — even same-content callers
+    // are refused instead of joining a write the engine may never settle.
+    t = 3001;
     await expect(copyToClipboard('same artifact')).resolves.toBe(false);
     // Different content is refused throughout — never reordered.
     await expect(copyToClipboard('other artifact')).resolves.toBe(false);
-    vi.useRealTimers();
     // A late settle drains the slot; the page recovers without reload.
     settle();
     await expect(hung).resolves.toBe(true);
