@@ -10,7 +10,7 @@ Add a comment layer to any web page, then hand the export to your coding agent.
 
 [![npm](https://img.shields.io/npm/v/%40brijeshp%2Fpinflow)](https://www.npmjs.com/package/@brijeshp/pinflow)
 [![license](https://img.shields.io/npm/l/%40brijeshp%2Fpinflow)](./LICENSE)
-[![core size](https://img.shields.io/badge/core-18_kB_gzipped-2563eb)](./package.json)
+[![core size](https://img.shields.io/badge/core-22_kB_gzipped-2563eb)](./package.json)
 
 [Try it on pinflow.dev](https://pinflow.dev) · [Guide](./docs/guide.md) · [API](./docs/wiki/api.md) · [Examples](./examples)
 
