@@ -1556,6 +1556,55 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
   });
 
+  // An OLDER durable revision surviving under a cleared id is a failed
+  // clear: the durable state still shows pre-export content, and reporting
+  // success would resurrect it behind a "cleared" message (0.10.0 review #10).
+  it('an older durable survivor fails verification instead of passing it', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const c1 = { ...makeComment('c1', 'text A') }; // disk A@t1
+    seedStore([c1]);
+    let resolveSource!: (c: Comment[]) => void;
+    let failAll = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (v.includes('text B') || (failAll && k.includes('pinflow:c:')))
+              throw new Error('QuotaExceededError');
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      storage,
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    // Backend B@t2 lands in memory only (its persist fails); the export
+    // freezes B as the batch.
+    resolveSource([{ ...c1, text: 'text B', updatedAt: '2026-01-02T00:00:00.000Z' }]);
+    await new Promise((r) => setTimeout(r, 0));
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    failAll = true; // the wipe's own writes fail too
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('could not be cleared');
+    expect(body()).not.toContain('Comments cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    failAll = false;
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments[0]?.text).toBe('text A');
+  });
+
   // Conflict evidence is BATCH state, not fold state: the first tap's fold
   // union overwrites the memory side, so a recomputation at the confirming
   // tap can no longer see the divergence it just protected (0.10.0 review #7).
@@ -2076,16 +2125,59 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     chip()!.click();
     byLabel('Export & share')!.click();
+    await Promise.resolve(); // chained writes initiate a microtask later
     pend[0]!(true); // the export's own copy
     await new Promise((r) => setTimeout(r, 0));
 
-    byLabel('Copy to Clipboard')!.click(); // retry A
-    byLabel('Copy to Clipboard')!.click(); // retry B
-    pend[1]!(false); // A fails first…
+    byLabel('Copy to Clipboard')!.click(); // retry A: write in flight
+    byLabel('Copy to Clipboard')!.click(); // retry B: QUEUED behind A
+    await Promise.resolve();
+    expect(pend).toHaveLength(2); // export's write + A only — B waits
+    pend[1]!(false); // A fails…
     await new Promise((r) => setTimeout(r, 0));
-    pend[2]!(true); // …B succeeds after
+    expect(pend).toHaveLength(3); // …which releases B
+    pend[2]!(true); // …and B succeeds
     await new Promise((r) => setTimeout(r, 0));
+    // B is the newest reservation, so its success is what narrates.
     expect(body()).toBe('Copied to your clipboard.');
+  });
+
+  // Clipboard writes SERIALIZE in initiation order (0.10.0 review #10): a
+  // stale export's write must never land after a newer confirmation is up,
+  // or the delivered clipboard and the clearable batch would disagree.
+  it('a stale overlapping export write cannot outrun the newer one', async () => {
+    captureBlobs();
+    const pend: Array<(ok: boolean) => void> = [];
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: {
+            writeText: () =>
+              new Promise<void>((res, rej) =>
+                pend.push((ok) => (ok ? res() : rej(new Error('x')))),
+              ),
+          },
+          configurable: true,
+        },
+      }),
+    );
+    seedStore([makeComment('c1', 'first batch')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click(); // export A: write A initiated, pending
+    await Promise.resolve(); // the chained write initiates a microtask later
+    chip()!.click(); // toggle closes A's still-open sheet (ownership-invalidating A)
+    chip()!.click(); // summon sheet B
+    byLabel('Export & share')!.click(); // export B
+    // Serialized: B's write must not have been initiated while A hangs.
+    expect(pend).toHaveLength(1);
+    pend[0]!(true); // A settles (its UI claim is ownership-rejected)…
+    await new Promise((r) => setTimeout(r, 0));
+    expect(pend).toHaveLength(2); // …and only then does B's write start
+    pend[1]!(true);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(body()).toContain('Copied to your clipboard');
   });
 
   it('concurrent copy retries resolve latest-wins in the inverse order too', async () => {
@@ -2109,18 +2201,21 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     chip()!.click();
     byLabel('Export & share')!.click();
+    await Promise.resolve(); // chained writes initiate a microtask later
     pend[0]!(true);
     await new Promise((r) => setTimeout(r, 0));
 
-    byLabel('Copy to Clipboard')!.click(); // retry A
-    byLabel('Copy to Clipboard')!.click(); // retry B
-    pend[2]!(true); // B (newest) succeeds FIRST…
+    byLabel('Copy to Clipboard')!.click(); // retry A: write in flight
+    byLabel('Copy to Clipboard')!.click(); // retry B: queued
+    await Promise.resolve();
+    pend[1]!(true); // A (stale reservation) succeeds…
     await new Promise((r) => setTimeout(r, 0));
-    pend[1]!(false); // …then stale A fails late
+    pend[2]!(false); // …then B (newest) runs and fails
     await new Promise((r) => setTimeout(r, 0));
-    // A completion-order implementation would let A's late failure overwrite
-    // the success; reservation order must win (0.10.0 review #3).
-    expect(body()).toBe('Copied to your clipboard.');
+    // The newest reservation narrates even when it is the failure: a stale
+    // success must not mask it (0.10.0 review #3; serialization means an
+    // out-of-order completion can no longer exist — 0.10.0 review #10).
+    expect(body()).toBe('Copy failed — use the download instead.');
   });
 
   // Delivery is mutable state: a successful retry upgrades what the armed
@@ -2213,29 +2308,26 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     captureBlobs();
     captureClipboard();
     seedStore([makeComment('c1', 'a')]);
-    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    annotator = makeAnnotator({ activation: { mode: 'toggle' } });
     await exportToConfirmation();
     byLabel('Clear comments')!.click();
     await new Promise((r) => setTimeout(r, 0));
 
-    const removed: string[] = [];
-    const spy = vi.spyOn(document, 'removeEventListener');
-    spy.mockImplementation(function (this: Document, ...args: unknown[]) {
-      removed.push(String(args[0]));
-      return (Document.prototype.removeEventListener as (...a: unknown[]) => void).apply(
-        this,
-        args,
-      );
-    } as never);
+    // Call-through spies only: reimplementing removeEventListener corrupts
+    // happy-dom's internal listener bookkeeping for the shared document.
+    const docSpy = vi.spyOn(document, 'removeEventListener');
+    const winSpy = vi.spyOn(window, 'removeEventListener');
     annotator!.destroy();
     annotator = null;
-    // Two removals per type: the outside-dismiss disposer removes its own
-    // trio, and the gesture tracker's removals must ALSO run — counting only
-    // presence would false-pass if the tracker removals were deleted (0.10.0
-    // review #9).
+    const removed = docSpy.mock.calls.map((c) => String(c[0]));
+    // EXACTLY two removals per pointer type in toggle mode (outside-dismiss
+    // trio + armed tracker trio — stealth's gesture controller would add a
+    // third and let a deleted tracker removal hide; 0.10.0 review #10), plus
+    // the window blur pair.
     for (const type of ['pointerdown', 'pointerup', 'pointercancel']) {
-      expect(removed.filter((t) => t === type).length).toBeGreaterThanOrEqual(2);
+      expect(removed.filter((t) => t === type).length).toBe(2);
     }
+    expect(winSpy.mock.calls.map((c) => String(c[0]))).toContain('blur');
   });
 
   // An INSIDE release after a mid-gesture focus departure defers its disarm to
