@@ -1199,6 +1199,11 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(body()).not.toContain('Comments cleared');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
     expect(byLabel('Clear comments')).toBeDefined(); // resting again, retryable
+    // The screen must keep showing what disk still holds: the verification
+    // read folds back into memory, so the pins and chip survive the failed
+    // wipe instead of vanishing under a failure message (0.10.0 review #5).
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(1);
+    expect(chip()).not.toBeNull();
     failWrites = false;
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
   });

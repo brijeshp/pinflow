@@ -837,6 +837,16 @@ export class Annotator {
     const survivors = new Set(
       [...this._store.comments, ...(disk?.comments ?? [])].map((c) => c.id),
     );
+    // The verification read folds back into memory too: on a failed write the
+    // screen must keep showing what disk still holds — pins vanishing under a
+    // "could not be cleared" message would be a lie in the other direction,
+    // and a later successful persist from the stripped memory would silently
+    // erase the survivors (0.10.0 review #5).
+    if (disk)
+      this._store = {
+        ...this._store,
+        comments: unionByRecency(disk.comments, this._store.comments),
+      };
     for (const c of intent) if (!survivors.has(c.id)) this._emitChange('delete', c);
     this._renderPins();
     return { tried: true, clean };
@@ -2181,7 +2191,7 @@ export class Annotator {
     this._closePanel();
     // Delivery is mutable: a Copy retry that succeeds AFTER a failed export
     // write upgrades what the armed warning AND the resting line may honestly
-    // claim (0.10.0 review #2, #4).
+    // claim (0.10.0 review #4).
     let delivered = copied;
     // The resting body is also the disarm target: backing out of an armed
     // clear restores the truest line the panel can currently claim.
@@ -2225,7 +2235,7 @@ export class Annotator {
       let offOut: (() => void) | null = null;
       const live = () => this._exportedNow(rev);
       // Every path out of the armed state funnels here: the state drops, and
-      // the host-page listener below is disposed (0.10.0 review #2, #4).
+      // the host-page listener below is disposed (0.10.0 review #4).
       const unarm = (): void => {
         armed = false;
         offOut?.();
@@ -2292,7 +2302,7 @@ export class Annotator {
           if (this._pendingDeletes)
             return this._say('Still syncing with the host. Try again in a moment.');
           // Verify-then-report: the wipe re-selects against the durable truth,
-          // and claims only what the final state supports (0.10.0 review #2, #4).
+          // and claims only what the final state supports (0.10.0 review #4).
           // The retries stay either way: this panel is the route to the file.
           const r = this._clearReviewerComments(rev);
           if (!r.tried) return spend('Nothing left to clear.');
