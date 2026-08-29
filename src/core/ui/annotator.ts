@@ -607,9 +607,13 @@ export class Annotator {
 
   /** Batch-scoping revision stamp: content recency PLUS the server-owned
    * disposition — PROTOCOL moves status/resolution without touching updatedAt,
-   * and state the artifact never captured must never be cleared by it. */
+   * and state the artifact never captured must never be cleared by it. JSON
+   * keeps the tuple injective for arbitrary strings (a NUL-delimited join was
+   * not — 0.10.0 review #3), and status canonicalizes to 'open' exactly as the
+   * exporter prints absence, so a server echo that merely makes the default
+   * explicit is not a new revision. */
   private _rev(c: Comment): string {
-    return `${c.updatedAt}\0${c.status ?? ''}\0${c.resolution ?? ''}`;
+    return JSON.stringify([c.updatedAt, c.status ?? 'open', c.resolution ?? '']);
   }
 
   /** The exported batch as it exists right now: comments still at an exported
@@ -775,22 +779,46 @@ export class Annotator {
 
   // Synced hosts stay consistent: every removal goes out as its own delete
   // (PROTOCOL deletes are per-comment; there is no bulk op on the wire).
-  // Identity reconciles FIRST: _persist would otherwise union a cross-tab
-  // rename's on-disk corpus back into the just-emptied store AFTER the filter,
-  // resurrecting locally what the wire was told to delete (r2 review) — and
-  // the removal set is computed after the fold for the same reason. Returns
-  // what was actually removed; an empty batch touches nothing.
+  //
+  // The wipe reads the durable truth before destroying (0.10.0 review #2/#3):
+  // the remembered identity folds forward first (a cross-tab rename), then
+  // the on-disk corpus under the current key (a cross-tab edit) — so the
+  // removal set is selected against what actually exists, not this tab's
+  // possibly-stale memory. localStorage offers no cross-context lock, so a
+  // rename can even land BETWEEN the fold and the write; the persist loop
+  // re-reconciles and re-strips until the write sticks — bounded, since each
+  // pass folds the newest key forward. Returns what was actually removed; an
+  // empty removal still owes the screen any newer truth the fold surfaced.
   private _clearReviewerComments(rev: ReadonlyMap<string, string>): Comment[] {
+    const pre = this._store;
     this._reconcileIdentity();
+    if (this._reviewer !== null) {
+      const disk = loadStore(this._deps.storage, this._deps.config.project, this._reviewer);
+      if (disk)
+        this._store = {
+          ...this._store,
+          comments: unionByRecency(disk.comments, this._store.comments),
+        };
+    }
     const removed = this._exportedNow(rev);
     if (removed.length) {
       const gone = new Set(removed.map((c) => c.id));
-      this._store = {
-        ...this._store,
-        comments: this._store.comments.filter((c) => !gone.has(c.id)),
+      const strip = (): void => {
+        this._store = {
+          ...this._store,
+          comments: this._store.comments.filter((c) => !gone.has(c.id)),
+        };
       };
-      this._persist();
+      for (let i = 0; i < 4; i++) {
+        strip();
+        this._persist();
+        this._reconcileIdentity();
+        if (!this._store.comments.some((c) => gone.has(c.id))) break;
+      }
       for (const c of removed) this._emitChange('delete', c);
+      this._renderPins();
+    } else if (this._store !== pre) {
+      this._invalidateViewCaches();
       this._renderPins();
     }
     return removed;
@@ -2098,7 +2126,7 @@ export class Annotator {
     const [md, filename] = this._buildArtifact(this._settleName());
     // The batch freezes WITH the artifact, in this same synchronous block — a
     // hydration merge or voice commit landing during the clipboard await below
-    // is already outside it (r2 review). The clear on the confirmation is
+    // is already outside it (0.10.0 review #2). The clear on the confirmation is
     // scoped to exactly these revisions; anything at a different one since is
     // feedback (or disposition) the file does not hold.
     const rev = new Map(this._store.comments.map((c) => [c.id, this._rev(c)]));
@@ -2139,7 +2167,7 @@ export class Annotator {
       ? 'Copied to your clipboard. If no file downloaded, paste it instead.'
       : 'Check your downloads for the file.';
     // Delivery is mutable: a Copy retry that succeeds AFTER a failed export
-    // write upgrades what the armed warning below may honestly claim (r2).
+    // write upgrades what the armed warning below may honestly claim (0.10.0 review #2).
     let delivered = copied;
     const panel = this._makePanel('Your feedback is ready', base, [
       // NOT downloadExport(): that also writes the clipboard, which would make
@@ -2177,9 +2205,9 @@ export class Annotator {
       const live = () => this._exportedNow(rev);
       // Both retirement paths park focus on Done: the activation just removed
       // the focused element, and a keyboard reviewer must land inside the
-      // still-open panel, not on the host page (r1 review). armed drops too,
+      // still-open panel, not on the host page (0.10.0 review #1). armed drops too,
       // or the disarm listener below would fire once over the spent control
-      // and overwrite its report with the resting body (r2 review).
+      // and overwrite its report with the resting body (0.10.0 review #2).
       const spend = (msg: string): void => {
         armed = false;
         clr.remove();
@@ -2190,6 +2218,9 @@ export class Annotator {
         'Clear comments',
         () => {
           if (!armed) {
+            // A cross-tab rename must not arm a count from the retired key
+            // (0.10.0 review #3); the confirming tap folds the full truth.
+            this._reconcileIdentity();
             const n = live().length;
             if (!n) return spend('Nothing left to clear.');
             armed = true;
@@ -2215,7 +2246,7 @@ export class Annotator {
           // swallow window.
           if (performance.now() - at < 600) return;
           // Vacuity re-checked at the WIPE, not just the arm: a batch that
-          // emptied between the taps must not report success (r2 review).
+          // emptied between the taps must not report success (0.10.0 review #2).
           // The retries stay either way: this panel is the route to the file.
           spend(
             this._clearReviewerComments(rev).length
@@ -2230,7 +2261,7 @@ export class Annotator {
       clr.addEventListener('keydown', (e) => {
         const k = e as KeyboardEvent;
         // Enter alone: it activates per-keydown including repeats. Arrows and
-        // paging must keep scrolling (r2 review).
+        // paging must keep scrolling (0.10.0 review #2).
         if (k.repeat && k.key === 'Enter') k.preventDefault();
       });
       // Reaching for any other control is leaving the question — disarm, so a
@@ -2259,7 +2290,7 @@ export class Annotator {
   /** The panel's status line. Live-region'd in _makePanel, so writes announce.
    * Every write bumps the generation: an async narrator that captured an older
    * one must stay silent, or a slow clipboard would overwrite the armed
-   * warning at the decision moment (r1 review). */
+   * warning at the decision moment (0.10.0 review #1). */
   private _say(text: string): void {
     this._sayGen++;
     const p = this._panelEl?.querySelector('p');
@@ -2271,7 +2302,7 @@ export class Annotator {
   // rules: the request RESERVES a generation at start, so of two overlapping
   // retries the latest wins; and anything said since (armed clear, wipe
   // report) outranks the narration entirely. Returns the clipboard result
-  // either way — delivery and narration are separate facts (r2 review).
+  // either way — delivery and narration are separate facts (0.10.0 review #2).
   private async _reCopy(md?: string): Promise<boolean> {
     const startedFrom = this._panelEl;
     const gen = ++this._sayGen;

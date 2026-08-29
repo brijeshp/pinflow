@@ -17,15 +17,13 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 ## Size budgets (`package.json` `size-limit`)
 
-| Entry         | Budget (gz)                                    |
-| ------------- | ---------------------------------------------- |
-| core IIFE     | 22.45 KB (generous, pending pre-merge ratchet) |
-| core ESM      | 22.30 KB (generous, pending pre-merge ratchet) |
-| voice ESM     | 4.45 KB                                        |
-| react wrapper | 0.47 KB                                        |
-| vue wrapper   | 0.61 KB                                        |
-
-The two core ceilings are mid-trade for the 0.10.0 export-confirmation clear (see that changeset): set generously pre-push, to be re-ratcheted on the feature branch to the Linux CI figure + ~50 B BEFORE merge, per the policy below — merging provisional ceilings would start the release chain on them.
+| Entry         | Budget (gz) |
+| ------------- | ----------- |
+| core IIFE     | 22.55 KB    |
+| core ESM      | 22.40 KB    |
+| voice ESM     | 4.45 KB     |
+| react wrapper | 0.47 KB     |
+| vue wrapper   | 0.61 KB     |
 
 `pnpm size` gates CI (`verify` job) and publishing (`prepublishOnly` runs build + test + size). Policy: budgets only ratchet **down** between features — kept razor-thin over actuals so regressions surface immediately. Raises happen only as deliberate, changeset-documented trades, and are re-ratcheted to actuals afterwards: once for the v3 lifecycle features, again for the 0.4.1 reliability fixes (CSP-safe stylesheet adoption, heal-ladder correctness), again for the 0.5.0 direct-manipulation arc, and again for the 0.6.1 coarse-container-anchor fix (see each changeset). Ceilings are set from **linux CI actuals**, which run a few bytes above a local macOS measurement. Check budget impact after any core change.
 

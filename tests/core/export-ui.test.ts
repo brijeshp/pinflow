@@ -42,6 +42,7 @@ function makeAnnotator(extra?: {
   activation?: { mode: 'toggle' | 'stealth' | 'both' };
   onChange?: (store: unknown, delta: { type: string; comment: Comment }) => void;
   onSubmit?: () => void;
+  storage?: Storage;
 }): Annotator {
   return new Annotator({
     config: {
@@ -54,7 +55,7 @@ function makeAnnotator(extra?: {
     },
     reviewer: REVIEWER,
     mode: extra?.mode ?? 'reviewer',
-    storage: localStorage,
+    storage: extra?.storage ?? localStorage,
   });
 }
 
@@ -616,10 +617,11 @@ describe('late clipboard vs closed surfaces (review #23, r2)', () => {
 // receive nothing. The confirmation is the first moment delivery is knowable,
 // so it is the only honest place to offer the wipe.
 //
-// The wipe is REVISION-SCOPED (r1 review, both reviewers): it removes exactly
-// the (id, updatedAt) pairs the artifact was built from, so a comment added or
-// edited after the export survives — "The exported file is unaffected" stays
-// true by construction, not by hope.
+// The wipe is REVISION-SCOPED (0.10.0 review #1): it removes exactly the
+// revisions the artifact was built from — updatedAt AND the server-owned
+// status/resolution, which PROTOCOL moves without an updatedAt bump — so a
+// comment added, edited, or dispositioned after the export survives. "The
+// exported file is unaffected" stays true by construction, not by hope.
 describe('reviewer batch controls — post-export disposition (clear after delivery)', () => {
   let annotator: Annotator | null = null;
 
@@ -643,7 +645,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   }
 
   // The two-tap confirm swallows a second activation inside its arming window
-  // (one physical gesture must never be both taps — r1 review). Tests that
+  // (one physical gesture must never be both taps — 0.10.0 review #1). Tests
   // legitimately confirm step a fake clock past the window per call.
   function spacedClock(): void {
     let t = 0;
@@ -789,7 +791,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     releaseRetry();
     await new Promise((r) => setTimeout(r, 0));
     // The stale "Copied to your clipboard." must not replace the destructive
-    // warning at the decision moment (r1 review).
+    // warning at the decision moment (0.10.0 review #1).
     expect(body()).toContain('Deletes your 1 comment');
   });
 
@@ -827,8 +829,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // The batch is frozen in the same synchronous block as the artifact: a merge
-  // landing inside the export's clipboard await is already outside it (r2
-  // review P1 — the await-window corridor).
+  // landing inside the export's clipboard await is already outside it (0.10.0
+  // review #2 — the await-window corridor).
   it('feedback arriving while the export clipboard is pending is outside the batch', async () => {
     captureBlobs();
     let releaseCopy!: () => void;
@@ -861,7 +863,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // The wipe is scoped to the exported revisions: a comment the server adds
   // while the confirmation is open is NOT in the artifact, so the clear must
-  // not take it (r1 review P1 — the add corridor).
+  // not take it (0.10.0 review #1 — the add corridor).
   it('a comment added after the export survives the clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -924,7 +926,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // Disposition is server-owned and merges WITHOUT an updatedAt bump
   // (PROTOCOL): a comment the team resolved since the export carries state the
-  // artifact does not hold, so the clear must not destroy it (r2 review P1).
+  // artifact does not hold, so the clear must not destroy it (0.10.0 review #2).
   it('a comment the team resolved since the export survives the clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -938,8 +940,10 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     });
     await exportToConfirmation();
 
-    // Same id, same updatedAt — only the server-owned disposition moved.
-    resolveSource([{ ...exported, status: 'done', resolution: 'shipped in 0.9.2' }]);
+    // Same id, same updatedAt — only the server-owned STATUS moved. Isolated
+    // from the resolution case below so dropping either field from the stamp
+    // fails a test (0.10.0 review #3).
+    resolveSource([{ ...exported, status: 'done' }]);
     await new Promise((r) => setTimeout(r, 0));
 
     byLabel('Clear comments')!.click();
@@ -949,8 +953,135 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(kept[0]?.status).toBe('done');
   });
 
+  it('a resolution note added since the export survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = makeComment('c1', 'noted later');
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    // Same id, same updatedAt, same (absent) status — only the note moved.
+    resolveSource([{ ...exported, resolution: 'needs design input' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(body()).toContain('Nothing left to clear');
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.resolution).toBe('needs design input');
+  });
+
+  // The exporter prints absent status as "Status: open", so a server echo that
+  // merely makes the default explicit is the SAME revision — it must not shrink
+  // the batch into a false "Nothing left to clear" (0.10.0 review #3).
+  it("a server echo making status 'open' explicit is still the exported revision", async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    let resolveSource!: (c: Comment[]) => void;
+    const exported = makeComment('c1', 'echoed');
+    seedStore([exported]);
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      exportUi: 'always',
+      source: () => new Promise<Comment[]>((r) => (resolveSource = r)),
+    });
+    await exportToConfirmation();
+
+    resolveSource([{ ...exported, status: 'open' }]);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    byLabel('Clear 1 comment?')!.click();
+    expect(body()).toContain('cleared');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
+  });
+
+  // Same reviewer, another tab: a newer revision persisted OUTSIDE this tab's
+  // memory must survive a clear computed from that stale memory — the wipe
+  // reads the durable truth before destroying (0.10.0 review #3).
+  it('a newer revision persisted by another tab survives the clear', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    const exported = makeComment('c1', 'original');
+    seedStore([exported]);
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    // Tab B persists an edit under the same reviewer while this tab is armed.
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, REVIEWER),
+      comments: [{ ...exported, text: 'edited in tab B', updatedAt: '2026-01-02T00:00:00.000Z' }],
+    });
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('Nothing left to clear');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
+    const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
+    expect(kept).toHaveLength(1);
+    expect(kept[0]?.text).toBe('edited in tab B');
+  });
+
+  // The nastier schedule: the rename lands INSIDE the wipe, between the
+  // pre-fold and the persist (localStorage has no cross-context lock). The
+  // wipe must converge — deletes on the wire, nothing resurrected under the
+  // new key (0.10.0 review #3).
+  it('a rename landing mid-persist cannot resurrect the cleared comment', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'renamed mid-write')]);
+    let armTrap = false;
+    let fired = false;
+    const storage = new Proxy(localStorage, {
+      get(t, prop: string) {
+        if (prop === 'setItem') {
+          return (k: string, v: string) => {
+            if (armTrap && !fired) {
+              fired = true;
+              // Tab B's rename interleaves exactly here, before this write.
+              renameReviewer(localStorage, PROJECT, REVIEWER, 'Zed');
+            }
+            t.setItem(k, v);
+          };
+        }
+        const val = (t as unknown as Record<string, unknown>)[prop];
+        return typeof val === 'function' ? (val as (...a: unknown[]) => unknown).bind(t) : val;
+      },
+    });
+    const deltas: string[] = [];
+    annotator = makeAnnotator({
+      activation: { mode: 'stealth' },
+      storage,
+      onChange: (_s, d) => deltas.push(`${d.type}:${d.comment.id}`),
+    });
+    await exportToConfirmation();
+
+    byLabel('Clear comments')!.click();
+    armTrap = true;
+    byLabel('Clear 1 comment?')!.click();
+
+    expect(body()).toContain('cleared');
+    expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
+    expect(loadStore(localStorage, PROJECT, 'Zed')?.comments ?? []).toHaveLength(0);
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
+  });
+
   // The confirming tap re-checks vacuity: a batch that emptied between the
-  // taps must not report success over a wipe that removed nothing (r2 review).
+  // taps must not report success over a wipe that removed nothing (0.10.0 review #2).
   it('a batch that empties between arm and confirm reports nothing to clear', async () => {
     captureBlobs();
     captureClipboard();
@@ -980,7 +1111,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
   // A cross-tab rename between export and clear: identity must reconcile
   // BEFORE the wipe computes, or _persist unions the on-disk corpus back into
-  // the emptied store while deletes go out on the wire (r2 review P1).
+  // the emptied store while deletes go out on the wire (0.10.0 review #2).
   it('a clear that races a cross-tab rename still lands: no resurrection', async () => {
     captureBlobs();
     captureClipboard();
@@ -1017,10 +1148,10 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(chip()).toBeNull(); // the corpus really is gone
 
     // Download retry: the blob handed to createObjectURL after the wipe must
-    // carry the held artifact, not an empty rebuild (r1 review test gap).
+    // carry the held artifact, not an empty rebuild (0.10.0 review #1).
     byLabel('Download Feedback Markdown')!.click();
     // A spent control must stay spent: this click used to trip the disarm
-    // branch and overwrite the cleared report with the resting body (r2).
+    // branch and overwrite the cleared report with the resting body (0.10.0 review #2).
     expect(body()).toContain('cleared');
     expect(blobs).toHaveLength(2);
     await expect(blobs[1]!.text()).resolves.toContain('still recoverable');
@@ -1042,7 +1173,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Clear comments')!.click();
     byLabel('Clear 1 comment?')!.click();
     // The focused element was just removed; a keyboard user must land on a
-    // surviving control inside the still-open panel (r1 review).
+    // surviving control inside the still-open panel (0.10.0 review #1).
     expect(shadow().activeElement).toBe(byLabel('Done'));
   });
 
@@ -1068,7 +1199,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // Latest retry wins: an older failed write must not shout over a newer
-  // success (r2 review — request generation reserved at retry START).
+  // success (0.10.0 review #2 — request generation reserved at retry START).
   it('concurrent copy retries resolve latest-wins', async () => {
     captureBlobs();
     const pend: Array<(ok: boolean) => void> = [];
@@ -1102,8 +1233,43 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     expect(body()).toBe('Copied to your clipboard.');
   });
 
+  it('concurrent copy retries resolve latest-wins in the inverse order too', async () => {
+    captureBlobs();
+    const pend: Array<(ok: boolean) => void> = [];
+    vi.stubGlobal(
+      'navigator',
+      Object.create(navigator, {
+        clipboard: {
+          value: {
+            writeText: () =>
+              new Promise<void>((res, rej) =>
+                pend.push((ok) => (ok ? res() : rej(new Error('x')))),
+              ),
+          },
+          configurable: true,
+        },
+      }),
+    );
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Export & share')!.click();
+    pend[0]!(true);
+    await new Promise((r) => setTimeout(r, 0));
+
+    byLabel('Copy to Clipboard')!.click(); // retry A
+    byLabel('Copy to Clipboard')!.click(); // retry B
+    pend[2]!(true); // B (newest) succeeds FIRST…
+    await new Promise((r) => setTimeout(r, 0));
+    pend[1]!(false); // …then stale A fails late
+    await new Promise((r) => setTimeout(r, 0));
+    // A completion-order implementation would let A's late failure overwrite
+    // the success; reservation order must win (0.10.0 review #3).
+    expect(body()).toBe('Copied to your clipboard.');
+  });
+
   // Delivery is mutable state: a successful retry upgrades what the armed
-  // warning may honestly claim (r2 review).
+  // warning may honestly claim (0.10.0 review #2).
   it('a successful copy retry upgrades the armed warning', async () => {
     captureBlobs();
     vi.stubGlobal(
@@ -1126,7 +1292,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   });
 
   // The armed control guards key-repeat on Enter alone — held Enter activates
-  // per keydown, but arrow-key scrolling must keep working (r2 review).
+  // per keydown, but arrow-key scrolling must keep working (0.10.0 review #2).
   it('the repeat guard swallows held Enter and nothing else', async () => {
     captureBlobs();
     captureClipboard();

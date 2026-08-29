@@ -362,6 +362,11 @@ function orphanBlock(comment: Comment & { reviewer?: string }, index: number): s
       : []),
     `**Last known selector:** \`${inline(comment.anchor.selectors.css)}\``,
     `**Route:** ${inline(comment.route)}`,
+    // Same line the anchored block emits: Status said WHAT happened, this says
+    // why — and without it a resolved orphan's note existed nowhere but
+    // localStorage, while the revision-scoped clear treated the record as
+    // fully exported (0.10.0 review #3).
+    ...(comment.resolution ? [`**Resolution:** ${inline(comment.resolution)}`] : []),
     '',
     quoted(comment.text),
   ].join('\n');

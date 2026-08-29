@@ -98,7 +98,7 @@ export const STYLES =
   // Read-only disposition line in a resolved comment's popup ("✓ Done — note").
   '.input .res{margin-top:8px;font-size:12px;color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
   // .62, not .55: the quiet state must still clear AA 4.5:1 at 13px on both
-  // light-dark surfaces (r1 review measured .55 at ~4.0:1 on light).
+  // light-dark surfaces (0.10.0 review #1 measured .55 at ~4.0:1 on light).
   '.input .delete,.input .exportall,.panel .clr{background:transparent;border:0;color:inherit;cursor:pointer;opacity:.62;font:inherit;padding:0}' +
   '.panel .row+.row{margin-top:8px}.panel .clr{flex:none}' +
   // Dark fallback lightens: #dc2626 is 4.8:1 on the light surface but 3.3:1

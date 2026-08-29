@@ -76,6 +76,10 @@ describe('theme tokens (A1)', () => {
     const selectors = (rule?.[1] ?? '').split(',');
     expect(selectors).toContain('.input textarea');
     expect(selectors).toContain('.panel input.name');
+    // The 44px hit-target floor rides the same coarse-pointer block — keyed to
+    // the pointer, not the viewport, so landscape phones keep it (0.10.0
+    // review #3).
+    expect(STYLES).toMatch(/@media \(pointer:coarse\)\{[^@]*\.panel button\{min-height:44px\}/);
   });
 
   it('resolution treatments ride the textMuted token (L2.3)', () => {
