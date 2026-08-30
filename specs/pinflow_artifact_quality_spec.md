@@ -2,7 +2,7 @@
 
 **Status:** for review · **Date:** 2026-08-16 · **Branch:** `claude/pinflow-hotspots-quality-44ba76` · **PR:** [#12](https://github.com/brijeshp/pinflow/pull/12) (draft, CI green)
 
-Companion to `docs/plans/2026-08-15-001-fix-hotspot-quality-and-size-ratchet-plan.md`. That document is the plan; this one is what the work found, what shipped, what was rejected, the standing budget policy, and the open questions.
+Companion to the 2026-08-15 hotspot-quality plan (unpublished, `docs/plans/`). That document is the plan; this one is what the work found, what shipped, what was rejected, the standing budget policy, and the open questions.
 
 ---
 

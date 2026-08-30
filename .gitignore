@@ -13,5 +13,17 @@ playwright-report
 test-results
 demo/dist
 
-# private working docs — never published
-docs/private/
+# Internal working docs. docs/ is PRIVATE BY DEFAULT — anything dropped in it
+# stays local unless explicitly re-included below. Only two things are published:
+#   docs/guide.md   — linked from README.md
+#   docs/wiki/      — read by scripts/wiki-check.mjs (CI gate), linked from
+#                     README.md and AGENTS.md as the agent instruction layer
+docs/*
+!docs/guide.md
+!docs/wiki/
+
+# Design context for the `impeccable` skill. Must sit at the repo root because
+# its loader resolves ONE directory and cwd wins — but it is working material,
+# not published output. Ignored here, still on disk, still loaded.
+PRODUCT.md
+DESIGN.md
