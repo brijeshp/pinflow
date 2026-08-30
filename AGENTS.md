@@ -27,9 +27,19 @@ Pinflow: Figma-style pin-and-comment annotation for vibe-coded prototypes. Zero 
 1. Config-enforced values: `package.json`, `tsup.config.ts`, `vitest.config.ts`, `tsconfig.json`, CI workflows.
 2. This file's invariants.
 3. The codebase wiki (`docs/wiki/`) — agent-maintained, possibly one branch behind. Fix wiki errors via the wiki-update procedure, not ad-hoc edits.
-4. `specs/pinflow_v1_spec.md` narrative, `README.md` prose, `docs/plans/*`.
+4. `specs/pinflow_v1_spec.md` narrative, `README.md` prose, and `docs/plans/*` **when working in a
+   full checkout** — plans are not published (see below), so they are absent from a fresh clone.
 
 `file:line` anchors anywhere in docs are hints only; file paths and symbol names are the contract.
+
+## What `docs/` publishes
+
+`docs/` is **private by default** (`.gitignore`). Only `docs/guide.md` and `docs/wiki/` are committed;
+`audits/`, `plans/`, `brainstorms/`, `ideation/` and `private/` are local working material and are
+absent from a clone. Root `PRODUCT.md` / `DESIGN.md` are the same — they must sit at the repo root
+for the design-context loader to find them, but they are not published. Do not link to an
+unpublished path from a committed file: state the fact instead of pointing at a document the reader
+cannot open.
 
 ## Codebase wiki (read this before exploring)
 

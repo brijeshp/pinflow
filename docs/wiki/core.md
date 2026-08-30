@@ -191,4 +191,4 @@ Escaping defends the artifact's **structure**, not its **meaning** — a perfect
 
 ## Scope note
 
-`specs/pinflow_v1_spec.md` defers voice to v2, but voice is fully implemented (`VoiceConfig`, `Modality='voice'`, `_startVoiceDot()`); it arrived via `docs/plans/2026-06-20-001-feat-voice-stealth-feedback-annotation-layer-plan.md`. The code is authoritative.
+`specs/pinflow_v1_spec.md` defers voice to v2, but voice is fully implemented (`VoiceConfig`, `Modality='voice'`, `_startVoiceDot()`); it arrived in the 2026-06-20 voice plan. The code is authoritative.

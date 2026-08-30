@@ -22,4 +22,4 @@ Agent-maintained map of this codebase. It exists so coding agents don't re-deriv
 
 ## Scope note
 
-`specs/pinflow_v1_spec.md` is the **v1** product spec; the voice module was added later via `docs/plans/2026-06-20-001-feat-voice-stealth-feedback-annotation-layer-plan.md`. Where the spec says "voice is deferred," the code has since shipped it — the code is authoritative.
+`specs/pinflow_v1_spec.md` is the **v1** product spec; the voice module was added later, in the 2026-06-20 voice plan. Where the spec says "voice is deferred," the code has since shipped it — the code is authoritative.
