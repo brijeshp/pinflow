@@ -114,7 +114,11 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(hl!.style.height).toBe('150px');
   });
 
-  it('release resolves the TIGHTEST element containing the rect and stores areaPercent relative to it', () => {
+  // The rect is 16x the leaf's area, but the leaf is the only CONTENT in it —
+  // the rest is empty container. The walk says so (sole member), so the note is
+  // about the leaf and the anchor is the leaf, not the box that contains the
+  // reviewer's hand-drawn rect.
+  it('release anchors to the walk’s sole member, with areaPercent relative to it', () => {
     annotator = makeAnnotator();
     arm();
     const outer = document.createElement('div');
@@ -125,21 +129,46 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     document.body.appendChild(outer);
     mockRect(outer, { left: 0, top: 0, width: 800, height: 800 });
     mockRect(inner, { left: 50, top: 50, width: 300, height: 300 });
-    mockRect(leaf, { left: 150, top: 150, width: 50, height: 50 }); // too small — climb past it
+    mockRect(leaf, { left: 150, top: 150, width: 50, height: 50 });
     mockElementFromPoint(leaf);
 
     drag(inner, [100, 100], [300, 300]);
 
     const stored = comments();
     expect(stored).toHaveLength(1);
+    expect(stored[0]!.anchor.selectors.css.endsWith('span:nth-of-type(1)')).toBe(true);
+    // The rect engulfs the leaf, so the coverage reads as the whole element.
     const a = stored[0]!.anchor.areaPercent!;
-    // Rect (100,100)–(300,300) inside inner (50,50,300×300):
-    expect(a['x']).toBeCloseTo(((100 - 50) / 300) * 100, 1);
-    expect(a['y']).toBeCloseTo(((100 - 50) / 300) * 100, 1);
-    expect(a['w']).toBeCloseTo((200 / 300) * 100, 1);
-    expect(a['h']).toBeCloseTo((200 / 300) * 100, 1);
+    expect(a).toEqual({ x: 0, y: 0, w: 100, h: 100 });
     expect(shadow().querySelector('textarea')).not.toBeNull(); // draft opens as usual
     expect(document.body.style.cursor).toBe(''); // placement disarms
+  });
+
+  // The other half of the same rule: a set has no single subject, so the
+  // container stays the anchor and areaPercent stays relative to IT.
+  it('a rect covering several members keeps the container as the anchor', () => {
+    annotator = makeAnnotator();
+    arm();
+    document.body.innerHTML =
+      '<div class="row"><article class="card">Free</article><article class="card">Pro</article></div>';
+    const q = (sel: string) => document.querySelector(sel) as HTMLElement;
+    const cards = Array.from(document.querySelectorAll('.card')) as HTMLElement[];
+    mockRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    mockRect(q('.row'), { left: 50, top: 50, width: 400, height: 300 });
+    mockRect(cards[0]!, { left: 100, top: 100, width: 120, height: 200 });
+    mockRect(cards[1]!, { left: 240, top: 100, width: 120, height: 200 });
+    mockElementFromPoint(cards[0]!);
+
+    drag(q('.row'), [90, 90], [370, 310]);
+
+    const stored = comments();
+    expect(stored[0]!.anchor.selectors.css.endsWith('div.row:nth-of-type(1)')).toBe(true);
+    // Rect (90,90)–(370,310) inside .row (50,50,400×300):
+    const a = stored[0]!.anchor.areaPercent!;
+    expect(a['x']).toBeCloseTo(((90 - 50) / 400) * 100, 1);
+    expect(a['y']).toBeCloseTo(((90 - 50) / 300) * 100, 1);
+    expect(a['w']).toBeCloseTo((280 / 400) * 100, 1);
+    expect(a['h']).toBeCloseTo((220 / 300) * 100, 1);
   });
 
   it('a marquee larger than the resolved element clamps areaPercent to 0–100', () => {
@@ -663,6 +692,39 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(rule).toContain('-webkit-user-select:none');
     expect(rule).toContain('user-select:none');
     expect(rule).toContain('-webkit-touch-callout:none');
+  });
+  // Regression: the SCP-prototype export (cmt_eoriiy4tj). A rect aimed at a
+  // small badge but drawn 15px past the header's bottom edge escalated the
+  // containment climb to the page shell, and the anchor followed it — so
+  // Element, Context, Position and every selector described a container the
+  // reviewer never pointed at, while the walk had scored the badge correctly.
+  it('anchors to the walk’s sole member when the rect overhangs its container', () => {
+    annotator = makeAnnotator();
+    arm();
+    document.body.innerHTML =
+      '<div class="content"><main><div class="chrome"><header><div class="actions">' +
+      '<span class="statusBadge">Transcript ready</span>' +
+      '<button class="transcriptButton">View Transcript</button>' +
+      '</div></header></div><div class="workspace">Patients</div></main></div>';
+    const q = (s: string) => document.querySelector(s) as HTMLElement;
+    mockRect(document.body, { left: 0, top: 0, width: 1800, height: 958 });
+    mockRect(q('.content'), { left: 200, top: 0, width: 1600, height: 958 });
+    mockRect(q('main'), { left: 200, top: 0, width: 1600, height: 958 });
+    mockRect(q('.chrome'), { left: 200, top: 0, width: 1600, height: 120 });
+    mockRect(q('header'), { left: 200, top: 40, width: 1600, height: 80 });
+    mockRect(q('.actions'), { left: 1100, top: 60, width: 400, height: 40 });
+    mockRect(q('.statusBadge'), { left: 1130, top: 70, width: 160, height: 24 });
+    mockRect(q('.transcriptButton'), { left: 1310, top: 66, width: 170, height: 32 });
+    mockRect(q('.workspace'), { left: 200, top: 120, width: 1600, height: 838 });
+    mockElementFromPoint(q('.statusBadge'));
+
+    // Bottom edge lands at 135 — 15px past <header>, so nothing below <main>
+    // contains the rect.
+    drag(q('.actions'), [1120, 62], [1320, 135]);
+
+    const a = comments()[0]!.anchor;
+    expect(a.selectors.css.endsWith('span.statusBadge:nth-of-type(1)')).toBe(true);
+    expect(a.textFingerprint).toBe('Transcript ready');
   });
 });
 
