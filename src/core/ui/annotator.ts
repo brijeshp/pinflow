@@ -75,6 +75,26 @@ const INLINE_TAG_RE = /^(A|B|CODE|EM|I|KBD|SMALL|SPAN|STRONG|U)$/;
 // deafen the draft popup's own buttons.
 const CLICK_SWALLOW_MS = 700;
 
+// A drawn rect as percentages of `el`'s box. Compound-clamped at the source:
+// x+w and y+h can never exceed 100, so the stored rect is honest about staying
+// inside its anchor (review fr1). A zero-area anchor yields no rect at all —
+// a fabricated one is worse than an absent one.
+function areaWithin(el: Element, region: ScopeRect): { areaPercent?: AreaPercent } {
+  const tr = el.getBoundingClientRect();
+  if (!(tr.width > 0 && tr.height > 0)) return {};
+  const clamp = (v: number): number => Math.min(100, Math.max(0, v));
+  const x = clamp(((region.left - tr.left) / tr.width) * 100);
+  const y = clamp(((region.top - tr.top) / tr.height) * 100);
+  return {
+    areaPercent: {
+      x,
+      y,
+      w: Math.min(clamp((region.width / tr.width) * 100), 100 - x),
+      h: Math.min(clamp((region.height / tr.height) * 100), 100 - y),
+    },
+  };
+}
+
 // Dispositioned by the team (via hydration) — a shared record, not the
 // reviewer's draft: frozen in the UI (no edit/delete, exempt from
 // empty-cleanup). `open` is NOT resolved; it stays fully editable.
@@ -1453,26 +1473,9 @@ export class Annotator {
       // capping again at 40 threw away half of the field an agent locates with.
       .map((e) => getTextFingerprint(e) || e.tagName.toLowerCase())
       .join('\n');
-    // buildAnchor canonicalizes to the nearest data-testid ancestor — the
-    // rect must be measured against THAT element, or areaPercent and the
-    // selectors would describe different boxes (review r1 [P1]).
-    const anchorEl = anchorTarget(target ?? document.body);
-    const tr = anchorEl.getBoundingClientRect();
-    const clamp = (v: number): number => Math.min(100, Math.max(0, v));
-    // Compound-clamped at the source: x+w and y+h can never exceed 100, so
-    // the stored rect is honest about staying inside its anchor (review fr1).
-    const x = clamp(((left - tr.left) / tr.width) * 100);
-    const y = clamp(((top - tr.top) / tr.height) * 100);
-    const area: AreaPercent | undefined =
-      tr.width > 0 && tr.height > 0
-        ? {
-            x,
-            y,
-            w: Math.min(clamp((width / tr.width) * 100), 100 - x),
-            h: Math.min(clamp((height / tr.height) * 100), 100 - y),
-          }
-        : undefined;
-    this._placeCommentAt(cx, cy, anchorEl, area, subjects[0], covers || undefined, {
+    // areaPercent is measured inside _placeCommentAt, against whatever that
+    // settles on as the anchor — the walk can move it off this container.
+    this._placeCommentAt(cx, cy, target ?? document.body, subjects[0], covers || undefined, {
       left,
       top,
       width,
@@ -1546,7 +1549,6 @@ export class Annotator {
     clientX: number,
     clientY: number,
     target: Element,
-    area?: AreaPercent,
     // Area picker only; both point paths pass none of these and are unchanged.
     deep?: Element,
     covers?: string,
@@ -1554,11 +1556,6 @@ export class Annotator {
   ): void {
     if (this._ui.host.contains(target)) return; // never annotate our own UI
     if (!this._ensureIdentity()) return; // identity is required before any comment exists
-    const anchor: Anchor = {
-      ...buildAnchor(target, clientX, clientY, deep),
-      ...(area ? { areaPercent: area } : {}),
-      ...(covers ? { covers } : {}),
-    };
     // Resolved ONCE, here, at commit time — never on a reflow frame. A live
     // marquee paints only its own box; the walk is 1.18 ms clean and 8.14 ms
     // under 6x throttling, which is fine once and fatal at 60 Hz.
@@ -1566,6 +1563,28 @@ export class Annotator {
     // Measured against the CANONICAL anchor target so preview, capture,
     // footprint and outline are all the same element.
     const scoped = resolveScope(anchorTarget(target), region);
+    // A marquee's container is chosen by CONTAINMENT, which is a cliff with no
+    // tolerance: a rect aimed at a badge but drawn a few px past its section's
+    // seam finds nothing below the page shell, and the anchor used to ride
+    // along — so Element, Context, Position and every selector described a
+    // container the reviewer never pointed at, in a real prototype export. The
+    // WALK does not have that failure mode; it scored the badge correctly in
+    // both draws. So when the walk found exactly one member, that member is
+    // what the note is about and the anchor follows it. A multi-member set
+    // keeps the container — it is the honest common answer for a set — and the
+    // BOUNDARY is never re-derived either way: it answers "how far may a fix
+    // reach", which the overhang does not make wrong, only loose.
+    const sole =
+      region && scoped?.elements.members.length === 1 ? scoped.elements.members[0]! : null;
+    const el = sole ?? target;
+    const anchor: Anchor = {
+      ...buildAnchor(el, clientX, clientY, deep),
+      // buildAnchor canonicalizes to the nearest data-testid ancestor — the
+      // rect must be measured against THAT element, or areaPercent and the
+      // selectors would describe different boxes (review r1 [P1]).
+      ...(region ? areaWithin(anchorTarget(el), region) : {}),
+      ...(covers ? { covers } : {}),
+    };
     // Same synchronous turn as the hover box's removal: both commit paths call
     // _clearHover() immediately before this, and a frame that paints with
     // neither box makes the resolve blink.
