@@ -183,7 +183,12 @@ describe('the outline is the composer‘s shadow', () => {
         members: [{ tag: 'div', css: '#m', band: 'inside' }],
         excluded: [{ tag: 'div', css: '#x' }],
       },
-      elements: { boundary: boundary!, members: [member!], excluded: [excluded!] },
+      elements: {
+        boundary: boundary!,
+        members: [member!],
+        excluded: [excluded!],
+        membersComplete: true,
+      },
     });
     // The boundary and the one member — the excluded node draws nothing.
     expect(root.querySelectorAll('.so > i')).toHaveLength(2);
@@ -209,7 +214,7 @@ describe('the outline is the composer‘s shadow', () => {
         boundary: { tag: 'div', css: '#b' },
         members: [{ tag: 'div', css: '#ghost', band: 'inside' }],
       },
-      elements: { boundary, members: [ghost], excluded: [] },
+      elements: { boundary, members: [ghost], excluded: [], membersComplete: true },
     });
     expect(root.querySelectorAll('.so > i')).toHaveLength(1);
   });
@@ -222,7 +227,7 @@ describe('the outline is the composer‘s shadow', () => {
     document.body.appendChild(root);
     new ScopeOutline().show(root, {
       scope: { gen: 1, rung: 'anchor', confidence: 'low', boundary: { tag: 'div', css: '#b' } },
-      elements: { boundary, members: [], excluded: [] },
+      elements: { boundary, members: [], excluded: [], membersComplete: true },
     });
     expect(root.querySelectorAll('.so > i[data-d]')).toHaveLength(1);
   });

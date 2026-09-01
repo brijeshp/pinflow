@@ -19,13 +19,17 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 | Entry         | Budget (gz) |
 | ------------- | ----------- |
-| core IIFE     | 23.81 KB    |
-| core ESM      | 23.67 KB    |
+| core IIFE     | 23.87 KB    |
+| core ESM      | 23.72 KB    |
 | voice ESM     | 4.45 KB     |
 | react wrapper | 0.47 KB     |
 | vue wrapper   | 0.61 KB     |
 
 `pnpm size` gates CI (`verify` job) and publishing (`prepublishOnly` runs build + test + size). Policy: budgets only ratchet **down** between features — kept razor-thin over actuals so regressions surface immediately. Raises happen only as deliberate, changeset-documented trades, and are re-ratcheted to actuals afterwards: once for the v3 lifecycle features, again for the 0.4.1 reliability fixes (CSP-safe stylesheet adoption, heal-ladder correctness), again for the 0.5.0 direct-manipulation arc, and again for the 0.6.1 coarse-container-anchor fix (see each changeset). Ceilings are set from **linux CI actuals**, which run a few bytes above a local macOS measurement. Check budget impact after any core change.
+
+**The Linux/macOS gap is still scaling, and it is now the whole margin.** Measured on this repo: ~20 B at 17 KB, then 50 B (ESM) and 100 B (IIFE) at 22 KB, and **120 B on BOTH entries at 23.8 KB**. 0.11.1 shipped at 23.8 against a 23.81 ceiling — about ten bytes — which left no room for the correctness fix that followed and forced an approved raise one release later. A ceiling set from a local `pnpm size` is not a ceiling; it is a coin flip that gets tighter every release. Set it generously, read the figure CI reports, ratchet to that plus ~50 B.
+
+**A re-ratchet re-stales the wiki marker.** The ratchet commit necessarily lands AFTER the CI run that produced its number, so it lands after the `.last-sync` move that certified the branch — and it touches `package.json`, a watched path. `wiki:check` then fails on a branch that was green minutes earlier. Expect to move the marker a second time, as the final commit, after the ratchet.
 
 **The two core entries can move in opposite directions, and 0.9.0 is the case that proved it.** The same golf pass freed 278 B on IIFE and only 91 B on ESM — treeshaking recovered a CJS-interop preamble that only the IIFE build emitted — so the artifact-quality fixes that followed fitted inside the IIFE ratchet and did not fit inside ESM's. ESM's ceiling was raised mid-release as an approved trade and then ratcheted back **below** its starting point once builder-mode UI was removed later in the same release — 22.42 → 22.6 → 22.04. Never reason about "the core budget" as one number, never assume a saving measured on one entry transfers to the other, and do not treat a mid-release raise as final: the number that matters is the one on the merge commit.
 

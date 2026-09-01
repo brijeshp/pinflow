@@ -35,6 +35,17 @@ export interface Anchor {
    * the anchored element. The marquee is a PICKER — the comment still anchors
    * to a single element (pin at the rect's center), so persistence, healing,
    * and rendering are identical to point comments. Additive in 0.5.0.
+   *
+   * WHICH element that is depends on what the region covered (since 0.11.1).
+   * When the scope walk resolves exactly ONE member, the anchor is that member
+   * — the thing the note is about. Otherwise it is the smallest ancestor whose
+   * box contains the drawn rect. Consumers must read `selectors` to know which;
+   * do not assume the anchor contains the rect.
+   *
+   * Because it need not contain it, the rect is CLAMPED to the anchor's box on
+   * every side: `{x:0,w:100}` means "covers the whole element", not "the
+   * reviewer drew exactly this". Both endpoints clamp, so `x+w` and `y+h`
+   * never exceed 100 and the stored extent is the true overlap.
    */
   areaPercent?: AreaPercent;
   /**

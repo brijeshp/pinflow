@@ -693,6 +693,106 @@ describe('armed-mode drag-to-marquee (area picker)', () => {
     expect(rule).toContain('user-select:none');
     expect(rule).toContain('-webkit-touch-callout:none');
   });
+  // Codex review r1 [P1]. areaPercent derived `w` from the RAW region width, so
+  // a rect overflowing the anchor's LEFT/TOP edge clamped `x` to 0 and kept the
+  // full width — claiming total coverage of an element it half-covered. The
+  // mirrored right/bottom case was correct, so honesty depended on which edge
+  // was crossed. Latent until 0.11.1: the old container anchor was guaranteed to
+  // CONTAIN the rect, so left/top overflow could not happen. Re-anchoring to a
+  // member makes it routine.
+  it('areaPercent tells the truth when the rect overflows the anchor’s left edge', () => {
+    annotator = makeAnnotator();
+    arm();
+    document.body.innerHTML = '<div class="wrap"><span class="badge">B</span></div>';
+    const q = (sel: string) => document.querySelector(sel) as HTMLElement;
+    mockRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    mockRect(q('.wrap'), { left: 0, top: 0, width: 1000, height: 800 });
+    mockRect(q('.badge'), { left: 100, top: 100, width: 100, height: 100 });
+    mockElementFromPoint(q('.badge'));
+
+    // x 50→150 over a badge spanning 100→200: only its LEFT HALF is covered.
+    drag(q('.wrap'), [50, 100], [150, 200]);
+
+    expect(comments()[0]!.anchor.areaPercent).toEqual({ x: 0, y: 0, w: 50, h: 100 });
+  });
+
+  // The right-edge mirror, which was already correct — pinned so the fix cannot
+  // trade one asymmetry for the other.
+  it('areaPercent still tells the truth when the rect overflows the right edge', () => {
+    annotator = makeAnnotator();
+    arm();
+    document.body.innerHTML = '<div class="wrap"><span class="badge">B</span></div>';
+    const q = (sel: string) => document.querySelector(sel) as HTMLElement;
+    mockRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    mockRect(q('.wrap'), { left: 0, top: 0, width: 1000, height: 800 });
+    mockRect(q('.badge'), { left: 100, top: 100, width: 100, height: 100 });
+    mockElementFromPoint(q('.badge'));
+
+    drag(q('.wrap'), [150, 100], [250, 200]);
+
+    expect(comments()[0]!.anchor.areaPercent).toEqual({ x: 50, y: 0, w: 50, h: 100 });
+  });
+
+  // Codex review r1 [P2]. `visit()` gives up on the NODE_CAP budget (1500) and
+  // abandons the rest of the walk, so a huge boundary can emit ONE member and
+  // never reach the others. Reading that as "the walk found exactly one
+  // subject" would anchor a multi-element region to whichever member happened
+  // to be visited first.
+  //
+  // Each filler is far LARGER than the drawn rect, so its coverage-of-self is
+  // ~3% — visited (and charged) but never a member.
+  function budgetBurner(fillers: number): (sel: string) => HTMLElement {
+    const filler = Array.from({ length: fillers }, () => '<i></i>').join('');
+    document.body.innerHTML = `<div class="wrap"><span class="badge">B</span>${filler}</div>`;
+    const q = (sel: string) => document.querySelector(sel) as HTMLElement;
+    const box = (el: Element, r: { left: number; top: number; width: number; height: number }) => {
+      el.getBoundingClientRect = () =>
+        ({
+          ...r,
+          right: r.left + r.width,
+          bottom: r.top + r.height,
+          x: r.left,
+          y: r.top,
+        }) as DOMRect;
+    };
+    box(document.body, { left: 0, top: 0, width: 1000, height: 800 });
+    box(q('.wrap'), { left: 0, top: 0, width: 1000, height: 800 });
+    box(q('.badge'), { left: 100, top: 100, width: 100, height: 100 });
+    for (const i of Array.from(document.querySelectorAll('i')))
+      box(i, { left: 0, top: 0, width: 1000, height: 800 });
+    mockElementFromPoint(q('.badge'));
+    return q;
+  }
+
+  it('an overrun walk is not read as proof of sole membership', () => {
+    annotator = makeAnnotator();
+    arm();
+    const q = budgetBurner(1600);
+
+    drag(q('.wrap'), [90, 90], [260, 260]);
+
+    const c = comments()[0]!;
+    expect(c.scope?.truncated).toBe(true);
+    // The container, NOT the one member the walk happened to reach first.
+    expect(c.anchor.selectors.css.endsWith('div.wrap:nth-of-type(1)')).toBe(true);
+  });
+
+  // The gate is the NODE_CAP overrun specifically, not the record's `truncated`.
+  // An EXCLUDED_CAP overflow (>12 grazed elements) also sets `truncated` while
+  // leaving `members` complete — gating on that would drop this fix on any busy
+  // region, which is most of them.
+  it('an excluded-cap overflow still re-anchors — members were complete', () => {
+    annotator = makeAnnotator();
+    arm();
+    const q = budgetBurner(20);
+
+    drag(q('.wrap'), [90, 90], [260, 260]);
+
+    const c = comments()[0]!;
+    expect(c.scope?.truncated).toBe(true);
+    expect(c.anchor.selectors.css.endsWith('span.badge:nth-of-type(1)')).toBe(true);
+  });
+
   // Regression: the SCP-prototype export (cmt_eoriiy4tj). A rect aimed at a
   // small badge but drawn 15px past the header's bottom edge escalated the
   // containment climb to the page shell, and the anchor followed it — so
