@@ -96,7 +96,18 @@ export interface ScopeRect {
  */
 export interface ScopeResult {
   scope: Scope;
-  elements: { boundary: Element; members: Element[]; excluded: Element[] };
+  elements: {
+    boundary: Element;
+    members: Element[];
+    excluded: Element[];
+    // Whether the walk saw every candidate, or gave up on the NODE_CAP budget
+    // with elements still unvisited. NOT the record's `truncated`, which three
+    // different paths set: the MEMBER_CAP and EXCLUDED_CAP ones leave `members`
+    // complete, and only this one casts doubt on it. Lives on the non-persisted
+    // half of the result, so it needs no schema version and cannot be read back
+    // from untrusted input.
+    membersComplete: boolean;
+  };
 }
 
 function describe(el: Element): ScopeNode {
@@ -338,6 +349,8 @@ interface Walk {
   bands: Map<Element, 'inside' | 'partial'>;
   visits: number;
   truncated: boolean;
+  // NODE_CAP overrun specifically — see ScopeResult.elements.membersComplete.
+  overran: boolean;
   // Largest slice of the DRAWN REGION any grazed element fills. Coverage is
   // scored against each element's own area, so it cannot tell a marquee lying
   // across oversized content from one dropped in a gap — both leave `members`
@@ -361,6 +374,7 @@ function visit(el: Element, clip: ScopeRect, region: ScopeRect, depth: number, w
   if (skip(el)) return false;
   if (++w.visits > NODE_CAP) {
     w.truncated = true;
+    w.overran = true;
     return false;
   }
   const box = intersect(boxOf(el), clip);
@@ -507,6 +521,7 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
     bands: new Map(),
     visits: 0,
     truncated: false,
+    overran: false,
     fill: 0,
   };
   if (region) {
@@ -610,10 +625,16 @@ export function resolveScope(target: Element, region?: ScopeRect | null): ScopeR
     if (ends.after) between.after = describe(ends.after);
     scope.between = between;
     scope.confidence = confidence === 'high' ? 'medium' : 'low';
-    return { scope, elements: { boundary, members: [], excluded: w.excluded } };
+    return {
+      scope,
+      elements: { boundary, members: [], excluded: w.excluded, membersComplete: !w.overran },
+    };
   }
 
-  return { scope, elements: { boundary, members: w.members, excluded: w.excluded } };
+  return {
+    scope,
+    elements: { boundary, members: w.members, excluded: w.excluded, membersComplete: !w.overran },
+  };
 }
 
 /**

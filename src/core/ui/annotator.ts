@@ -75,10 +75,18 @@ const INLINE_TAG_RE = /^(A|B|CODE|EM|I|KBD|SMALL|SPAN|STRONG|U)$/;
 // deafen the draft popup's own buttons.
 const CLICK_SWALLOW_MS = 700;
 
-// A drawn rect as percentages of `el`'s box. Compound-clamped at the source:
-// x+w and y+h can never exceed 100, so the stored rect is honest about staying
-// inside its anchor (review fr1). A zero-area anchor yields no rect at all —
-// a fabricated one is worse than an absent one.
+// A drawn rect as percentages of `el`'s box, clamped to it (review fr1). A
+// zero-area anchor yields no rect at all — a fabricated one is worse than an
+// absent one.
+//
+// BOTH endpoints are clamped and the extent derived from their difference.
+// Deriving `w` from the raw region width instead was asymmetric: a rect
+// overflowing the RIGHT edge clamped correctly, while one overflowing the LEFT
+// clamped `x` to 0 and kept the full width, claiming total coverage of an
+// element it half-covered (0.11.1 review #1). That was unreachable while the
+// anchor was the rect's containing ancestor — containment guaranteed no
+// overflow — and became routine the moment a marquee could anchor to a member
+// the rect spills past.
 function areaWithin(el: Element, region: ScopeRect): { areaPercent?: AreaPercent } {
   const tr = el.getBoundingClientRect();
   if (!(tr.width > 0 && tr.height > 0)) return {};
@@ -89,8 +97,8 @@ function areaWithin(el: Element, region: ScopeRect): { areaPercent?: AreaPercent
     areaPercent: {
       x,
       y,
-      w: Math.min(clamp((region.width / tr.width) * 100), 100 - x),
-      h: Math.min(clamp((region.height / tr.height) * 100), 100 - y),
+      w: clamp(((region.left + region.width - tr.left) / tr.width) * 100) - x,
+      h: clamp(((region.top + region.height - tr.top) / tr.height) * 100) - y,
     },
   };
 }
@@ -1574,8 +1582,16 @@ export class Annotator {
     // keeps the container — it is the honest common answer for a set — and the
     // BOUNDARY is never re-derived either way: it answers "how far may a fix
     // reach", which the overhang does not make wrong, only loose.
+    // `membersComplete` gates it: a walk that gave up on its node budget may
+    // have left members unvisited, and one member found before the budget ran
+    // out is not proof that one is all there was (0.11.1 review #2). The
+    // record's own `truncated` would be the WRONG gate — an EXCLUDED_CAP
+    // overflow sets it while leaving `members` complete, so gating on it would
+    // silently drop this fix on any region grazing more than twelve elements.
     const sole =
-      region && scoped?.elements.members.length === 1 ? scoped.elements.members[0]! : null;
+      region && scoped?.elements.membersComplete && scoped.elements.members.length === 1
+        ? scoped.elements.members[0]!
+        : null;
     const el = sole ?? target;
     const anchor: Anchor = {
       ...buildAnchor(el, clientX, clientY, deep),
