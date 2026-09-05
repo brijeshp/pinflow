@@ -232,3 +232,99 @@ describe('buildAnchor deep-element heading (0.6.1)', () => {
     expect(deep.context?.role).toBe(plain.context?.role);
   });
 });
+
+// A pin taken inside a modal is bound to that LAYER, not to page geometry.
+// Without this, closing the dialog let the heal ladder attach the comment to
+// whatever was left in the tree — the session header, a sibling in the next
+// dialog — and _persistHeal wrote the stranger into the stored selectors.
+describe('dialog layer', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  const page = '<main><h1>Session</h1><button>Save</button></main>';
+
+  it('records the enclosing dialog with its aria-label', () => {
+    document.body.innerHTML =
+      page +
+      '<div class="backdrop"><div role="dialog" aria-label="Add Patients"><button>Save</button></div></div>';
+    const a = buildAnchor(document.querySelector('[role="dialog"] button')!, 0, 0);
+    expect(a.layer).toEqual({ role: 'dialog', name: 'Add Patients' });
+  });
+
+  it('names the dialog by aria-labelledby, then by its first heading', () => {
+    document.body.innerHTML =
+      '<div role="dialog" aria-labelledby="t"><h2 id="t">New Appointment</h2><button>Go</button></div>' +
+      '<div role="dialog"><header><h3>Session Recording</h3></header><button>Stop</button></div>';
+    const [a, b] = Array.from(document.querySelectorAll('[role="dialog"] button'));
+    expect(buildAnchor(a!, 0, 0).layer?.name).toBe('New Appointment');
+    expect(buildAnchor(b!, 0, 0).layer?.name).toBe('Session Recording');
+  });
+
+  it('aria-modal and alertdialog count as layers; an unnamed dialog records no name', () => {
+    document.body.innerHTML =
+      '<section aria-modal="true"><button>A</button></section>' +
+      '<div role="alertdialog"><button>B</button></div>';
+    const [a, b] = Array.from(document.querySelectorAll('button'));
+    expect(buildAnchor(a!, 0, 0).layer).toEqual({ role: 'dialog' });
+    expect(buildAnchor(b!, 0, 0).layer).toEqual({ role: 'dialog' });
+  });
+
+  it('a page pin records no layer', () => {
+    document.body.innerHTML = page;
+    expect(buildAnchor(document.querySelector('button')!, 0, 0).layer).toBeUndefined();
+  });
+
+  it('parks when the dialog is gone: a same-text page element never wins', () => {
+    document.body.innerHTML =
+      page +
+      '<div class="backdrop"><div role="dialog" aria-label="Add Patients"><button>Save</button></div></div>';
+    const a = buildAnchor(document.querySelector('[role="dialog"] button')!, 0, 0);
+    document.querySelector('.backdrop')!.remove();
+    // The page still holds a "Save" button: the fingerprint walk would take it.
+    expect(document.querySelector('main button')!.textContent).toBe('Save');
+    expect(resolveAnchor(a, document)).toBeNull();
+  });
+
+  it('parks when the css/xpath path lands outside every open dialog', () => {
+    document.body.innerHTML =
+      '<div><div role="dialog" aria-label="Add Patients"><p>x</p></div></div>';
+    const a = buildAnchor(document.querySelector('p')!, 0, 0);
+    // The dialog closes and a page element now sits at the recorded path.
+    document.body.innerHTML = '<div><div><p>x</p></div></div>';
+    expect(document.querySelector(a.selectors.css)).not.toBeNull();
+    expect(resolveAnchor(a, document)).toBeNull();
+  });
+
+  it('snaps back when a dialog with the same name reopens', () => {
+    const dialog =
+      '<div class="backdrop"><div role="dialog" aria-label="Add Patients"><button>Save</button></div></div>';
+    document.body.innerHTML = page + dialog;
+    const a = buildAnchor(document.querySelector('[role="dialog"] button')!, 0, 0);
+    document.querySelector('.backdrop')!.remove();
+    expect(resolveAnchor(a, document)).toBeNull();
+    document.body.insertAdjacentHTML('beforeend', dialog);
+    expect(resolveAnchor(a, document)).toBe(document.querySelector('[role="dialog"] button'));
+  });
+
+  it('never resolves inside a different dialog, even one with an identical element', () => {
+    document.body.innerHTML =
+      page +
+      '<div class="backdrop"><div role="dialog" aria-label="Add Patients"><button>Save</button></div></div>';
+    const a = buildAnchor(document.querySelector('[role="dialog"] button')!, 0, 0);
+    document.body.innerHTML =
+      page +
+      '<div class="backdrop"><div role="dialog" aria-label="New Appointment"><button>Save</button></div></div>';
+    expect(resolveAnchor(a, document)).toBeNull();
+  });
+
+  it('an unnamed layer resolves inside any open dialog, and a closed <dialog> is not open', () => {
+    document.body.innerHTML = page + '<dialog open><button>Save</button></dialog>';
+    const a = buildAnchor(document.querySelector('dialog button')!, 0, 0);
+    expect(a.layer).toEqual({ role: 'dialog' });
+    document.querySelector('dialog')!.removeAttribute('open');
+    expect(resolveAnchor(a, document)).toBeNull();
+    document.querySelector('dialog')!.setAttribute('open', '');
+    expect(resolveAnchor(a, document)).toBe(document.querySelector('dialog button'));
+  });
+});

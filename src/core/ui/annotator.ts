@@ -188,6 +188,8 @@ export class Annotator {
   private _sayGen = 0;
   private _sheetOpen = false;
   private _sheetDismiss: (() => void) | null = null;
+  private _mutations: MutationObserver | null = null;
+  private _orphanTimer = 0;
   /** Host page's body cursor, saved on entering annotate mode and restored on exit. */
   private _prevBodyCursor = '';
   private _selGuard: (() => void) | undefined;
@@ -276,6 +278,22 @@ export class Annotator {
     // bubble, but they DO capture through document — without this, pins over
     // inner scrollareas keep stale fixed coordinates (review #6).
     document.addEventListener('scroll', this._onReflow, { passive: true, capture: true });
+    // Host re-renders reposition pins too. Without this a pin whose element
+    // left the DOM — a dialog unmounting is the common case — kept its last
+    // screen position over whatever the overlay had covered until the
+    // reviewer happened to scroll. Same rAF throttle as scroll; the cached
+    // anchor check per pin is an isConnected read, and re-resolving parked
+    // pins stays behind the 500 ms retry gate. Our own shadow tree is not
+    // observed: subtree observers do not cross the shadow boundary.
+    // An ESM init() may run before <body> exists (module script in <head>):
+    // createUIRoot defers its append the same way, and observe(null) throws.
+    this._mutations = new MutationObserver(this._onReflow);
+    const observe = (): void => {
+      if (!this._destroyed && document.body)
+        this._mutations?.observe(document.body, { childList: true, subtree: true });
+    };
+    if (document.body) observe();
+    else document.addEventListener('DOMContentLoaded', observe, { once: true });
     // Desktop accelerator for the export sheet. A chord, so it can never
     // collide with typing in host inputs; gated at registration (config is
     // immutable per instance).
@@ -385,6 +403,9 @@ export class Annotator {
     this._generation += 1;
     window.removeEventListener('resize', this._onReflow);
     document.removeEventListener('scroll', this._onReflow, { capture: true });
+    this._mutations?.disconnect();
+    this._mutations = null;
+    window.clearTimeout(this._orphanTimer);
     document.removeEventListener('keydown', this._onExportHotkey, true);
     this._gesture?.stop();
     // dispose() may synchronously best-effort persist an in-flight transcript,
@@ -1972,6 +1993,7 @@ export class Annotator {
     const t = performance.now();
     const retryOrphans = t - this._orphanRetryAt > 500;
     if (retryOrphans) this._orphanRetryAt = t;
+    let parked = false;
     const byId = new Map(this._visibleComments().map((c) => [c.id, c]));
     for (const [id, pin] of this._pins) {
       const c = byId.get(id);
@@ -1982,6 +2004,7 @@ export class Annotator {
         this._anchorCache.set(c.id, target);
         if (target) this._persistHeal(c.id, target);
       }
+      if (target === null) parked = true;
       // ONE geometry read per target per frame, shared by pin + footprint —
       // interleaved read→write→read forces layout twice (ce-review #6).
       const rect = target ? target.getBoundingClientRect() : null;
@@ -1989,6 +2012,19 @@ export class Annotator {
       const area = this._areas.get(id);
       if (area) this._placeArea(area, c, target, rect);
     }
+    // A pass that skipped its parked pins because of the gate still owes them
+    // one retry once it expires: the pass was triggered by a change (a
+    // mutation, a scroll), and a dialog reopening 100 ms after it closed is
+    // exactly that change. Without this the pin stayed parked until the next
+    // unrelated reflow. One timer, never stacked; cleared on destroy.
+    if (parked && !retryOrphans && !this._orphanTimer)
+      this._orphanTimer = window.setTimeout(
+        () => {
+          this._orphanTimer = 0;
+          this._onReflow();
+        },
+        501 - (t - this._orphanRetryAt),
+      );
     // Orphan state may have flipped either way — keep an open sheet honest.
     if (this._sheetOpen && this._panelEl) {
       const h = this._panelEl.querySelector('h3');

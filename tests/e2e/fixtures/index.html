@@ -49,6 +49,11 @@
           <button class="cta" data-testid="primary-cta">Get started for free</button>
         </div>
       </div>
+      <!-- Modal layer for the dialog-binding specs. Mounted/unmounted, not
+           toggled, and NOT portalled: the backdrop sits inside <main> so the
+           covered parents stay in the tree — the case heal found tempting. -->
+      <button id="open-dialog" type="button">Open dialog</button>
+      <div id="layer"></div>
     </main>
     <script>
       // Minimal SPA router for the fixture
@@ -71,6 +76,16 @@
         document.getElementById('app').innerHTML = pages[path] || pages['/'];
       }
       window.addEventListener('popstate', () => navigate(location.pathname));
+      const DIALOG =
+        '<div class="backdrop"><div role="dialog" aria-label="Add Patients">' +
+        '<h2>Add Patients</h2><p>Roster</p><button class="cta" id="dialog-save">Save</button>' +
+        '<button id="close-dialog" type="button">Close</button></div></div>';
+      document.getElementById('open-dialog').addEventListener('click', () => {
+        document.getElementById('layer').innerHTML = DIALOG;
+        document.getElementById('close-dialog').addEventListener('click', () => {
+          document.getElementById('layer').innerHTML = '';
+        });
+      });
       document.querySelectorAll('[data-link]').forEach((a) => {
         a.addEventListener('click', (e) => {
           e.preventDefault();

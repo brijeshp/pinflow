@@ -20,6 +20,10 @@ a running page.
 - **`## Orphaned comments` no longer exist in the DOM.** Their "last known"
   fields are history. Re-derive the target; do not run the stale selectors and
   act on whatever they hit.
+- **`**Layer:** dialog ‘X’` means the element is inside a modal.** Open that
+  dialog before looking for it. Under `## Orphaned comments` the `(parked)` suffix means the dialog was
+  closed at export time, or its contents changed — open it and re-derive the
+  target inside it; the element is parked, not gone.
 - **The line-anchored `**Status:**` field is the only completion signal.**
   `done` / `declined` means already dispositioned — skip unless asked. It is
   always present (`open` otherwise) and never inferred from a heading,

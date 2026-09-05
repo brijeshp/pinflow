@@ -69,6 +69,16 @@ export interface Anchor {
    * image pins. Together they give an agent the "what is being pinned"
    * blast radius without screenshots.
    */
+  /**
+   * The modal LAYER the pinned element lived in, when it had one: the nearest
+   * `[role="dialog"]` / `[role="alertdialog"]` / `[aria-modal="true"]` / open
+   * `<dialog>` ancestor, named by its accessible name (aria-label,
+   * aria-labelledby, else its first heading; ≤80 chars). A layer pin resolves
+   * ONLY inside an open dialog of that name and parks (orphaned, hidden)
+   * otherwise — it never heals onto the page underneath, which is what
+   * closing a modal used to do to every pin taken on it. Additive in 0.12.0.
+   */
+  layer?: { role: 'dialog'; name?: string };
   context?: {
     name?: string;
     role?: string;

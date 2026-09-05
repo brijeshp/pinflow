@@ -74,6 +74,19 @@ function validContext(v: unknown): boolean {
   return isObject(styles) && Object.values(styles).every((s) => typeof s === 'string');
 }
 
+// A layer is dereferenced on every resolve (name compared, role trusted), so
+// a malformed one drops the record like any other anchor corruption. The name
+// cap matches every context field's ≤80 promise.
+function validLayer(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!isObject(v)) return false;
+  const name = v['name'];
+  return (
+    v['role'] === 'dialog' &&
+    (name === undefined || (typeof name === 'string' && name.length <= 80))
+  );
+}
+
 // Area comments (marquee picker): all four leaves are Math.round()ed on
 // export, so NaN/out-of-range must drop the record like any anchor corruption.
 function validArea(v: unknown): boolean {
@@ -135,6 +148,7 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     // consumer a null where only a string is possible (review #2).
     (anchor['covers'] === undefined || typeof anchor['covers'] === 'string') &&
     validContext(anchor['context']) &&
+    validLayer(anchor['layer']) &&
     validVoice(c['voice'])
   );
 }
