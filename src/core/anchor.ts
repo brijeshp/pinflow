@@ -1,4 +1,11 @@
-import { buildSelectors, findByCandidates, getTestId, getTextFingerprint } from './selector';
+import {
+  accessibleName,
+  buildSelectors,
+  findByCandidates,
+  getTestId,
+  getTextFingerprint,
+  roleOf,
+} from './selector';
 import type { Anchor, PositionPercent, Viewport } from './types';
 
 export function currentViewport(): Viewport {
@@ -85,22 +92,11 @@ export function anchorTarget(el: Element): Element {
 // part of the definition on both sides.
 const LAYER = '[role="dialog"],[role="alertdialog"],[aria-modal="true"],dialog[open]';
 
-// The dialog's accessible name, best-effort: aria-label, then aria-labelledby
-// (every referenced id, joined), then the first heading inside it — which is
-// what a host's modal title almost always is when neither aria hook is set.
+// The dialog's accessible name through the shared ladder, then the first
+// heading inside it — which is what a host's modal title almost always is
+// when neither aria hook is set.
 function layerName(dialog: Element): string | undefined {
-  let name = dialog.getAttribute('aria-label');
-  if (!name) {
-    const ids = dialog.getAttribute('aria-labelledby');
-    if (ids) {
-      const doc = dialog.ownerDocument;
-      name = ids
-        .split(/\s+/)
-        .map((id) => doc.getElementById(id)?.textContent?.trim() ?? '')
-        .filter(Boolean)
-        .join(' ');
-    }
-  }
+  let name = accessibleName(dialog);
   if (!name) {
     const h = dialog.querySelector(HEADINGS);
     if (h) name = getTextFingerprint(h);
@@ -133,13 +129,12 @@ export function buildAnchor(
   const fingerprint = getTextFingerprint(el);
   // Best-effort human context (accessible name, role, nearest heading) —
   // exports render "the 'Continue' button under 'Next section'" from it.
-  const context: NonNullable<Anchor['context']> = {
-    role: el.getAttribute('role') ?? el.tagName.toLowerCase(),
-  };
-  // Accessible-name ladder: aria-label → img alt → text fingerprint.
-  // Capped ≤80 like every context field (types.ts promise) — a CMS-length
-  // alt must never balloon the anchor toward the host's payload bound.
-  const name = el.getAttribute('aria-label') ?? el.getAttribute('alt') ?? fingerprint;
+  const context: NonNullable<Anchor['context']> = { role: roleOf(el) };
+  // The shared accessible-name ladder (aria-label, aria-labelledby, an
+  // associated <label>, alt, title), then the text fingerprint — so the
+  // Context line and the role+name locator can never disagree. Capped ≤80
+  // like every context field (types.ts promise).
+  const name = accessibleName(el) ?? fingerprint;
   if (name) context.name = name.slice(0, 80);
   const heading = nearestHeading(deep ?? el);
   if (heading) context.heading = heading;

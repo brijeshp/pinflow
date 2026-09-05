@@ -7,7 +7,9 @@ a running page.
 - **The `**Comment ID:**` field is the unit of work.** Cite its value in commit
   messages. `Comment N` is a position in the file and changes between exports.
 - **Find elements via `**Selector candidates:**` in the order listed** — testid,
-  id, css, xpath. A testid is usually greppable straight to a source file. When
+  role + name, css, xpath. A testid is usually greppable straight to a source
+  file; a `role:` line (`switch` named ‘Spoke for Alfred Hart’) survives a
+  rebuild that rehashes every class, so prefer it over the css path. When
   the selectors look stale, `**Context:**` ("the ‘Continue’ button under ‘Next
   section’") is the better search term.
 - **`**Position:**` is a percentage inside the element, not the viewport.** It

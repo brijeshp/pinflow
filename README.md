@@ -87,7 +87,8 @@ which rules out the people whose opinion you actually needed: the client, the PM
 at it on their phone.
 
 Pins survive edits. When an agent rewrites the page, Pinflow re-finds elements through a selector
-ladder that falls back to fuzzy text matching. If it can't find one with reasonable confidence it
+ladder — test id, then role plus accessible name (which outlives a CSS-modules rebuild), then
+structure — that falls back to fuzzy text matching. If it can't find one with reasonable confidence it
 reports the comment as orphaned instead of quietly attaching it to whatever is nearby now, which is
 the failure you'd never catch.
 

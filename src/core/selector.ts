@@ -93,6 +93,112 @@ export function getTestId(el: Element): string | null {
   return v && v.trim().length > 0 ? v.trim() : null;
 }
 
+// Implicit ARIA roles for the elements reviewers actually pin — not the spec
+// table. Enough that "the ‘All Attended’ checkbox" reads right and that the
+// role+name rung has a tag to query when no explicit role is set.
+const INPUT_ROLES: Record<string, string> = {
+  checkbox: 'checkbox',
+  radio: 'radio',
+  range: 'slider',
+  submit: 'button',
+  button: 'button',
+  reset: 'button',
+  image: 'button',
+};
+const TAG_ROLES: Record<string, string> = {
+  button: 'button',
+  select: 'combobox',
+  textarea: 'textbox',
+  img: 'img',
+  dialog: 'dialog',
+};
+// Reverse map for the rung's candidate query. Deliberately loose (every
+// <input> for `checkbox`): roleOf() does the precise filtering per candidate,
+// and a loose selector costs bytes only once.
+const ROLE_TAGS: Record<string, string> = {
+  button: 'button,input',
+  checkbox: 'input',
+  radio: 'input',
+  slider: 'input',
+  textbox: 'textarea,input',
+  combobox: 'select',
+  link: 'a',
+};
+
+export function roleOf(el: Element): string {
+  const explicit = el.getAttribute('role');
+  if (explicit) return explicit.slice(0, 80);
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'input') return INPUT_ROLES[(el as HTMLInputElement).type] ?? 'textbox';
+  if (tag === 'a') return el.hasAttribute('href') ? 'link' : tag;
+  return TAG_ROLES[tag] ?? tag;
+}
+
+// aria-label → aria-labelledby (every id, joined) → associated <label> (for=,
+// then wrapping) → alt → title. Never text content: the fingerprint rung owns
+// text, and a by-name rung built on it would be a second, weaker fingerprint.
+// Capped ≤80 like every context field.
+// `labels` is a prebuilt for→label index: the by-name rung names hundreds of
+// candidates per resolve, and a document-wide `label[for]` query per candidate
+// measured 200 ms on an 8,000-input form against a 2 ms budget (review #2).
+export function accessibleName(el: Element, labels?: Map<string, Element>): string | null {
+  const doc = el.ownerDocument;
+  let name = el.getAttribute('aria-label');
+  if (!name) {
+    const ids = el.getAttribute('aria-labelledby');
+    if (ids)
+      name = ids
+        .split(/\s+/)
+        .map((id) => doc.getElementById(id)?.textContent ?? '')
+        .join(' ');
+  }
+  if (!name && el.id)
+    name =
+      (labels ? labels.get(el.id) : doc.querySelector(`label[for="${CSS.escape(el.id)}"]`))
+        ?.textContent ?? null;
+  if (!name) name = el.closest('label')?.textContent ?? null;
+  if (!name) name = el.getAttribute('alt') ?? el.getAttribute('title');
+  name = name?.replace(/\s+/g, ' ').trim() ?? '';
+  return name ? name.slice(0, 80) : null;
+}
+
+// Up to TWO matches: one means unique; two means ambiguous, and the rung then
+// only corroborates a positional hit rather than picking a first. Twelve
+// identical "Remove" buttons must never resolve to the first one.
+function findByName(
+  root: Document | Element,
+  role: string,
+  name: string,
+  deadline: number,
+): Element[] {
+  const out: Element[] = [];
+  // The fallback alternative is a bare tag name: a stored role that is not
+  // one (hydrated, hostile) must not be spliced into the selector unescaped.
+  const tags = ROLE_TAGS[role] ?? (/^[a-z][a-z0-9-]*$/.test(role) ? role : '');
+  let list: NodeListOf<Element>;
+  try {
+    list = root.querySelectorAll(`[role="${CSS.escape(role)}"]${tags && `,${tags}`}`);
+  } catch {
+    return out;
+  }
+  const labels = new Map<string, Element>();
+  const doc = root.ownerDocument ?? (root as Document);
+  for (const l of Array.from(doc.querySelectorAll('label[for]'))) {
+    const id = l.getAttribute('for')!;
+    if (!labels.has(id)) labels.set(id, l);
+  }
+  for (let i = 0; i < list.length; i++) {
+    // Sampled every four, not sixteen: a candidate's name read is not free.
+    if ((i & 3) === 3 && performance.now() > deadline) break;
+    const el = list[i]!;
+    if (roleOf(el) === role && accessibleName(el, labels) === name) {
+      out.push(el);
+      if (out.length > 1) break;
+    }
+  }
+  return out;
+}
+
 function nthOfType(el: Element): number {
   const parent = el.parentElement;
   if (!parent) return 1;
@@ -227,12 +333,18 @@ function corroborates(el: Element, fingerprint: string, deadline: number): boole
 }
 
 export function buildSelectors(el: Element): SelectorCandidates {
-  return {
+  const out: SelectorCandidates = {
     testid: getTestId(el),
     id: getStableId(el),
     css: getCssPath(el),
     xpath: getXPath(el),
   };
+  const name = accessibleName(el);
+  if (name) {
+    out.role = roleOf(el);
+    out.name = name;
+  }
+  return out;
 }
 
 export function findByCandidates(
@@ -254,6 +366,16 @@ export function findByCandidates(
   if (selectors.id) {
     const hit = root.querySelector(`#${CSS.escape(selectors.id)}`);
     if (hit) return hit;
+  }
+  // Role + accessible name: the rung a CSS-modules rebuild cannot kill. Only a
+  // UNIQUE match resolves. An ambiguous name contributes nothing — it must not
+  // even corroborate a positional hit, because two "Delete comment" buttons
+  // share the name and only the fingerprint tells them apart; letting
+  // membership stand in for corroboration returned the wrong one after a
+  // reorder, where the walk below would have found the true target (review #1).
+  if (selectors.role && selectors.name) {
+    const named = findByName(root, selectors.role, selectors.name, deadline);
+    if (named.length === 1) return named[0]!;
   }
   // A positional hit that contradicts a strong stored fingerprint is demoted,
   // not discarded: it still beats a merely-fuzzy candidate at the bottom of
