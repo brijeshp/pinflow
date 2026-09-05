@@ -5,6 +5,17 @@ export interface SelectorCandidates {
   id: string | null;
   css: string;
   xpath: string;
+  /**
+   * The role-and-name rung (0.12.0, additive): the element's role (explicit,
+   * else a small implicit map — `checkbox`, `link`, `button`…) and its
+   * accessible name from aria-label / aria-labelledby / an associated
+   * `<label>` / alt / title (≤80). Never from text content — the fingerprint
+   * owns text. Present only when a name exists. Resolves between `id` and
+   * `css`, and only when unique; a CSS-modules rebuild kills every hashed
+   * class in the css path but leaves `role="switch"` + "Spoke for Alfred Hart".
+   */
+  role?: string;
+  name?: string;
 }
 
 export interface Viewport {

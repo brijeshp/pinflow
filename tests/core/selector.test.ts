@@ -1,11 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  accessibleName,
   buildSelectors,
   findByCandidates,
   getCssPath,
   getStableId,
   getTestId,
   getTextFingerprint,
+  roleOf,
 } from '../../src/core/selector';
 
 function html(s: string): Document {
@@ -660,4 +662,137 @@ it('a cheap heal survives a deadline that expires immediately (scheduler jank)',
     'This survey is anonymous and only asks about broad groups.',
   );
   expect(found).toBe(document.querySelector('p'));
+});
+
+// Accessible name + role: the Context line names what the reviewer saw on
+// screen, and the same pair is a locator rung that a CSS-modules rebuild
+// cannot kill (0.12.0).
+describe('accessible name and role', () => {
+  it('accessibleName: aria-label, aria-labelledby, label[for], wrapping label, alt, title, else null', () => {
+    const doc = html(
+      '<button aria-label="Close">×</button>' +
+        '<div aria-labelledby="a b"><span id="a">Spoke for</span><span id="b">Alfred Hart</span></div>' +
+        '<label for="all">All Attended</label><input id="all" type="checkbox">' +
+        '<label>Wrapped <input id="w" type="checkbox"></label>' +
+        '<img alt="Team photo">' +
+        '<span title="Tip">?</span>' +
+        '<p>Plain text is not a name</p>',
+    );
+    const q = (s: string) => doc.querySelector(s)!;
+    expect(accessibleName(q('button'))).toBe('Close');
+    expect(accessibleName(q('[aria-labelledby]'))).toBe('Spoke for Alfred Hart');
+    expect(accessibleName(q('#all'))).toBe('All Attended');
+    expect(accessibleName(q('#w'))).toBe('Wrapped');
+    expect(accessibleName(q('img'))).toBe('Team photo');
+    expect(accessibleName(q('span[title]'))).toBe('Tip');
+    expect(accessibleName(q('p'))).toBeNull();
+  });
+
+  it('accessibleName collapses whitespace and caps at 80', () => {
+    const doc = html(`<button aria-label="  a  ${'b'.repeat(200)} ">x</button>`);
+    const name = accessibleName(doc.querySelector('button')!)!;
+    expect(name.startsWith('a b')).toBe(true);
+    expect(name).toHaveLength(80);
+  });
+
+  it('roleOf: explicit role, implicit input types, link only with href, tag otherwise', () => {
+    const doc = html(
+      '<div role="switch"></div><input type="checkbox"><input type="radio"><input type="range">' +
+        '<input type="submit"><input><textarea></textarea><select></select><a href="/x"></a><a></a><button></button><section></section>',
+    );
+    const roles = Array.from(doc.body.children).map((el) => roleOf(el));
+    expect(roles).toEqual([
+      'switch',
+      'checkbox',
+      'radio',
+      'slider',
+      'button',
+      'textbox',
+      'textbox',
+      'combobox',
+      'link',
+      'a',
+      'button',
+      'section',
+    ]);
+  });
+
+  it('buildSelectors carries role and name only when a name exists', () => {
+    const doc = html(
+      '<div role="switch" aria-label="Spoke for Alfred Hart"></div><button>Save</button>',
+    );
+    const [sw, btn] = Array.from(doc.body.children);
+    expect(buildSelectors(sw!)).toMatchObject({ role: 'switch', name: 'Spoke for Alfred Hart' });
+    const plain = buildSelectors(btn!);
+    expect(plain.role).toBeUndefined();
+    expect(plain.name).toBeUndefined();
+  });
+
+  it('the role+name rung survives a rebuild that rehashes every class and reorders siblings', () => {
+    const before = html(
+      '<div class="_card_1a2b3"><div class="_row_9z8y7"><label for=":r1:">All Attended</label><input id=":r1:" type="checkbox"></div></div>',
+    );
+    const sel = buildSelectors(before.querySelector('input')!);
+    expect(sel.testid).toBeNull();
+    expect(sel.id).toBeNull(); // auto id, refused
+    // Next build: new hashes, an extra input inserted before, no text to fingerprint.
+    const after = html(
+      '<div class="_card_7q8w9"><input type="checkbox" id=":r5:"><div class="_row_2x3c4"><label for=":r6:">All Attended</label><input id=":r6:" type="checkbox"></div></div>',
+    );
+    expect(findByCandidates(after, sel, '')).toBe(after.querySelector('#\\:r6\\:'));
+  });
+
+  it('an ambiguous name never overrides the fingerprint: a reorder still finds the true target', () => {
+    const before = html(
+      '<ul><li><button aria-label="Delete comment">Nice post, thanks for sharing this</button></li>' +
+        '<li><button aria-label="Delete comment">Other one is a totally different remark</button></li></ul>',
+    );
+    const target = before.querySelectorAll('button')[1]!;
+    const sel = buildSelectors(target);
+    const fp = getTextFingerprint(target);
+    // A third row inserted first: the stored css/xpath path now lands on the
+    // "Nice post" button, which shares the ambiguous name. Membership must not
+    // stand in for corroboration — the walk finds the real one further down.
+    const after = html(
+      '<ul><li><button aria-label="Delete comment">Third remark inserted at the top</button></li>' +
+        '<li><button aria-label="Delete comment">Nice post, thanks for sharing this</button></li>' +
+        '<li><button aria-label="Delete comment">Other one is a totally different remark</button></li></ul>',
+    );
+    expect(findByCandidates(after, sel, fp)).toBe(after.querySelectorAll('button')[2]);
+  });
+
+  it('a hostile stored role neither throws nor selects anything', () => {
+    const doc = html('<div id="evil" role="x"></div><div role="x"></div>');
+    const sel = {
+      testid: null,
+      id: null,
+      css: 'nope > x',
+      xpath: '/html/body/nope',
+      role: 'x], #evil, [role="x',
+      name: 'n',
+    };
+    expect(() => findByCandidates(doc, sel, '')).not.toThrow();
+    expect(findByCandidates(doc, sel, '')).toBeNull();
+  });
+
+  it('roleOf caps an explicit role at 80', () => {
+    const doc = html(`<div role="${'r'.repeat(200)}"></div>`);
+    expect(roleOf(doc.querySelector('div')!)).toHaveLength(80);
+  });
+
+  it('an ambiguous name never resolves to the first match: positional corroboration or nothing', () => {
+    const doc = html(
+      '<ul><li class="card"><button aria-label="Remove"></button></li><li class="card"><button aria-label="Remove"></button></li></ul>',
+    );
+    const second = doc.querySelectorAll('button')[1]!;
+    const sel = buildSelectors(second);
+    // Unchanged page: the css path lands on the second, which is in the named set.
+    expect(findByCandidates(doc, sel, '')).toBe(second);
+    // Rebuilt: css/xpath dead (wrapper inserted, classes gone). Two "Remove"s remain;
+    // picking the first would be a wrong attach. Icon-only, so no fingerprint either.
+    const rebuilt = html(
+      '<div><section><button aria-label="Remove"></button></section><section><button aria-label="Remove"></button></section></div>',
+    );
+    expect(findByCandidates(rebuilt, sel, '')).toBeNull();
+  });
 });

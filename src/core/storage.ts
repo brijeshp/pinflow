@@ -124,6 +124,12 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     optStr(selectors['testid']) &&
     optStr(selectors['id']) &&
     typeof selectors['xpath'] === 'string' &&
+    // The role+name rung (0.12.0): string-or-absent, name ≤80 — compared
+    // per candidate on every resolve, so a non-string must drop the record.
+    (selectors['role'] === undefined ||
+      (typeof selectors['role'] === 'string' && selectors['role'].length <= 80)) &&
+    (selectors['name'] === undefined ||
+      (typeof selectors['name'] === 'string' && selectors['name'].length <= 80)) &&
     isObject(pos) &&
     pct(pos['x']) &&
     pct(pos['y']) &&

@@ -462,7 +462,7 @@ Pinflow may record:
 
 - element text, accessible name, and role;
 - the nearest heading;
-- test id, id, CSS, and XPath selector candidates;
+- test id, id, role plus accessible name, CSS, and XPath selector candidates;
 - viewport size and relative click position;
 - selected computed styles such as color, font, background, and radius;
 - image and CSS background-image URLs, which may contain signed or tokenized CDN values.

@@ -1244,3 +1244,28 @@ describe('dialog layer in exports', () => {
     expect(md).toContain('**Layer:** dialog\n');
   });
 });
+
+describe('role/name selector line', () => {
+  const meta = { generatedAt: '2026-09-05T00:00:00Z', project: 'p' };
+  it('prints between testid and css, escaped', () => {
+    const c = makeComment({ id: 'cmt_r', route: '/', text: 'x' });
+    c.anchor.selectors = { ...c.anchor.selectors, role: 'switch', name: 'Spoke `for`\nAlfred' };
+    const md = exportReviewer(
+      { reviewer: 'W', project: 'p', createdAt: '2026-09-01T00:00:00Z', comments: [c] },
+      meta,
+      () => false,
+    );
+    expect(md).toContain(
+      "- testid: `primary-cta`\n- role: `switch` named ‘Spoke 'for' Alfred’\n- css: `",
+    );
+  });
+  it('is absent when no name was captured', () => {
+    const c = makeComment({ id: 'cmt_r', route: '/', text: 'x' });
+    const md = exportReviewer(
+      { reviewer: 'W', project: 'p', createdAt: '2026-09-01T00:00:00Z', comments: [c] },
+      meta,
+      () => false,
+    );
+    expect(md).not.toContain('- role:');
+  });
+});

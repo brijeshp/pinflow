@@ -328,3 +328,36 @@ describe('dialog layer', () => {
     expect(resolveAnchor(a, document)).toBe(document.querySelector('dialog button'));
   });
 });
+
+describe('accessible name in context (0.12.0)', () => {
+  afterEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('names a labelled checkbox by its label, with its implicit role, and mirrors both into selectors', () => {
+    document.body.innerHTML =
+      '<h2>Bill-led Group Session 1</h2><label for="all">All Attended</label><input id="all" type="checkbox">';
+    const a = buildAnchor(document.querySelector('input')!, 0, 0);
+    expect(a.context).toMatchObject({
+      name: 'All Attended',
+      role: 'checkbox',
+      heading: 'Bill-led Group Session 1',
+    });
+    expect(a.selectors).toMatchObject({ role: 'checkbox', name: 'All Attended' });
+  });
+
+  it('a text-only element still names itself by its fingerprint, and carries no name selector', () => {
+    document.body.innerHTML = '<button>Continue</button>';
+    const a = buildAnchor(document.querySelector('button')!, 0, 0);
+    expect(a.context?.name).toBe('Continue');
+    expect(a.selectors.name).toBeUndefined();
+  });
+
+  it('a dialog is still named by aria-labelledby through the shared ladder', () => {
+    document.body.innerHTML =
+      '<div role="dialog" aria-labelledby="t"><h2 id="t">New Appointment</h2><button>Go</button></div>';
+    expect(buildAnchor(document.querySelector('button')!, 0, 0).layer?.name).toBe(
+      'New Appointment',
+    );
+  });
+});

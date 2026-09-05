@@ -19,15 +19,15 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 | Entry         | Budget (gz) |
 | ------------- | ----------- |
-| core IIFE     | 23.87 KB    |
-| core ESM      | 23.72 KB    |
+| core IIFE     | 25.04 KB    |
+| core ESM      | 24.91 KB    |
 | voice ESM     | 4.45 KB     |
 | react wrapper | 0.47 KB     |
 | vue wrapper   | 0.61 KB     |
 
 `pnpm size` gates CI (`verify` job) and publishing (`prepublishOnly` runs build + test + size). Policy: budgets only ratchet **down** between features — kept razor-thin over actuals so regressions surface immediately. Raises happen only as deliberate, changeset-documented trades, and are re-ratcheted to actuals afterwards: once for the v3 lifecycle features, again for the 0.4.1 reliability fixes (CSP-safe stylesheet adoption, heal-ladder correctness), again for the 0.5.0 direct-manipulation arc, and again for the 0.6.1 coarse-container-anchor fix (see each changeset). Ceilings are set from **linux CI actuals**, which run a few bytes above a local macOS measurement. Check budget impact after any core change.
 
-**The Linux/macOS gap is still scaling, and it is now the whole margin.** Measured on this repo: ~20 B at 17 KB, then 50 B (ESM) and 100 B (IIFE) at 22 KB, and **120 B on BOTH entries at 23.8 KB**. 0.11.1 shipped at 23.8 against a 23.81 ceiling — about ten bytes — which left no room for the correctness fix that followed and forced an approved raise one release later. A ceiling set from a local `pnpm size` is not a ceiling; it is a coin flip that gets tighter every release. Set it generously, read the figure CI reports, ratchet to that plus ~50 B.
+**The Linux/macOS gap is still scaling, and it is now the whole margin.** Measured on this repo: ~20 B at 17 KB, then 50 B (ESM) and 100 B (IIFE) at 22 KB, and **120 B on BOTH entries at 23.8 KB**. 0.11.1 shipped at 23.8 against a 23.81 ceiling — about ten bytes — which left no room for the correctness fix that followed and forced an approved raise one release later. A ceiling set from a local `pnpm size` is not a ceiling; it is a coin flip that gets tighter every release. Set it generously, read the figure CI reports, ratchet to that plus ~50 B. 0.12.0 followed that procedure across three stacked features (Keep/Clear row, dialog-layer binding, accessible-name rung): the gap measured 80 B (IIFE) and 90 B (ESM) at 24.9 KB — smaller than the 120 B at 23.8, so it is not monotonic either; predicting it in either direction is the mistake.
 
 **A re-ratchet re-stales the wiki marker.** The ratchet commit necessarily lands AFTER the CI run that produced its number, so it lands after the `.last-sync` move that certified the branch — and it touches `package.json`, a watched path. `wiki:check` then fails on a branch that was green minutes earlier. Expect to move the marker a second time, as the final commit, after the ratchet.
 
