@@ -177,6 +177,20 @@ function contextLine(comment: Comment): string[] {
   ];
 }
 
+// "**Layer:** dialog ‘Add Patients’" — the modal the element lived in. An
+// agent has to open that dialog before the selectors mean anything. Under
+// Orphaned comments the suffix says only that the pin is PARKED: resolve
+// returns null both when no dialog of that name is open and when one is open
+// but the element inside it changed, and the export cannot tell which — so it
+// must not claim the dialog was closed (review #2). Either way the fix is the
+// same: open the dialog and re-derive inside it.
+function layerLine(comment: Comment, parked = false): string[] {
+  const l = comment.anchor.layer;
+  if (!l) return [];
+  const name = l.name ? ` ‘${inline(l.name)}’` : '';
+  return [`**Layer:** dialog${name}${parked ? ' (parked)' : ''}`];
+}
+
 // "**Computed:** background rgb(...), text rgb(...), font 17px DM Sans" — the
 // pin-time visual snapshot, so an agent knows WHAT is being pinned (a color,
 // a font, an image) and its current value, not just where it sits.
@@ -348,6 +362,7 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
     commentHeading(comment, index, reviewer),
     `**Element:** ${elementLabel(comment)}`,
     ...contextLine(comment),
+    ...layerLine(comment),
     ...visualLines(comment),
     '**Selector candidates:**',
     `- testid: ${sel.testid ? `\`${inline(sel.testid)}\`` : '(none)'}`,
@@ -375,6 +390,7 @@ function orphanBlock(comment: Comment & { reviewer?: string }, index: number): s
     commentHeading(comment, index, comment.reviewer),
     `**Last known element:** ${elementLabel(comment)}`,
     ...contextLine(comment),
+    ...layerLine(comment, true),
     ...visualLines(comment),
     ...(comment.anchor.areaPercent
       ? [areaLine(comment.anchor.areaPercent, comment.anchor.covers)]

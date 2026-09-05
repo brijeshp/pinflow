@@ -1223,3 +1223,107 @@ it('#32 (r2): the voice DEGRADE path keeps the frozen fullUrl, not the navigated
   localStorage.clear();
   document.body.innerHTML = '';
 });
+
+// A dialog pin must hide the moment its dialog unmounts and return when it
+// reopens — without waiting for the reviewer to scroll. Reflow used to run
+// on scroll/resize only, so a pin kept its last screen position over
+// whatever the modal had covered.
+describe('dialog layer: hide on close, snap back on reopen', () => {
+  let annotator: Annotator | null = null;
+  afterEach(() => {
+    annotator?.destroy();
+    annotator = null;
+    localStorage.clear();
+    document.body.innerHTML = '';
+    vi.restoreAllMocks();
+  });
+  const flush = async (): Promise<void> => {
+    await Promise.resolve(); // MutationObserver delivery
+    await new Promise((r) => requestAnimationFrame(() => r(undefined)));
+  };
+  const dialog =
+    '<div class="bd"><div role="dialog" aria-label="Add Patients"><button>Save</button></div></div>';
+
+  it('parks and unparks with the dialog, driven by DOM mutation alone', async () => {
+    document.body.innerHTML = '<main><button>Save</button></main>' + dialog;
+    const c = makeComment('roster');
+    c.anchor = {
+      ...c.anchor,
+      selectors: {
+        testid: null,
+        id: null,
+        css: 'div.bd > div > button',
+        xpath: '/html/body/div/div/button',
+      },
+      textFingerprint: 'Save',
+      layer: { role: 'dialog', name: 'Add Patients' },
+    };
+    seedStore(c);
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => (t += 600));
+    annotator = makeAnnotator();
+    const pin = shadow().querySelector<HTMLButtonElement>('button.pin')!;
+    expect(pin.dataset['orphaned']).toBeUndefined();
+
+    document.querySelector('.bd')!.remove();
+    await flush();
+    expect(pin.dataset['orphaned']).toBe('true');
+
+    document.body.insertAdjacentHTML('beforeend', dialog);
+    await flush();
+    expect(pin.dataset['orphaned']).toBeUndefined();
+  });
+
+  it('construction before <body> exists does not throw, and observes once the body lands', async () => {
+    document.body.remove();
+    try {
+      expect(() => (annotator = makeAnnotator())).not.toThrow();
+      document.documentElement.appendChild(document.createElement('body'));
+      document.dispatchEvent(new Event('DOMContentLoaded'));
+      // The observer is live: a mutation now schedules a reflow (no throw, no leak).
+      document.body.insertAdjacentHTML('beforeend', '<main><button>Save</button></main>');
+      await flush();
+      expect(shadow().querySelector('.root')).not.toBeNull();
+    } finally {
+      if (!document.body) document.documentElement.appendChild(document.createElement('body'));
+    }
+  });
+
+  it('a reopen inside the 500 ms retry gate still unparks once the gate expires', async () => {
+    document.body.innerHTML = '<main><button>Save</button></main>' + dialog;
+    const c = makeComment('roster');
+    c.anchor = {
+      ...c.anchor,
+      selectors: {
+        testid: null,
+        id: null,
+        css: 'div.bd > div > button',
+        xpath: '/html/body/div/div/button',
+      },
+      textFingerprint: 'Save',
+      layer: { role: 'dialog', name: 'Add Patients' },
+    };
+    seedStore(c);
+    // A held clock: every pass after the first lands inside the gate until
+    // the test moves it past.
+    let t = 1000;
+    vi.spyOn(performance, 'now').mockImplementation(() => t);
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    try {
+      annotator = makeAnnotator();
+      const pin = shadow().querySelector<HTMLButtonElement>('button.pin')!;
+      document.querySelector('.bd')!.remove();
+      await flush();
+      expect(pin.dataset['orphaned']).toBe('true');
+      document.body.insertAdjacentHTML('beforeend', dialog);
+      await flush();
+      expect(pin.dataset['orphaned']).toBe('true'); // gated — not yet
+      t = 1600;
+      vi.advanceTimersByTime(600);
+      await flush();
+      expect(pin.dataset['orphaned']).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

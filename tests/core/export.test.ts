@@ -1197,3 +1197,50 @@ describe('a minted handle never reaches a public artifact', () => {
     expect(exportJSON([minted, other])).toContain(HANDLE);
   });
 });
+
+describe('dialog layer in exports', () => {
+  const meta = { generatedAt: '2026-09-05T00:00:00Z', project: 'p' };
+  const layered = (text: string) =>
+    makeComment({
+      id: 'cmt_dlg',
+      route: '/session',
+      text,
+      anchor: {
+        selectors: {
+          testid: null,
+          id: null,
+          css: 'div.modal > button',
+          xpath: '/html/body/div/button',
+        },
+        textFingerprint: 'Save',
+        positionPercent: { x: 50, y: 50 },
+        viewport: { width: 1440, height: 900 },
+        context: { name: 'Save', role: 'button' },
+        layer: { role: 'dialog', name: 'Add `Patients`\nnow' },
+      },
+    });
+  const store = (c: Comment): ReviewerStore => ({
+    reviewer: 'Chiara',
+    project: 'p',
+    createdAt: '2026-09-01T00:00:00Z',
+    comments: [c],
+  });
+
+  it('the anchored block names the layer right after Context, escaped', () => {
+    const md = exportReviewer(store(layered('roster is wrong')), meta, () => false);
+    expect(md).toContain("**Context:** the ‘Save’ button\n**Layer:** dialog ‘Add 'Patients' now’");
+  });
+
+  it('the orphan block says the pin is parked, not that the element is gone', () => {
+    const md = exportReviewer(store(layered('roster is wrong')), meta, () => true);
+    expect(md).toContain('## Orphaned comments');
+    expect(md).toContain("**Layer:** dialog ‘Add 'Patients' now’ (parked)");
+  });
+
+  it('an unnamed layer prints without quotes', () => {
+    const c = layered('x');
+    c.anchor.layer = { role: 'dialog' };
+    const md = exportReviewer(store(c), meta, () => false);
+    expect(md).toContain('**Layer:** dialog\n');
+  });
+});
