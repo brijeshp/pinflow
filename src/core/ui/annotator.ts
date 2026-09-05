@@ -858,16 +858,27 @@ export class Annotator {
     // The save can delete the sole (empty) comment — nothing left to export
     // means nothing to summon (review #8).
     if (this._store.comments.length === 0 || !this._chipEl?.isConnected) return;
-    const sheet = this._makePanel(
-      this._sheetTitle(),
-      'Downloads the markdown and copies it to your clipboard.',
-      // ONE action. The sheet used to fork into "& share" / "& clear", which
-      // asked for the disposal decision before either channel had run — and
-      // download() cannot report failure, so the wipe could be authorised by a
-      // reviewer who received nothing. Disposal moved to the confirmation,
-      // which is the first surface that knows anything about delivery.
-      [this._makeButton('Export & share', () => void this._handleReviewerExport(), 'primary')],
+    const rest = 'Downloads the markdown and copies it to your clipboard.';
+    // ONE export action. The sheet used to fork into "& share" / "& clear",
+    // which asked for the disposal decision before either channel had run —
+    // and download() cannot report failure, so the wipe could be authorised
+    // by a reviewer who received nothing. Disposal is its own control now,
+    // never an export variant, and its armed copy says plainly that nothing
+    // is exported first.
+    const exp = this._makeButton(
+      'Export & share',
+      () => void this._handleReviewerExport(),
+      'primary',
     );
+    const sheet = this._makePanel(this._sheetTitle(), rest, [exp]);
+    this._attachClear({
+      panel: sheet,
+      row: sheet.querySelector<HTMLDivElement>('.row')!,
+      primary: exp,
+      batch: () => new Map(this._store.comments.map((c) => [c.id, this._rev(c)])),
+      rest: () => rest,
+      warn: (n) => `Deletes your ${n} from this browser. Nothing is exported first.`,
+    });
     // Attribution is asked for HERE and nowhere else: it is the only moment it
     // matters, and the only one where a reviewer has context for the question.
     // Optional by design — a skipped name exports fine, just unattributed.
@@ -2409,202 +2420,261 @@ export class Annotator {
     // path, so Done is what carries the accent.
     const row = el('div', 'row');
     const done = this._makeButton('Done', () => this._closePanel(), 'primary');
-    if (rev?.size) {
-      let armed = false;
-      let at = 0;
-      let offOut: (() => void) | null = null;
-      // A click on a FOCUSABLE host control fires focusout between pointerdown
-      // and pointerup; disarming there would tear the pointer listener down
-      // mid-gesture and skip the back-out swallow. Track the gesture and let
-      // the pointer path finish it (0.11.0 review #6).
-      let midPointer = false;
-      let fled = false; // focus left the panel while a gesture was in flight
-      const pd = (): void => {
-        midPointer = true;
-      };
-      // On EVERY gesture end a deferred focus departure must land (0.11.0
-      // review #7) — but a pointerup defers ITS disarm to the next task: this
-      // listener runs before the outside-dismiss's, and a synchronous disarm
-      // would remove that later listener mid-dispatch, skipping the back-out
-      // swallow in real DOM (0.11.0 review #8). An outside release disarms
-      // via the dismiss itself; the timeout only catches inside releases.
-      let tid: ReturnType<typeof setTimeout> | null = null;
-      const pu = (): void => {
-        midPointer = false;
-        if (fled) {
-          fled = false;
-          // OWNED: the composite disposer cancels it, so a panel replaced
-          // before this fires is never written to (0.11.0 review #9).
-          tid = setTimeout(() => {
-            tid = null;
-            if (armed) disarm();
-          }, 0);
-        }
-      };
-      // A release that never arrives — drag out of the window, app switch —
-      // still ends the gesture and lands the departure (0.11.0 review #9).
-      const onBlur = (): void => {
-        midPointer = false;
-        if (fled) {
-          fled = false;
-          disarm();
-        }
-      };
-      // No click follows a cancel — the departure lands immediately.
-      const pc = (): void => {
-        midPointer = false;
-        if (fled) {
-          fled = false;
-          disarm();
-        }
-      };
-      const live = () => this._exportedNow(rev);
-      // Every path out of the armed state funnels here: the state drops, and
-      // the host-page listener below is disposed (0.11.0 review #4).
-      const unarm = (): void => {
-        armed = false;
-        fled = false;
-        offOut?.(); // the composite: outside-dismiss AND the gesture trackers
-        if (this._sheetDismiss === offOut) this._sheetDismiss = null;
-        offOut = null;
-      };
-      const disarm = (): void => {
-        if (!armed) return;
-        unarm();
-        clr.className = 'clr';
-        clr.textContent = 'Clear comments';
-        this._say(baseNow());
-      };
-      // Both retirement paths park focus on Done: the activation just removed
-      // the focused element, and a keyboard reviewer must land inside the
-      // still-open panel, not on the host page (0.11.0 review #1).
-      const spend = (msg: string): void => {
-        unarm();
-        clr.remove();
-        done.focus();
-        this._say(msg);
-      };
-      const clr = this._makeButton(
-        'Clear comments',
-        () => {
-          if (!armed) {
-            // The FIRST tap reads the durable truth too — a rename or an edit
-            // persisted by another tab must retire the control, not arm a
-            // count from stale memory (0.11.0 review #4).
-            this._foldDurable();
-            const n = live().length;
-            if (!n) return spend('Nothing left to clear.');
-            armed = true;
-            at = performance.now();
-            // Arming is a question posed to the reviewer; leaving the panel is
-            // walking away from it. A tap anywhere on the host page disarms,
-            // so a stray tap minutes later cannot land on a decision nobody
-            // is making (0.11.0 review #4). _closePanel owns the disposer via
-            // the shared slot, so a Done-while-armed cannot leak it.
-            // One composite disposer owns everything the armed state put on
-            // the document, and it lives in the shared slot — _closePanel and
-            // destroy() tear it all down even mid-arm (0.11.0 review #7).
-            const offDismiss = this._armOutsideDismiss(() => [panel], disarm);
-            document.addEventListener('pointerdown', pd, true);
-            document.addEventListener('pointerup', pu, true);
-            document.addEventListener('pointercancel', pc, true);
-            window.addEventListener('blur', onBlur);
-            this._sheetDismiss = offOut = (): void => {
-              offDismiss();
-              document.removeEventListener('pointerdown', pd, true);
-              document.removeEventListener('pointerup', pu, true);
-              document.removeEventListener('pointercancel', pc, true);
-              window.removeEventListener('blur', onBlur);
-              if (tid !== null) {
-                clearTimeout(tid);
-                tid = null;
-              }
-              // Teardown by ANY owner leaves the closure inert: no stale
-              // timer, no stale state, nothing left to say (0.11.0 review #9).
-              armed = false;
-              fled = false;
-              midPointer = false;
-            };
-            clr.className = 'clr a';
-            clr.textContent = `Clear ${this._n(n, 'comment')}?`;
-            // Answers the only question a reviewer actually has here — which
-            // depends on what this panel can honestly claim: with a verified
-            // clipboard the file is safe; without one, say so instead. Two
-            // taps rather than an undo: deletes go out per-comment on the
-            // sync wire (PROTOCOL has no bulk op), so there is no reversal.
-            return this._say(
-              `Deletes your ${this._n(n, 'comment')} from this browser. ` +
-                (delivered
-                  ? 'The exported file is unaffected.'
-                  : 'Check the file downloaded first: there is no other copy.'),
-            );
-          }
-          // One physical gesture must never be both taps: a double-tap (or a
-          // key-repeat burst) delivers its second activation well inside this
-          // window, and the whole safety of the control is that the second
-          // tap is a SEPARATE decision. Same idiom as the gesture layer's
-          // swallow window.
-          if (performance.now() - at < 600) return;
-          // PROTOCOL deletes are id-keyed with no revision precondition, so a
-          // wipe while hydration is in flight could destroy a backend revision
-          // this device has never seen. Wait it out (0.11.0 review #4).
-          if (this._pendingDeletes)
-            return this._say('Still syncing with the host. Try again in a moment.');
-          // A hydration that FAILED never becomes safe by settling: the
-          // device has not seen server truth, and an id-keyed delete could
-          // destroy a backend revision it never knew (0.11.0 review #5).
-          if (this._deps.config.source && !this._hydrated)
-            return this._say('Could not sync with the host. Reload to clear.');
-          // Verify-then-report: the wipe re-selects against the durable truth,
-          // and claims only what the final state supports (0.11.0 review #4).
-          // The retries stay either way: this panel is the route to the file.
-          const r = this._clearReviewerComments(rev);
-          if (!r.tried) return spend('Nothing left to clear.');
-          if (!r.clean) {
-            disarm();
-            return this._say('Some comments could not be cleared. Try again.');
-          }
-          spend('Comments cleared. You can still download or copy the file.');
-        },
-        'clr',
-      );
-      // Enter activates a focused button once per keydown INCLUDING repeats —
-      // a held key would sail past the window above on its own cadence.
-      clr.addEventListener('keydown', (e) => {
-        const k = e as KeyboardEvent;
-        // Enter alone: it activates per-keydown including repeats. Arrows and
-        // paging must keep scrolling (0.11.0 review #2).
-        if (k.repeat && k.key === 'Enter') k.preventDefault();
-      });
-      // Reaching for any other control is leaving the question — disarm, so a
-      // stray tap minutes later cannot land on a decision nobody is making.
-      panel.addEventListener(
-        'click',
-        (e) => {
-          if (armed && e.target !== clr) disarm();
-        },
-        true,
-      );
-      // Keyboard parity for the outside disarm: Tabbing out of the panel is
-      // leaving the question too (0.11.0 review #5). Retirement paths move
-      // focus themselves, but only after unarm(), so their focusout is inert.
-      panel.addEventListener('focusout', (e) => {
-        const to = (e as FocusEvent).relatedTarget as Node | null;
-        const leaving = armed && (!to || !panel.contains(to));
-        if (!leaving) return;
-        if (midPointer) {
-          fled = true; // the gesture owns the disarm — but the departure lands
-          return;
-        }
-        disarm();
-      });
-      row.appendChild(clr);
-    }
     row.appendChild(done);
+    if (rev?.size)
+      this._attachClear({
+        panel,
+        row,
+        primary: done,
+        batch: () => rev,
+        rest: baseNow,
+        // Answers the only question a reviewer actually has here — which
+        // depends on what this panel can honestly claim: with a verified
+        // clipboard the file is safe; without one, say so instead.
+        warn: (n) =>
+          `Deletes your ${n} from this browser. ` +
+          (delivered
+            ? 'The exported file is unaffected.'
+            : 'Check the file downloaded first: there is no other copy.'),
+      });
     panel.appendChild(row);
     this._panelEl = panel;
     this._ui.root.appendChild(panel);
     this._positionPanel();
+  }
+
+  // The two-tap clear, shared by the export sheet and the confirmation.
+  //
+  // Resting, it is a quiet text control. The first tap ARMS: the panel's
+  // primary (Export & share / Done) is hidden, a Keep button appears beside
+  // the control, and the control itself becomes the filled destructive
+  // affirmative, labelled with the count. The row now reads as one question
+  // with two answers — the earlier "Clear N comments?" label on the same
+  // quiet control read as a prompt, and reviewers answered it by pressing the
+  // accented Done beside it, which finished without clearing. Two taps rather
+  // than an undo: deletes go out per-comment on the sync wire (PROTOCOL has
+  // no bulk op), so there is no reversal.
+  //
+  // `batch` is read at the arming tap, AFTER the durable fold: the
+  // confirmation returns the revisions the export froze, the sheet snapshots
+  // the corpus as it stands. Either way the wipe is revision-scoped — a
+  // revision persisted by another tab between the taps is never destroyed.
+  private _attachClear(o: {
+    panel: HTMLDivElement;
+    row: HTMLDivElement;
+    primary: HTMLButtonElement;
+    batch: () => ReadonlyMap<string, string>;
+    rest: () => string;
+    warn: (count: string) => string;
+  }): void {
+    let rev: ReadonlyMap<string, string> = new Map();
+    let armed = false;
+    let at = 0;
+    let offOut: (() => void) | null = null;
+    // A click on a FOCUSABLE host control fires focusout between pointerdown
+    // and pointerup; disarming there would tear the pointer listener down
+    // mid-gesture and skip the back-out swallow. Track the gesture and let
+    // the pointer path finish it (0.11.0 review #6).
+    let midPointer = false;
+    let fled = false; // focus left the panel while a gesture was in flight
+    const pd = (): void => {
+      midPointer = true;
+    };
+    // On EVERY gesture end a deferred focus departure must land (0.11.0
+    // review #7) — but a pointerup defers ITS disarm to the next task: this
+    // listener runs before the outside-dismiss's, and a synchronous disarm
+    // would remove that later listener mid-dispatch, skipping the back-out
+    // swallow in real DOM (0.11.0 review #8). An outside release disarms
+    // via the dismiss itself; the timeout only catches inside releases.
+    let tid: ReturnType<typeof setTimeout> | null = null;
+    const pu = (): void => {
+      midPointer = false;
+      if (fled) {
+        fled = false;
+        // OWNED: the composite disposer cancels it, so a panel replaced
+        // before this fires is never written to (0.11.0 review #9).
+        tid = setTimeout(() => {
+          tid = null;
+          if (armed) disarm();
+        }, 0);
+      }
+    };
+    // A release that never arrives — drag out of the window, app switch —
+    // still ends the gesture and lands the departure (0.11.0 review #9).
+    const onBlur = (): void => {
+      midPointer = false;
+      if (fled) {
+        fled = false;
+        disarm();
+      }
+    };
+    // No click follows a cancel — the departure lands immediately.
+    const pc = (): void => {
+      midPointer = false;
+      if (fled) {
+        fled = false;
+        disarm();
+      }
+    };
+    const live = () => this._exportedNow(rev);
+    // Every path out of the armed state funnels here: the state drops, the
+    // host-page listeners below are disposed, and the panel's own dismiss —
+    // the sheet's outside tap — is handed back to the slot it came from
+    // (0.11.0 review #4).
+    const unarm = (): void => {
+      armed = false;
+      fled = false;
+      offOut?.();
+      offOut = null;
+    };
+    const rest = (): void => {
+      keep.hidden = true;
+      o.primary.hidden = false;
+    };
+    const disarm = (): void => {
+      if (!armed) return;
+      unarm();
+      rest();
+      clr.className = 'clr';
+      clr.textContent = 'Clear comments';
+      this._say(o.rest());
+    };
+    // Both retirement paths park focus on the primary: the activation just
+    // removed the focused element, and a keyboard reviewer must land inside
+    // the still-open panel, not on the host page (0.11.0 review #1). A sheet
+    // that emptied its corpus has already closed — the arm control is the
+    // nearest thing left standing.
+    const spend = (msg: string): void => {
+      unarm();
+      rest();
+      clr.remove();
+      if (o.panel.isConnected) o.primary.focus();
+      else this._armEl?.focus();
+      this._say(msg);
+    };
+    // Backing out is a first-class answer, not a tap elsewhere: it lands
+    // focus on the resting control so a keyboard reviewer is not dropped.
+    const keep = this._makeButton('Keep', () => {
+      disarm();
+      clr.focus();
+    });
+    keep.hidden = true;
+    const clr = this._makeButton(
+      'Clear comments',
+      () => {
+        if (!armed) {
+          // The FIRST tap reads the durable truth too — a rename or an edit
+          // persisted by another tab must retire the control, not arm a
+          // count from stale memory (0.11.0 review #4).
+          this._foldDurable();
+          rev = o.batch();
+          const n = live().length;
+          if (!n) return spend('Nothing left to clear.');
+          armed = true;
+          at = performance.now();
+          // Arming is a question posed to the reviewer; leaving the panel is
+          // walking away from it. A tap anywhere on the host page disarms,
+          // so a stray tap minutes later cannot land on a decision nobody
+          // is making (0.11.0 review #4). One composite disposer owns
+          // everything the armed state put on the document, and it lives in
+          // the shared slot — _closePanel and destroy() tear it all down even
+          // mid-arm (0.11.0 review #7). The slot may already hold the sheet's
+          // own outside-dismiss: the composite CHAINS it, so closing the panel
+          // still disposes it, and a mere disarm hands it back untouched.
+          const prev = this._sheetDismiss;
+          const offDismiss = this._armOutsideDismiss(() => [o.panel], disarm);
+          document.addEventListener('pointerdown', pd, true);
+          document.addEventListener('pointerup', pu, true);
+          document.addEventListener('pointercancel', pc, true);
+          window.addEventListener('blur', onBlur);
+          const own = (offOut = (): void => {
+            offDismiss();
+            document.removeEventListener('pointerdown', pd, true);
+            document.removeEventListener('pointerup', pu, true);
+            document.removeEventListener('pointercancel', pc, true);
+            window.removeEventListener('blur', onBlur);
+            if (tid !== null) {
+              clearTimeout(tid);
+              tid = null;
+            }
+            // Teardown by ANY owner leaves the closure inert: no stale
+            // timer, no stale state, nothing left to say (0.11.0 review #9).
+            armed = false;
+            fled = false;
+            midPointer = false;
+            if (this._sheetDismiss === composite) this._sheetDismiss = prev;
+          });
+          const composite = (): void => {
+            own();
+            prev?.();
+          };
+          this._sheetDismiss = composite;
+          o.primary.hidden = true;
+          keep.hidden = false;
+          clr.className = 'clr a';
+          clr.textContent = `Clear ${this._n(n, 'comment')}`;
+          return this._say(o.warn(this._n(n, 'comment')));
+        }
+        // One physical gesture must never be both taps: a double-tap (or a
+        // key-repeat burst) delivers its second activation well inside this
+        // window, and the whole safety of the control is that the second
+        // tap is a SEPARATE decision. Same idiom as the gesture layer's
+        // swallow window.
+        if (performance.now() - at < 600) return;
+        // PROTOCOL deletes are id-keyed with no revision precondition, so a
+        // wipe while hydration is in flight could destroy a backend revision
+        // this device has never seen. Wait it out (0.11.0 review #4).
+        if (this._pendingDeletes)
+          return this._say('Still syncing with the host. Try again in a moment.');
+        // A hydration that FAILED never becomes safe by settling: the
+        // device has not seen server truth, and an id-keyed delete could
+        // destroy a backend revision it never knew (0.11.0 review #5).
+        if (this._deps.config.source && !this._hydrated)
+          return this._say('Could not sync with the host. Reload to clear.');
+        // Verify-then-report: the wipe re-selects against the durable truth,
+        // and claims only what the final state supports (0.11.0 review #4).
+        // The retries stay either way: this panel is the route to the file.
+        const r = this._clearReviewerComments(rev);
+        if (!r.tried) return spend('Nothing left to clear.');
+        if (!r.clean) {
+          disarm();
+          return this._say('Some comments could not be cleared. Try again.');
+        }
+        spend('Comments cleared. You can still download or copy the file.');
+      },
+      'clr',
+    );
+    // Enter activates a focused button once per keydown INCLUDING repeats —
+    // a held key would sail past the window above on its own cadence.
+    clr.addEventListener('keydown', (e) => {
+      const k = e as KeyboardEvent;
+      // Enter alone: it activates per-keydown including repeats. Arrows and
+      // paging must keep scrolling (0.11.0 review #2).
+      if (k.repeat && k.key === 'Enter') k.preventDefault();
+    });
+    // Reaching for any other control is leaving the question — disarm, so a
+    // stray tap minutes later cannot land on a decision nobody is making.
+    o.panel.addEventListener(
+      'click',
+      (e) => {
+        if (armed && e.target !== clr) disarm();
+      },
+      true,
+    );
+    // Keyboard parity for the outside disarm: Tabbing out of the panel is
+    // leaving the question too (0.11.0 review #5). Retirement paths move
+    // focus themselves, but only after unarm(), so their focusout is inert.
+    o.panel.addEventListener('focusout', (e) => {
+      const to = (e as FocusEvent).relatedTarget as Node | null;
+      const leaving = armed && (!to || !o.panel.contains(to));
+      if (!leaving) return;
+      if (midPointer) {
+        fled = true; // the gesture owns the disarm — but the departure lands
+        return;
+      }
+      disarm();
+    });
+    o.row.prepend(keep, clr);
   }
 
   /** The panel's status line. Live-region'd in _makePanel, so writes announce.

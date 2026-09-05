@@ -134,7 +134,7 @@ describe('naming yourself at export', () => {
     let t = 0;
     vi.spyOn(performance, 'now').mockImplementation(() => (t += 700)); // past the arming swallow window
     clickButton('Clear comments');
-    clickButton('Clear 1 comment?');
+    clickButton('Clear 1 comment');
 
     expect(localStorage.getItem(`pinflow:r:${PROJECT}`)).toBe('Sam');
     expect(loadStore(localStorage, PROJECT, 'Sam')?.comments).toHaveLength(0);

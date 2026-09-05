@@ -23,7 +23,7 @@ async function armClear(page: import('@playwright/test').Page): Promise<void> {
   await page.locator(CHIP).click();
   await page.locator(EXPORT_BTN).click();
   await page.locator(CLEAR_RESTING).click();
-  await expect(page.locator('button:has-text("Clear 1 comment?")')).toBeVisible();
+  await expect(page.locator('button:has-text("Clear 1 comment")')).toBeVisible();
 }
 
 test('a host-control click while armed disarms AND is swallowed', async ({ page }) => {
