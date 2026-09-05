@@ -18,6 +18,9 @@ page.
   390×844 may not reproduce on desktop.
 - `## Orphaned comments` no longer exist in the DOM. Re-derive the target
   rather than running their stale selectors.
+- `**Layer:** dialog ‘X’` means the element is inside a modal: open that dialog
+  first. Orphaned with `(parked)` means the dialog was closed or its contents
+  changed — open it and re-derive inside; not gone.
 - The line-anchored `**Status:**` field is the ONLY completion signal: `done` /
   `declined` means already dispositioned. It is always present (`open`
   otherwise) — never infer status from a heading, timestamp, or another
