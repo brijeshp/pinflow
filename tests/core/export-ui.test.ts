@@ -689,15 +689,118 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await new Promise((r) => setTimeout(r, 0));
   }
 
-  it('the sheet no longer forks on clear: one export action, no destructive branch', () => {
+  it('the sheet offers a two-tap clear beside Export: the first tap arms and poses the question', () => {
+    captureBlobs();
+    seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    // No fork on the primary — disposal is its own control, not an export variant.
+    expect(byLabel('Export & clear')).toBeUndefined();
+    expect(byLabel('Keep')?.hidden).toBe(true);
+    byLabel('Clear comments')!.click();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(2);
+    // The question replaces the primary: Keep / Clear are the only answers on offer.
+    expect(byLabel('Clear 2 comments')).toBeDefined();
+    expect(byLabel('Keep')?.hidden).toBe(false);
+    expect(byLabel('Export & share')?.hidden).toBe(true);
+    expect(body()).toContain('Nothing is exported first');
+  });
+
+  it('Keep backs out of the armed sheet: the primary returns and nothing is deleted', () => {
     captureBlobs();
     seedStore([makeComment('c1', 'a')]);
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     chip()!.click();
-    expect(byLabel('Export & share')).toBeDefined();
-    expect(byLabel('Export & clear')).toBeUndefined();
-    // Nor does it move the same destructive act onto the sheet under a new name.
+    byLabel('Clear comments')!.click();
+    byLabel('Keep')!.click();
+    expect(byLabel('Clear comments')).toBeDefined();
+    expect(byLabel('Clear 1 comment')).toBeUndefined();
+    expect(byLabel('Keep')?.hidden).toBe(true);
+    expect(byLabel('Export & share')?.hidden).toBe(false);
+    expect(body()).toContain('Downloads the markdown');
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+    // Backing out lands focus on the resting control, not on the host page.
+    expect(shadow().activeElement).toBe(byLabel('Clear comments'));
+  });
+
+  it('confirming on the sheet wipes the corpus and closes the sheet: nothing is left to export', () => {
+    captureBlobs();
+    spacedClock();
+    seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 2 comments')!.click();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(0);
+    expect(shadow().querySelector('.panel')).toBeNull();
+    expect(chip()).toBeNull();
+    expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
+  });
+
+  it('a double-tap on the sheet arms but never wipes', () => {
+    captureBlobs();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    const clr = byLabel('Clear comments')!;
+    clr.click();
+    clr.click(); // same gesture — inside the swallow window
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
+    expect(byLabel('Clear 1 comment')).toBeDefined();
+  });
+
+  it('exporting from an armed sheet does not leak the sheet dismiss onto the confirmation', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    chip()!.click();
+    await new Promise((r) => setTimeout(r, 0)); // the sheet's own outside-dismiss arms
+    byLabel('Clear comments')!.click();
+    // Enter in the name field is the sheet's other export path, and it needs no click.
+    const name = shadow().querySelector<HTMLInputElement>('input.name')!;
+    name.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(byLabel('Done')).toBeDefined();
+    // The confirmation is not outside-dismissable. A leaked sheet listener
+    // would close it here — and swallow the host click that closed it.
+    await new Promise((r) => setTimeout(r, 0));
+    pointerTap(document.body);
+    expect(byLabel('Done')).toBeDefined();
+    expect(shadow().querySelector('.panel')).not.toBeNull();
+  });
+
+  it('arming on the confirmation swaps Done for Keep: finishing cannot be mistaken for the answer', async () => {
+    captureBlobs();
+    captureClipboard();
+    seedStore([makeComment('c1', 'a'), makeComment('c2', 'b')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+    expect(byLabel('Keep')?.hidden).toBe(true);
+    byLabel('Clear comments')!.click();
+    expect(byLabel('Done')?.hidden).toBe(true);
+    expect(byLabel('Keep')?.hidden).toBe(false);
+    expect(byLabel('Clear 2 comments')?.className).toBe('clr a');
+    byLabel('Keep')!.click();
+    expect(byLabel('Done')?.hidden).toBe(false);
+    expect(byLabel('Keep')?.hidden).toBe(true);
+    expect(byLabel('Clear comments')).toBeDefined();
+    expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(2);
+  });
+
+  it('a spent clear on the confirmation restores Done and retires Keep with the control', async () => {
+    captureBlobs();
+    captureClipboard();
+    spacedClock();
+    seedStore([makeComment('c1', 'a')]);
+    annotator = makeAnnotator({ activation: { mode: 'stealth' } });
+    await exportToConfirmation();
+    byLabel('Clear comments')!.click();
+    byLabel('Clear 1 comment')!.click();
     expect(byLabel('Clear comments')).toBeUndefined();
+    expect(byLabel('Keep')?.hidden).toBe(true);
+    expect(byLabel('Done')?.hidden).toBe(false);
+    expect(shadow().activeElement).toBe(byLabel('Done'));
   });
 
   it('the confirmation offers clear, and the first click arms rather than wipes', async () => {
@@ -711,7 +814,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Clear comments')!.click();
 
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(2);
-    expect(byLabel('Clear 2 comments?')).toBeDefined();
+    expect(byLabel('Clear 2 comments')).toBeDefined();
     // The only question a reviewer actually has at this point.
     expect(body()).toContain('The exported file is unaffected');
   });
@@ -745,7 +848,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     clr.click(); // arm (real clock)
     clr.click(); // same gesture, ~0ms later — inside the swallow window
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
-    expect(byLabel('Clear 1 comment?')).toBeDefined(); // still armed, not spent
+    expect(byLabel('Clear 1 comment')).toBeDefined(); // still armed, not spent
   });
 
   it('any other panel action disarms: a Copy click returns the control to resting', async () => {
@@ -757,10 +860,10 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await exportToConfirmation();
 
     byLabel('Clear comments')!.click();
-    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    expect(byLabel('Clear 1 comment')).toBeDefined();
     byLabel('Copy to Clipboard')!.click();
     expect(byLabel('Clear comments')).toBeDefined();
-    expect(byLabel('Clear 1 comment?')).toBeUndefined();
+    expect(byLabel('Clear 1 comment')).toBeUndefined();
     const store = loadStore(localStorage, PROJECT, REVIEWER);
     expect(store?.comments).toHaveLength(1);
   });
@@ -808,7 +911,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await exportToConfirmation();
 
     byLabel('Clear comments')!.click();
-    byLabel('Clear 2 comments?')!.click();
+    byLabel('Clear 2 comments')!.click();
 
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
     expect(shadow().querySelectorAll('button.pin')).toHaveLength(0);
@@ -825,7 +928,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     annotator = makeAnnotator({ activation: { mode: 'stealth' } });
     await exportToConfirmation();
     byLabel('Clear comments')!.click();
-    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    expect(byLabel('Clear 1 comment')).toBeDefined();
   });
 
   // The batch is frozen in the same synchronous block as the artifact: a merge
@@ -854,8 +957,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await new Promise((r) => setTimeout(r, 0));
 
     byLabel('Clear comments')!.click();
-    expect(byLabel('Clear 1 comment?')).toBeDefined(); // c9 is not in the batch
-    byLabel('Clear 1 comment?')!.click();
+    expect(byLabel('Clear 1 comment')).toBeDefined(); // c9 is not in the batch
+    byLabel('Clear 1 comment')!.click();
     const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
     expect(kept.map((c) => c.id)).toEqual(['c9']);
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
@@ -886,8 +989,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     byLabel('Clear comments')!.click();
     // Only the exported comment is offered for deletion.
-    expect(byLabel('Clear 1 comment?')).toBeDefined();
-    byLabel('Clear 1 comment?')!.click();
+    expect(byLabel('Clear 1 comment')).toBeDefined();
+    byLabel('Clear 1 comment')!.click();
 
     const kept = loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? [];
     expect(kept.map((c) => c.id)).toEqual(['c9']);
@@ -899,7 +1002,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
   // The edit corridor of the same P1: a newer revision of an exported id is
   // feedback the artifact does NOT hold, so it survives too — and when nothing
   // of the exported batch remains, the control retires instead of arming a
-  // nonsense "Clear 0 comments?".
+  // nonsense "Clear 0 comments".
   it('an exported comment edited to a newer revision survives, and the control retires', async () => {
     captureBlobs();
     captureClipboard();
@@ -918,7 +1021,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await new Promise((r) => setTimeout(r, 0));
 
     byLabel('Clear comments')!.click();
-    expect(byLabel('Clear 0 comments?')).toBeUndefined();
+    expect(byLabel('Clear 0 comments')).toBeUndefined();
     expect(body()).toContain('Nothing left to clear');
     expect(byLabel('Clear comments')).toBeUndefined(); // retired, not armed
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
@@ -998,8 +1101,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await new Promise((r) => setTimeout(r, 0));
 
     byLabel('Clear comments')!.click();
-    expect(byLabel('Clear 1 comment?')).toBeDefined();
-    byLabel('Clear 1 comment?')!.click();
+    expect(byLabel('Clear 1 comment')).toBeDefined();
+    byLabel('Clear 1 comment')!.click();
     expect(body()).toContain('cleared');
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
   });
@@ -1053,7 +1156,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
       ...emptyStore(PROJECT, REVIEWER),
       comments: [{ ...exported, text: 'edited in tab B', updatedAt: '2026-01-02T00:00:00.000Z' }],
     });
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
 
     expect(body()).toContain('Nothing left to clear');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
@@ -1099,7 +1202,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     byLabel('Clear comments')!.click();
     armTrap = true;
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
 
     expect(fired).toBe(true); // the interleaving actually happened
     expect(body()).toContain('cleared');
@@ -1154,7 +1257,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     byLabel('Clear comments')!.click();
     armTrap = true;
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
 
     expect(fired).toBe(true);
     // The strictly-newer survivor is a legitimate edit, NOT a failed clear:
@@ -1197,7 +1300,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     byLabel('Clear comments')!.click();
     failWrites = true;
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
 
     expect(body()).toContain('could not be cleared');
     expect(body()).not.toContain('Comments cleared');
@@ -1232,14 +1335,14 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await exportToConfirmation();
 
     byLabel('Clear comments')!.click();
-    byLabel('Clear 1 comment?')!.click(); // hydration still pending
+    byLabel('Clear 1 comment')!.click(); // hydration still pending
     expect(body()).toContain('Still syncing');
-    expect(byLabel('Clear 1 comment?')).toBeDefined(); // still armed
+    expect(byLabel('Clear 1 comment')).toBeDefined(); // still armed
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
 
     resolveSource([]);
     await new Promise((r) => setTimeout(r, 0));
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
     expect(body()).toContain('cleared');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
   });
@@ -1266,7 +1369,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await exportToConfirmation();
 
     byLabel('Clear comments')!.click();
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
     expect(body()).toContain('Could not sync');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
@@ -1286,7 +1389,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     });
     await exportToConfirmation();
     byLabel('Clear comments')!.click();
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
     expect(body()).toContain('Could not sync');
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
   });
@@ -1309,7 +1412,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await new Promise((r) => setTimeout(r, 0));
     await exportToConfirmation();
     byLabel('Clear comments')!.click();
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
     expect(body()).toContain('Could not sync');
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
   });
@@ -1331,7 +1434,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await new Promise((r) => setTimeout(r, 0));
     await exportToConfirmation();
     byLabel('Clear comments')!.click();
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
     expect(body()).toContain('Could not sync');
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
   });
@@ -1371,7 +1474,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     byLabel('Clear comments')!.click();
     localStorage.setItem(`pinflow:r:${PROJECT}`, 'Zed');
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
 
     expect(body()).toContain('Nothing left to clear');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual([]);
@@ -1419,7 +1522,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     // rename's own read — the exact repaired branch (0.11.0 review #7).
     localStorage.setItem(`pinflow:r:${PROJECT}`, 'Zed');
     armTrap = true;
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
 
     expect(fired).toBe(true);
     expect(body()).toContain('cleared');
@@ -1459,7 +1562,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Clear comments')!.click();
     // Another tab remembers a new name whose key cannot be written.
     localStorage.setItem(`pinflow:r:${PROJECT}`, 'Zed');
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
 
     expect(body()).toContain('cleared');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
@@ -1600,7 +1703,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     byLabel('Clear comments')!.click();
     failAll = true; // the wipe's own writes fail too
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
 
     expect(body()).toContain('could not be cleared');
     expect(body()).not.toContain('Comments cleared');
@@ -1613,8 +1716,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     // removing the id (and its stale pre-export disk copy) durably (0.11.0
     // review #11).
     byLabel('Clear comments')!.click();
-    expect(byLabel('Clear 1 comment?')).toBeDefined();
-    byLabel('Clear 1 comment?')!.click();
+    expect(byLabel('Clear 1 comment')).toBeDefined();
+    byLabel('Clear 1 comment')!.click();
     expect(body()).toContain('Comments cleared');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments ?? []).toHaveLength(0);
@@ -1660,8 +1763,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await new Promise((r) => setTimeout(r, 0));
 
     byLabel('Clear comments')!.click();
-    expect(byLabel('Clear 1 comment?')).toBeDefined(); // c2 only — c1 is conflicted
-    byLabel('Clear 1 comment?')!.click();
+    expect(byLabel('Clear 1 comment')).toBeDefined(); // c2 only — c1 is conflicted
+    byLabel('Clear 1 comment')!.click();
 
     expect(body()).toContain('cleared');
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c2']);
@@ -1735,9 +1838,9 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await new Promise((r) => setTimeout(r, 0));
 
     byLabel('Clear comments')!.click();
-    expect(byLabel('Clear 1 comment?')).toBeDefined(); // c1 only
+    expect(byLabel('Clear 1 comment')).toBeDefined(); // c1 only
     armTrap = true;
-    byLabel('Clear 1 comment?')!.click(); // mid-wipe, disk c2 becomes 'text C' at the same timestamp
+    byLabel('Clear 1 comment')!.click(); // mid-wipe, disk c2 becomes 'text C' at the same timestamp
     expect(fired).toBe(true);
     expect(deltas.filter((d) => d.startsWith('delete:'))).toEqual(['delete:c1']);
 
@@ -1861,8 +1964,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     document.body.dispatchEvent(new Event('pointerdown', opts));
     const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
     Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
-    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
-    expect(byLabel('Clear 1 comment?')).toBeDefined(); // deferred mid-gesture
+    byLabel('Clear 1 comment')!.dispatchEvent(leaving);
+    expect(byLabel('Clear 1 comment')).toBeDefined(); // deferred mid-gesture
     document.body.dispatchEvent(new Event('pointercancel', opts));
     expect(byLabel('Clear comments')).toBeDefined(); // the departure lands
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
@@ -1883,7 +1986,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     document.body.dispatchEvent(new Event('pointerdown', opts));
     const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
     Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
-    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    byLabel('Clear 1 comment')!.dispatchEvent(leaving);
     // The release never arrives — the window loses focus instead.
     window.dispatchEvent(new Event('blur'));
     expect(byLabel('Clear comments')).toBeDefined();
@@ -1905,8 +2008,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     document.body.dispatchEvent(new Event('pointerdown', opts));
     const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
     Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
-    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
-    byLabel('Clear 1 comment?')!.dispatchEvent(new Event('pointerup', opts)); // inside release queues the timer
+    byLabel('Clear 1 comment')!.dispatchEvent(leaving);
+    byLabel('Clear 1 comment')!.dispatchEvent(new Event('pointerup', opts)); // inside release queues the timer
     chip()!.click(); // summon REPLACES the confirmation before the timer fires
     const sheetBody = body();
     await new Promise((r) => setTimeout(r, 0));
@@ -1939,8 +2042,8 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     // targets — the disarm must wait for the gesture to finish.
     const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
     Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
-    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
-    expect(byLabel('Clear 1 comment?')).toBeDefined(); // still armed mid-gesture
+    byLabel('Clear 1 comment')!.dispatchEvent(leaving);
+    expect(byLabel('Clear 1 comment')).toBeDefined(); // still armed mid-gesture
     document.body.dispatchEvent(new Event('pointerup', opts));
 
     expect(byLabel('Clear comments')).toBeDefined(); // disarmed by the gesture
@@ -1961,20 +2064,20 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     const clr = byLabel('Clear comments')!;
     clr.click();
-    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    expect(byLabel('Clear 1 comment')).toBeDefined();
 
     // Within-panel focus movement keeps the question armed.
     const within = new FocusEvent('focusout', { bubbles: true, composed: true });
     Object.defineProperty(within, 'relatedTarget', { value: byLabel('Done')! });
-    byLabel('Clear 1 comment?')!.dispatchEvent(within);
-    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    byLabel('Clear 1 comment')!.dispatchEvent(within);
+    expect(byLabel('Clear 1 comment')).toBeDefined();
 
     // Leaving for the host page disarms.
     const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
     Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
-    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    byLabel('Clear 1 comment')!.dispatchEvent(leaving);
     expect(byLabel('Clear comments')).toBeDefined();
-    expect(byLabel('Clear 1 comment?')).toBeUndefined();
+    expect(byLabel('Clear 1 comment')).toBeUndefined();
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
   });
 
@@ -1989,13 +2092,13 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await exportToConfirmation();
 
     byLabel('Clear comments')!.click();
-    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    expect(byLabel('Clear 1 comment')).toBeDefined();
     // The outside listeners arm on a 0-timeout so the arming tap's own release
     // cannot disarm; a human tap always lands in a later task.
     await new Promise((r) => setTimeout(r, 0));
     pointerTap(document.body);
     expect(byLabel('Clear comments')).toBeDefined();
-    expect(byLabel('Clear 1 comment?')).toBeUndefined();
+    expect(byLabel('Clear 1 comment')).toBeUndefined();
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
   });
 
@@ -2016,12 +2119,12 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await exportToConfirmation();
 
     byLabel('Clear comments')!.click();
-    expect(byLabel('Clear 1 comment?')).toBeDefined();
+    expect(byLabel('Clear 1 comment')).toBeDefined();
     // The exported revision is replaced while the control is armed.
     resolveSource([{ ...exported, text: 'newer', updatedAt: '2026-01-02T00:00:00.000Z' }]);
     await new Promise((r) => setTimeout(r, 0));
 
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
     expect(body()).toContain('Nothing left to clear');
     expect(body()).not.toContain('Comments cleared');
     expect(loadStore(localStorage, PROJECT, REVIEWER)?.comments).toHaveLength(1);
@@ -2042,7 +2145,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     byLabel('Clear comments')!.click();
     // Another tab renames the reviewer while the control is armed.
     expect(renameReviewer(localStorage, PROJECT, REVIEWER, 'Zed')).toBe(true);
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
 
     expect(body()).toContain('cleared');
     expect(loadStore(localStorage, PROJECT, 'Zed')?.comments ?? []).toHaveLength(0);
@@ -2061,7 +2164,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await exportToConfirmation();
 
     byLabel('Clear comments')!.click();
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
 
     expect(shadow().querySelector('.panel')).not.toBeNull();
     expect(chip()).toBeNull(); // the corpus really is gone
@@ -2090,7 +2193,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     await exportToConfirmation();
 
     byLabel('Clear comments')!.click();
-    byLabel('Clear 1 comment?')!.click();
+    byLabel('Clear 1 comment')!.click();
     // The focused element was just removed; a keyboard user must land on a
     // surviving control inside the still-open panel (0.11.0 review #1).
     expect(shadow().activeElement).toBe(byLabel('Done'));
@@ -2310,7 +2413,7 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
 
     byLabel('Clear comments')!.click();
     armTrap = true;
-    byLabel('Clear 2 comments?')!.click();
+    byLabel('Clear 2 comments')!.click();
     expect(fired).toBe(true);
 
     expect(body()).toContain('could not be cleared');
@@ -2450,10 +2553,10 @@ describe('reviewer batch controls — post-export disposition (clear after deliv
     document.body.dispatchEvent(new Event('pointerdown', opts));
     const leaving = new FocusEvent('focusout', { bubbles: true, composed: true });
     Object.defineProperty(leaving, 'relatedTarget', { value: document.body });
-    byLabel('Clear 1 comment?')!.dispatchEvent(leaving);
+    byLabel('Clear 1 comment')!.dispatchEvent(leaving);
     // Released back INSIDE the panel: the outside-dismiss will not fire.
-    byLabel('Clear 1 comment?')!.dispatchEvent(new Event('pointerup', opts));
-    expect(byLabel('Clear 1 comment?')).toBeDefined(); // not synchronous
+    byLabel('Clear 1 comment')!.dispatchEvent(new Event('pointerup', opts));
+    expect(byLabel('Clear 1 comment')).toBeDefined(); // not synchronous
     await new Promise((r) => setTimeout(r, 0));
     expect(byLabel('Clear comments')).toBeDefined(); // the departure landed
   });
