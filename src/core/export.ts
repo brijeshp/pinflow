@@ -366,6 +366,10 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
     ...visualLines(comment),
     '**Selector candidates:**',
     `- testid: ${sel.testid ? `\`${inline(sel.testid)}\`` : '(none)'}`,
+    // The rung that survives a rebuild — listed where it resolves, before css.
+    ...(sel.role && sel.name
+      ? [`- role: \`${inline(sel.role)}\` named ‘${inline(sel.name)}’`]
+      : []),
     `- css: \`${inline(sel.css)}\``,
     `- xpath: \`${inline(sel.xpath)}\``,
     `**Position:** ${Math.round(pos.x)}% from left, ${Math.round(pos.y)}% from top of element`,

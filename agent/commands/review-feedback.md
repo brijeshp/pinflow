@@ -13,7 +13,8 @@ Follow the protocol in the `pinflow-feedback` skill. In short:
   undispositioned) is the ONLY completion signal — never infer status from a
   heading, timestamp, or any other field's content.
 - Locate elements via `**Selector candidates:**` in the order listed — testid
-  first, it is usually greppable straight to a source file. `**Context:**` is
+  first, it is usually greppable straight to a source file; then the `role:`
+  line, which outlives a rebuild that rehashes every class. `**Context:**` is
   the better search term when the selectors are stale.
 - `**Position:**` is a percentage inside the element, not the viewport.
 - Comments under `## Orphaned comments` no longer exist in the DOM. Re-derive

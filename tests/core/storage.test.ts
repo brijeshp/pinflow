@@ -1017,3 +1017,28 @@ describe('anchor.layer (dialog binding)', () => {
     expect(normalizeComments([bad(null)])).toHaveLength(0);
   });
 });
+
+describe('selectors.role / selectors.name (locator rung)', () => {
+  const withSel = (extra: Record<string, unknown>) =>
+    makeComment({
+      anchor: {
+        selectors: { testid: null, id: null, css: 'body', xpath: '/html/body', ...extra } as never,
+        textFingerprint: '',
+        positionPercent: { x: 50, y: 50 },
+        viewport: { width: 1440, height: 900 },
+      },
+    });
+  it('preserves a well-formed pair and accepts absence', () => {
+    expect(
+      normalizeComments([withSel({ role: 'switch', name: 'Spoke for Alfred Hart' })])[0]?.anchor
+        .selectors,
+    ).toMatchObject({ role: 'switch', name: 'Spoke for Alfred Hart' });
+    expect(normalizeComments([withSel({})])).toHaveLength(1);
+  });
+  it('drops a record whose pair would corrupt resolution', () => {
+    expect(normalizeComments([withSel({ role: 3 })])).toHaveLength(0);
+    expect(normalizeComments([withSel({ name: null })])).toHaveLength(0);
+    expect(normalizeComments([withSel({ role: 'button', name: 'x'.repeat(81) })])).toHaveLength(0);
+    expect(normalizeComments([withSel({ role: 'r'.repeat(81), name: 'x' })])).toHaveLength(0);
+  });
+});
