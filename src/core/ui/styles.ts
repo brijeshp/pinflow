@@ -103,7 +103,10 @@ export const STYLES =
   '.panel .row+.row{margin-top:8px}.panel .clr{flex:none}' +
   // Dark fallback lightens: #dc2626 is 4.8:1 on the light surface but 3.3:1
   // on the dark one, and the armed clear is a standing state, not a flash.
-  '.input .delete:hover,.panel .clr:hover,.panel .clr.a{opacity:1;color:var(--pf-danger,light-dark(#dc2626,#f87171))}' +
+  '.input .delete:hover,.panel .clr:hover{opacity:1;color:var(--pf-danger,light-dark(#dc2626,#f87171))}' +
+  // Armed, the clear is the row's destructive affirmative: a filled button
+  // beside Keep, in the primary's place — not a coloured question mark.
+  '.panel .clr.a{flex:auto;padding:8px 12px;opacity:1;background:var(--pf-danger,light-dark(#dc2626,#f87171));color:light-dark(#fff,#0f172a)}' +
   '.input .exportall:hover{opacity:1}' +
   '.input .save{background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);border:0;border-radius:8px;padding:6px 16px;min-height:30px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}' +
   '.input .save:hover{filter:brightness(.95)}' +
