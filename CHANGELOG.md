@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.12.0
+
+### Minor Changes
+
+- 6b0ea50: Context names what the reviewer saw on screen, and the same name is a locator rung a rebuild cannot kill.
+
+  **"the input under ‘Bill-led Group Session 1’" is now "the ‘All Attended’ checkbox under ‘Bill-led Group Session 1’".** `buildAnchor` named an element by aria-label, then alt, then its text fingerprint — so a checkbox whose name came from an associated `<label>` or `aria-labelledby` exported with no name at all, and every `<input>` was "input". A shared `accessibleName()` ladder (aria-label → aria-labelledby → associated `<label>` → alt → title) and `roleOf()` (explicit role, else a small implicit map: checkbox, radio, slider, textbox, combobox, link, button…) feed the Context line. Never text content: the fingerprint owns text.
+
+  **A role-and-name rung between `id` and `css`.** On an app built with CSS modules, every class in the css path is a build hash (`_actions_14nag_95`) that the next build replaces, and hosts will not put `data-testid` on every control. The page already carries `role="switch"` + "Spoke for Alfred Hart". `SelectorCandidates` gains `role` and `name` (additive; present only when a name exists), the export lists them as `- role: \`switch\` named ‘Spoke for Alfred Hart’`before`css`, and `findByCandidates` resolves by them when the match is unique. Ambiguous names — twelve identical "Remove" buttons — only corroborate a positional hit and never pick the first; the ladder otherwise continues as before. The agent reading-protocol files list the rung in its place.
+
+  Budget: the core ceilings move UP as a deliberate trade across the three features in this release (the clear row, the dialog layer, and this rung) — set generously first, then re-ratcheted over the figures CI reported for the top of the stack, 24.99 KB (IIFE) and 24.86 KB (ESM), landing at 25.04 / 24.91 KB, CI plus ~50 B, per `docs/wiki/build-and-release.md`. Against the 0.11.1 ceilings (23.87 / 23.72) that is +1.17 / +1.19 KB gz for the Keep row, dialog binding, mutation-driven reflow, and the accessible-name ladder and rung.
+
+- 2af4017: The export sheet offers a clear again, and an armed clear now reads as a question with two answers.
+
+  **Clear is available before exporting, not only after.** 0.11.0 removed the wipe from the sheet because `Export & clear` asked for the disposal decision before either channel had run. The decision is now its own control beside `Export & share` — never an export variant — with the same two-tap, revision-scoped machinery as the confirmation's, and an armed line that says plainly that nothing is exported first. A wipe that empties the corpus closes the sheet, since nothing is left to export.
+
+  **The armed state no longer relies on the label alone.** The first tap used to turn the quiet text control into `Clear N comments?` and leave the accented `Done` standing beside it. Reviewers read the label as a prompt and answered it by pressing `Done` — which finished without clearing. Arming now hides the panel's primary (`Export & share` on the sheet, `Done` on the confirmation), shows a `Keep` button, and turns the control into a filled destructive `Clear N comments` in the primary's place. `Keep` backs out and returns focus to the resting control; every existing disarm path — a tap anywhere else, Tabbing out, any other panel action — still works, and the one-gesture swallow window and per-comment sync deletes are unchanged.
+
+  Arming on the sheet chains the sheet's own outside-dismiss into the armed disposer rather than replacing it, so exporting from an armed sheet cannot leave a stale listener that would close the confirmation on the next host tap.
+
+  Budget: the core ceilings move UP as a deliberate trade for the second clear surface and the Keep control — 23.87 → 24.15 KB gz (IIFE) and 23.72 → 24.0 KB (ESM). Set generously first; to be re-ratcheted to the figure CI reports plus ~50 B in a follow-up commit, per `docs/wiki/build-and-release.md`.
+
+- 1f3d0c5: A pin taken inside a modal is bound to that dialog, and parks when the dialog closes.
+
+  **The heal ladder was undoing the guide's promise.** A removed element is supposed to hide its pin. A dialog unmounting is the common case of "removed", and the ladder — css, xpath, then the fingerprint walk — found whatever was left in the tree: the session header, `main`, or an `nth-of-type` sibling inside the next modal that opened. `_persistHeal` then wrote that stranger into the stored selectors, so the next load corroborated it trivially and the original anchor was gone for good. Exports told the agent the header was the transcript.
+
+  `buildAnchor` now records `anchor.layer` — the nearest `role="dialog"`, `role="alertdialog"`, `aria-modal="true"`, or open `<dialog>` ancestor, named by its accessible name (aria-label, aria-labelledby, else its first heading). `resolveAnchor` runs the ladder only inside an open dialog of that name and accepts a hit only if the dialog contains it. No such dialog, or no hit inside one, parks the pin; it never falls through to the page. Reopen the dialog and the pin returns. `PROTOCOL.md` documents the field as additive; a malformed one drops the record like any anchor corruption.
+
+  **Pins now follow the host's re-render, not the reviewer's scroll.** Reflow ran on scroll and resize only, so a pin whose element had left the DOM kept its last screen position over whatever the overlay had covered. A `MutationObserver` on `document.body` now routes through the same rAF throttle. Parked pins still retry at most once per 500 ms, but a pass that skips them because of that gate now schedules one deferred pass for when it expires — a dialog reopening a moment after it closed used to stay parked until the next unrelated scroll.
+
+  The export gains a `**Layer:** dialog ‘Add Patients’` line after Context, and `(parked)` under Orphaned comments — the dialog was closed, or its contents changed; the artifact does not claim which. The agent reading-protocol files say to open that dialog first.
+
+  Deferred, not forgotten: the "3 notes on Add Patients — open it to see them" chip, clipping a pin to its dialog while open, and a layer-aware scope walk.
+
+  Budget: the core ceilings move UP as a deliberate trade for the layer binding and the mutation trigger — 24.15 → 24.55 KB gz (IIFE) and 24.0 → 24.4 KB (ESM), set generously on top of the previous feature's still-unratcheted ceilings. Both are to be re-ratcheted to the figure CI reports plus ~50 B in one follow-up commit, per `docs/wiki/build-and-release.md`.
+
+### Patch Changes
+
+- 9b4e36b: A drawn rect that spills past its anchor's left or top edge now reports the coverage it actually has.
+
+  **0.11.1 made a latent asymmetry reachable.** `areaPercent` derived its width from the RAW drawn width and clamped only the origin, so overflow past the RIGHT edge clamped correctly while overflow past the LEFT clamped `x` to 0 and kept the full width — storing `{x:0,w:100}` for a rect covering half the element. Honesty depended on which edge the reviewer crossed. It could not fire before 0.11.1, because the anchor was the rect's containing ancestor and containment guarantees no overflow. Re-anchoring to a member the rect spills past made it routine: the export printed "100% × 100% of the element" and the on-page footprint drew a full-element box for a half-covered element. Both endpoints are now clamped and the extent derived from their difference, so the compound bound (`x+w <= 100`) is preserved and the stored rect is the true overlap.
+
+  **A walk that ran out of budget no longer counts as proof.** `visit()` abandons the rest of the walk when it exceeds `NODE_CAP`, so a large boundary can emit one member and never reach the others — which the sole-member rule would have read as "one is all there was" and anchored a multi-element region to whichever member came first. The re-anchor now requires a complete walk. The gate is the node-budget overrun specifically, exposed on the non-persisted half of the scope result: the record's own `truncated` would have been the wrong signal, since an `EXCLUDED_CAP` overflow sets it while leaving `members` complete, and gating on that would have dropped the 0.11.1 fix on any region grazing more than twelve elements — which is most of them.
+
+  `Anchor.areaPercent`'s doc comment now states which element a marquee anchors to in each case, and that the rect is clamped rather than verbatim — consumers were entitled to assume the anchor contained the rect, and since 0.11.1 it need not.
+
+  Budget: the core ceilings move UP as a deliberate, approved trade — 23.81 → 24.0 KB gz (IIFE) and 23.67 → 23.85 KB (ESM). 0.11.1 landed at 23.8 against a 23.81 ceiling, roughly ten bytes of margin, which left no room for a correctness fix of any size. Set generously first, then re-ratcheted over the figure CI actually reported — 23.82 KB (IIFE) and 23.67 KB (ESM) — landing at 23.87/23.72, CI plus ~50 B, per the policy in `docs/wiki/build-and-release.md`. The Linux/macOS gap measured 120 B on both bundles at this size, against the ~100 B recorded at 22 KB: it is still scaling, and a local `pnpm size` remains unusable as the gate.
+
 ## 0.11.1
 
 ### Patch Changes
