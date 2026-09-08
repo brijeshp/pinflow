@@ -7,7 +7,9 @@ a running page.
 - **The `**Comment ID:**` field is the unit of work.** Cite its value in commit
   messages. `Comment N` is a position in the file and changes between exports.
 - **Find elements via `**Selector candidates:**` in the order listed** — testid,
-  id, css, xpath. A testid is usually greppable straight to a source file. When
+  role + name, css, xpath. A testid is usually greppable straight to a source
+  file; a `role:` line (`switch` named ‘Spoke for Alfred Hart’) survives a
+  rebuild that rehashes every class, so prefer it over the css path. When
   the selectors look stale, `**Context:**` ("the ‘Continue’ button under ‘Next
   section’") is the better search term.
 - **`**Position:**` is a percentage inside the element, not the viewport.** It
@@ -20,6 +22,10 @@ a running page.
 - **`## Orphaned comments` no longer exist in the DOM.** Their "last known"
   fields are history. Re-derive the target; do not run the stale selectors and
   act on whatever they hit.
+- **`**Layer:** dialog ‘X’` means the element is inside a modal.** Open that
+  dialog before looking for it. Under `## Orphaned comments` the `(parked)` suffix means the dialog was
+  closed at export time, or its contents changed — open it and re-derive the
+  target inside it; the element is parked, not gone.
 - **The line-anchored `**Status:**` field is the only completion signal.**
   `done` / `declined` means already dispositioned — skip unless asked. It is
   always present (`open` otherwise) and never inferred from a heading,

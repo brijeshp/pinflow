@@ -981,3 +981,64 @@ it('carries scope through a reviewer rename, newest edit winning', () => {
   expect(one.scope?.rung).toBe('testid');
   expect(moved.find((c) => c.id === 'cmt_2')?.scope?.boundary.label).toBe('only-here');
 });
+
+describe('anchor.layer (dialog binding)', () => {
+  it('preserves a well-formed layer through hydration', () => {
+    const c = makeComment({
+      anchor: {
+        selectors: { testid: null, id: null, css: 'body', xpath: '/html/body' },
+        textFingerprint: '',
+        positionPercent: { x: 50, y: 50 },
+        viewport: { width: 1440, height: 900 },
+        layer: { role: 'dialog', name: 'Add Patients' },
+      },
+    });
+    expect(normalizeComments([c])[0]?.anchor.layer).toEqual({
+      role: 'dialog',
+      name: 'Add Patients',
+    });
+  });
+
+  it('drops a record whose layer would corrupt resolution', () => {
+    const bad = (layer: unknown) =>
+      makeComment({
+        anchor: {
+          selectors: { testid: null, id: null, css: 'body', xpath: '/html/body' },
+          textFingerprint: '',
+          positionPercent: { x: 50, y: 50 },
+          viewport: { width: 1440, height: 900 },
+          layer: layer as never,
+        },
+      });
+    expect(normalizeComments([bad('dialog')])).toHaveLength(0);
+    expect(normalizeComments([bad({ role: 7 })])).toHaveLength(0);
+    expect(normalizeComments([bad({ role: 'dialog', name: 3 })])).toHaveLength(0);
+    expect(normalizeComments([bad({ role: 'dialog', name: 'x'.repeat(81) })])).toHaveLength(0);
+    expect(normalizeComments([bad(null)])).toHaveLength(0);
+  });
+});
+
+describe('selectors.role / selectors.name (locator rung)', () => {
+  const withSel = (extra: Record<string, unknown>) =>
+    makeComment({
+      anchor: {
+        selectors: { testid: null, id: null, css: 'body', xpath: '/html/body', ...extra } as never,
+        textFingerprint: '',
+        positionPercent: { x: 50, y: 50 },
+        viewport: { width: 1440, height: 900 },
+      },
+    });
+  it('preserves a well-formed pair and accepts absence', () => {
+    expect(
+      normalizeComments([withSel({ role: 'switch', name: 'Spoke for Alfred Hart' })])[0]?.anchor
+        .selectors,
+    ).toMatchObject({ role: 'switch', name: 'Spoke for Alfred Hart' });
+    expect(normalizeComments([withSel({})])).toHaveLength(1);
+  });
+  it('drops a record whose pair would corrupt resolution', () => {
+    expect(normalizeComments([withSel({ role: 3 })])).toHaveLength(0);
+    expect(normalizeComments([withSel({ name: null })])).toHaveLength(0);
+    expect(normalizeComments([withSel({ role: 'button', name: 'x'.repeat(81) })])).toHaveLength(0);
+    expect(normalizeComments([withSel({ role: 'r'.repeat(81), name: 'x' })])).toHaveLength(0);
+  });
+});

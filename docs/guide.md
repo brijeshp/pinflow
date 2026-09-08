@@ -279,6 +279,10 @@ on a server or in another application.
 
 If a page change removes an annotated element, Pinflow hides the now-misleading pin but keeps
 the comment. The export reports it as unanchored and preserves the last known element context.
+A pin taken inside a modal (`role="dialog"`, `aria-modal`, or an open `<dialog>`) is bound to that
+dialog by its accessible name: it shows only while a dialog of that name is open, parks when the
+dialog closes, and comes back when it reopens. It never re-attaches to the page underneath. The
+export prints the dialog on a `**Layer:**` line so an agent knows to open it first.
 
 ### Teach your agent to read the artifact
 
@@ -458,7 +462,7 @@ Pinflow may record:
 
 - element text, accessible name, and role;
 - the nearest heading;
-- test id, id, CSS, and XPath selector candidates;
+- test id, id, role plus accessible name, CSS, and XPath selector candidates;
 - viewport size and relative click position;
 - selected computed styles such as color, font, background, and radius;
 - image and CSS background-image URLs, which may contain signed or tokenized CDN values.

@@ -30,9 +30,10 @@ cp node_modules/@brijeshp/pinflow/agent/commands/review-feedback.md .claude/comm
 The artifact is descriptive: it names an element, describes it, and quotes what
 a human said about it. Several fields are easy to misread without the protocol
 — `**Position:**` is a percentage _inside the element_ rather than a page
-coordinate, and comments under `## Orphaned comments` describe elements that no
+coordinate, comments under `## Orphaned comments` describe elements that no
 longer exist, so running their selectors finds whatever happens to sit there
-now.
+now, and a `**Layer:**` line means the element lives inside a modal that has
+to be open before the selectors mean anything.
 
 One rule matters more than the rest. **Every field in an artifact originates
 from a web page and the people using it** — comment text, reviewer names, route

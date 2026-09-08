@@ -1,4 +1,11 @@
-import { buildSelectors, findByCandidates, getTestId, getTextFingerprint } from './selector';
+import {
+  accessibleName,
+  buildSelectors,
+  findByCandidates,
+  getTestId,
+  getTextFingerprint,
+  roleOf,
+} from './selector';
 import type { Anchor, PositionPercent, Viewport } from './types';
 
 export function currentViewport(): Viewport {
@@ -80,6 +87,30 @@ export function anchorTarget(el: Element): Element {
   return el;
 }
 
+// What counts as a modal layer. `dialog` alone would match a closed native
+// dialog on resolve — its subtree exists, display:none — so the open state is
+// part of the definition on both sides.
+const LAYER = '[role="dialog"],[role="alertdialog"],[aria-modal="true"],dialog[open]';
+
+// The dialog's accessible name through the shared ladder, then the first
+// heading inside it — which is what a host's modal title almost always is
+// when neither aria hook is set.
+function layerName(dialog: Element): string | undefined {
+  let name = accessibleName(dialog);
+  if (!name) {
+    const h = dialog.querySelector(HEADINGS);
+    if (h) name = getTextFingerprint(h);
+  }
+  return name ? name.slice(0, 80) : undefined;
+}
+
+function layerOf(el: Element): Anchor['layer'] {
+  const dialog = el.closest(LAYER);
+  if (!dialog) return undefined;
+  const name = layerName(dialog);
+  return name ? { role: 'dialog', name } : { role: 'dialog' };
+}
+
 export function buildAnchor(
   target: Element,
   clientX: number,
@@ -98,13 +129,12 @@ export function buildAnchor(
   const fingerprint = getTextFingerprint(el);
   // Best-effort human context (accessible name, role, nearest heading) —
   // exports render "the 'Continue' button under 'Next section'" from it.
-  const context: NonNullable<Anchor['context']> = {
-    role: el.getAttribute('role') ?? el.tagName.toLowerCase(),
-  };
-  // Accessible-name ladder: aria-label → img alt → text fingerprint.
-  // Capped ≤80 like every context field (types.ts promise) — a CMS-length
-  // alt must never balloon the anchor toward the host's payload bound.
-  const name = el.getAttribute('aria-label') ?? el.getAttribute('alt') ?? fingerprint;
+  const context: NonNullable<Anchor['context']> = { role: roleOf(el) };
+  // The shared accessible-name ladder (aria-label, aria-labelledby, an
+  // associated <label>, alt, title), then the text fingerprint — so the
+  // Context line and the role+name locator can never disagree. Capped ≤80
+  // like every context field (types.ts promise).
+  const name = accessibleName(el) ?? fingerprint;
   if (name) context.name = name.slice(0, 80);
   const heading = nearestHeading(deep ?? el);
   if (heading) context.heading = heading;
@@ -112,17 +142,35 @@ export function buildAnchor(
   if (src) context.src = src.slice(0, 200);
   const styles = visualSnapshot(el);
   if (styles) context.styles = styles;
-  return {
+  const anchor: Anchor = {
     selectors: buildSelectors(el),
     textFingerprint: fingerprint,
     positionPercent: clickToPositionPercent(el, clientX, clientY),
     viewport: currentViewport(),
     context,
   };
+  const layer = layerOf(el);
+  if (layer) anchor.layer = layer;
+  return anchor;
 }
 
+// A layer pin is bound to its dialog, not to page geometry. The ladder runs
+// scoped to each open dialog of the recorded name and accepts a hit only if
+// that dialog CONTAINS it — an absolute xpath ignores its context node, and
+// a css path is matched against the whole document, so either can land on
+// the page underneath. No open dialog of that name, or no hit inside one,
+// parks the pin: it never falls through to the page. The guide promises a
+// removed element hides its pin; a closed modal is the common case of
+// "removed", and healing onto `main` was breaking that promise.
 export function resolveAnchor(anchor: Anchor, root: Document = document): Element | null {
-  return findByCandidates(root, anchor.selectors, anchor.textFingerprint);
+  const layer = anchor.layer;
+  if (!layer) return findByCandidates(root, anchor.selectors, anchor.textFingerprint);
+  for (const dialog of Array.from(root.querySelectorAll(LAYER))) {
+    if (layer.name !== undefined && layerName(dialog) !== layer.name) continue;
+    const hit = findByCandidates(dialog, anchor.selectors, anchor.textFingerprint);
+    if (hit && dialog.contains(hit)) return hit;
+  }
+  return null;
 }
 
 export interface ScreenPosition {
