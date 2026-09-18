@@ -89,6 +89,19 @@ describe('theme tokens (A1)', () => {
       /\.pin\[data-status\]\{background:var\(--pf-text-muted,light-dark\(#64748b,#99a1b3\)\)\}/,
     );
     expect(STYLES).toMatch(/\.pin\[data-status="declined"\]\{text-decoration:line-through\}/);
+  });
+
+  // The sheet's resting "Clear comments" rendered as faint caption text beside
+  // the filled Export button, so reviewers did not read it as an action. It is
+  // a real bordered button now (the shared `.panel button` box); only the
+  // popup's inline delete/export-all keep the quiet treatment.
+  it('the panel clear control is a real button at rest, not quiet text', () => {
+    const quiet = STYLES.match(
+      /([^{}]*)\{background:transparent;border:0;[^}]*opacity:\.62[^}]*\}/,
+    );
+    expect(quiet).not.toBeNull();
+    expect(quiet![1]).not.toContain('.panel .clr');
+    expect(STYLES).not.toMatch(/\.panel \.clr\{[^}]*flex:none/);
     expect(STYLES).toMatch(
       /\.input \.res\{[^}]*color:var\(--pf-text-muted,light-dark\(#64748b,#99a1b3\)\)/,
     );
