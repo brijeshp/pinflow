@@ -99,14 +99,18 @@ export const STYLES =
   '.input .res{margin-top:8px;font-size:12px;color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
   // .62, not .55: the quiet state must still clear AA 4.5:1 at 13px on both
   // light-dark surfaces (0.11.0 review #1 measured .55 at ~4.0:1 on light).
-  '.input .delete,.input .exportall,.panel .clr{background:transparent;border:0;color:inherit;cursor:pointer;opacity:.62;font:inherit;padding:0}' +
-  '.panel .row+.row{margin-top:8px}.panel .clr{flex:none}' +
+  '.input .delete,.input .exportall{background:transparent;border:0;color:inherit;cursor:pointer;opacity:.62;font:inherit;padding:0}' +
+  '.panel .row+.row{margin-top:8px}' +
+  // The panel's clear is a REAL button at rest — the shared `.panel button`
+  // box beside Export & share / Done. As quiet caption text it was not read as
+  // an action at all (0.12.1). Hover tints it toward danger; the border is
+  // currentColor-derived, so it follows.
   // Dark fallback lightens: #dc2626 is 4.8:1 on the light surface but 3.3:1
   // on the dark one, and the armed clear is a standing state, not a flash.
   '.input .delete:hover,.panel .clr:hover{opacity:1;color:var(--pf-danger,light-dark(#dc2626,#f87171))}' +
   // Armed, the clear is the row's destructive affirmative: a filled button
-  // beside Keep, in the primary's place — not a coloured question mark.
-  '.panel .clr.a{flex:auto;padding:8px 12px;opacity:1;background:var(--pf-danger,light-dark(#dc2626,#f87171));color:light-dark(#fff,#0f172a)}' +
+  // beside Keep, in the primary's place.
+  '.panel .clr.a{background:var(--pf-danger,light-dark(#dc2626,#f87171));color:light-dark(#fff,#0f172a);border-color:transparent}' +
   '.input .exportall:hover{opacity:1}' +
   '.input .save{background:var(--pf-accent,#2563eb);color:var(--pf-accent-contrast,#fff);border:0;border-radius:8px;padding:6px 16px;min-height:30px;font:inherit;font-size:12px;font-weight:600;cursor:pointer}' +
   '.input .save:hover{filter:brightness(.95)}' +
