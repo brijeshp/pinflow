@@ -68,5 +68,5 @@
   </g>
 
   <!-- ─────────── caption ─────────── -->
-  <text x="440" y="356" class="t" font-size="12" fill="#8b949e" text-anchor="middle">One script tag · 17 kB gzipped · your reviewer installs nothing</text>
+  <text x="440" y="356" class="t" font-size="12" fill="#8b949e" text-anchor="middle">One script tag · zero dependencies · your reviewer installs nothing</text>
 </svg>
