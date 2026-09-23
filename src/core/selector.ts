@@ -438,15 +438,10 @@ export function findByCandidates(
     let exact: Element | null = null;
     let best: Element | null = null;
     let bestScore = 0;
+    let ambiguousExact = false;
+    let ambiguousBest = false;
     while (node) {
       const el = node as Element;
-      // Once an exact match exists, only its own descendants can replace it
-      // (the deepest-wins rule below). Pre-order traversal makes that subtree
-      // contiguous, so the first non-descendant marks its end and nothing after
-      // it can win — BREAK, not continue. Skipping instead walked the rest of
-      // the document for nothing: 16,002 of 16,005 elements on a large page,
-      // slower than doing no optimisation at all.
-      if (exact && !exact.contains(el)) break;
       // Every node charges the visit budget and the clock, so no run of skipped
       // tags can outrun either. Sampling the clock here rather than below also
       // means a long skip run cannot escape the deadline.
@@ -473,6 +468,7 @@ export function findByCandidates(
         // which is rare by construction.
         if (el.getClientRects().length > 0) {
           if (!exact || exact.contains(el)) exact = el;
+          else ambiguousExact = true;
         } else if (exact && exact.contains(el)) {
           // textContent flows UP, so the current exact may be a visible
           // wrapper mirroring THIS hidden descendant — the chain's true text
@@ -493,7 +489,8 @@ export function findByCandidates(
           if (score > bestScore || (score === bestScore && best !== null && best.contains(el))) {
             bestScore = score;
             best = el;
-          }
+            ambiguousBest = false;
+          } else if (score === bestScore) ambiguousBest = true;
         }
       }
       node = walker.nextNode();
@@ -507,7 +504,12 @@ export function findByCandidates(
     //
     // Only an EXACT fingerprint match displaces a positional hit — and exact
     // is laid-out by construction (acceptance above requires a client rect).
-    return exact ?? positional ?? best;
+    // A prefix is not proof of uniqueness. Prefer structural evidence if the
+    // bounded walk could not finish, and never pick the first tied stranger.
+    if (node) return positional;
+    return (
+      (!ambiguousExact ? exact : null) ?? positional ?? (!exact && !ambiguousBest ? best : null)
+    );
   }
   return positional;
 }

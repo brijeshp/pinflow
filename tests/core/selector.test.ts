@@ -386,12 +386,9 @@ describe('heal correctness under stress (0.4.1 P2)', () => {
     expect(found?.id).toBe('real');
   });
 
-  // Round 1 P2. Moving the counter below the skip meant skipped nodes cost
-  // nothing — and once an exact match exists, EVERY remaining node is skipped.
-  // Measured at 16,002 of 16,005 elements walked with both bounds nominally in
-  // force, against main's 2,001. Pre-order traversal makes the match's subtree
-  // contiguous, so the first non-descendant ends the walk.
-  it('stops walking once the exact match subtree is behind it', () => {
+  // Uniqueness needs the bounded scan to finish; only actual text matches
+  // should require containment probes while unrelated nodes spend the budget.
+  it('does not run containment probes on unrelated text while checking uniqueness', () => {
     // Same reason: the deadline firing early would make this pass without the
     // break, i.e. for the wrong reason.
     vi.spyOn(performance, 'now').mockReturnValue(0);
@@ -403,7 +400,7 @@ describe('heal correctness under stress (0.4.1 P2)', () => {
       { testid: null, id: null, css: '#nope', xpath: '/nope' },
       'the pinned paragraph text',
     );
-    // One containment probe to discover the subtree ended, not one per node.
+    // Only matching fingerprints need containment probes, not unrelated nodes.
     expect(spy.mock.calls.length).toBeLessThan(20);
   });
 
@@ -413,12 +410,8 @@ describe('heal correctness under stress (0.4.1 P2)', () => {
   // the test closes it (and makes the whole list work in XHTML, where every
   // entry was previously inert).
   //
-  // KNOWN RESIDUAL, deliberately not fixed here: the enclosing <svg> still
-  // matches, because textContent aggregates its <title> child. That is a much
-  // milder case — the <svg> has a layout box, so the pin is placeable and the
-  // reviewer may genuinely have pinned the icon. Suppressing it would mean
-  // custom text extraction per candidate, which is a real cost for a narrow
-  // case. Asserting the safety property rather than a specific winner.
+  // The SVG wrapper and visible heading share the same text. Neither is a
+  // unique fallback, and metadata nodes must never become pin targets.
   it('never heals to a zero-box SVG metadata node', () => {
     document.body.innerHTML =
       '<main><svg viewBox="0 0 1 1"><title>Checkout</title><circle r="1"/></svg><h1>Checkout</h1></main>';
@@ -429,9 +422,8 @@ describe('heal correctness under stress (0.4.1 P2)', () => {
     );
     expect(found?.tagName.toUpperCase()).not.toBe('TITLE');
     expect(found?.tagName.toUpperCase()).not.toBe('DESC');
-    // Pin the documented residual too, so a future change cannot move it
-    // silently and quietly turn the comment above into fiction.
-    expect(found?.tagName.toUpperCase()).toBe('SVG');
+    // Both visible wrappers match, so neither is a unique fallback.
+    expect(found).toBeNull();
   });
 
   // Round 2 P2. Charging budget before the tag skip stopped a <select> of
