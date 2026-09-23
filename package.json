@@ -52,7 +52,17 @@
       "import": "./dist/voice.js",
       "require": "./dist/voice.cjs"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./verification": {
+      "types": "./dist/verification.d.ts",
+      "import": "./dist/verification.js",
+      "require": "./dist/verification.cjs"
+    },
+    "./instrumentation": {
+      "types": "./dist/instrumentation.d.ts",
+      "import": "./dist/instrumentation.js",
+      "require": "./dist/instrumentation.cjs"
+    }
   },
   "files": [
     "dist",

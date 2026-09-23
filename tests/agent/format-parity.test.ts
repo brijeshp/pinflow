@@ -111,3 +111,12 @@ describe('agent format parity (0.4.1 review #1/#4)', () => {
     expect(text).toMatch(/older artifacts carry no scope|no scope lines are older/);
   });
 });
+
+it.each(FORMATS)('%s requires reproduction and revision-bound verification', (path) => {
+  const text = flat(path);
+  expect(text).toContain('feedbackrevision');
+  expect(text).toContain('reproduction steps');
+  expect(text).toContain('acceptance checks');
+  expect(text).toContain('unresolved assumptions');
+  expect(text).toContain('capturedscope');
+});

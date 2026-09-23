@@ -17,6 +17,11 @@ describe('packed package type surface', () => {
     const consumer = `
       import { init, routeOf, exportReviewer, version } from './dist/index';
       import type { PinflowTheme, PinflowConfig, Comment, Handle, AreaPercent } from './dist/index';
+      import { createVerification, feedbackRevision } from './dist/verification';
+      import { pinflowSource } from './dist/instrumentation';
+      import type { FeedbackContext } from './dist/index';
+      const evidence: FeedbackContext = {expected: 'Checkout opens'};
+      export { createVerification, feedbackRevision, pinflowSource, evidence };
       const theme: PinflowTheme = { accent: '#123456', radius: '8px' };
       const area: AreaPercent = { x: 10, y: 20, w: 30, h: 40 };
       export { area };
