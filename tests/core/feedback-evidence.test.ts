@@ -240,3 +240,18 @@ it('applies an explicit URL query allowlist to both route and captured URL', () 
     history.replaceState({}, '', previous);
   }
 });
+
+it('renders bare URLs as code so Markdown previews cannot autolink evidence prose', () => {
+  const { root } = capture({
+    captureContext: () => ({
+      expected: 'Visit https://example.com',
+      steps: ['Open www.example.com'],
+      attachments: [{ kind: 'image', ref: 'image-42', label: 'https://example.com' }],
+    }),
+  });
+  save(root);
+  const md = app!.exportMarkdown();
+  expect(md).toContain('**Expected outcome:** `Visit https://example.com`');
+  expect(md).toContain('- `Open www.example.com`');
+  expect(md).toContain('`image-42` — `https://example.com`');
+});

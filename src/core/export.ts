@@ -372,7 +372,7 @@ function evidenceLines(comment: Comment): string[] {
     );
   if (comment.anchor.target)
     lines.push(
-      `**Clicked descendant (at capture):** \`${attr(evidenceText(comment.anchor.target.selectors.css))}\` — ${attr(evidenceText(comment.anchor.target.textFingerprint))}`,
+      `**Clicked descendant (at capture):** \`${attr(evidenceText(comment.anchor.target.selectors.css))}\` — \`${attr(evidenceText(comment.anchor.target.textFingerprint))}\``,
     );
   if (comment.capturedScope)
     lines.push(
@@ -383,18 +383,18 @@ function evidenceLines(comment: Comment): string[] {
   for (const key of ['build', 'state', 'observed', 'expected'] as const) {
     if (feedback[key])
       lines.push(
-        `**${key === 'expected' ? 'Expected outcome' : key}:** ${attr(evidenceText(feedback[key]))}`,
+        `**${key === 'expected' ? 'Expected outcome' : key}:** \`${attr(evidenceText(feedback[key]))}\``,
       );
   }
   for (const key of ['steps', 'acceptance'] as const) {
     if (feedback[key]) {
       lines.push(key === 'steps' ? '**Reproduction steps:**' : '**Acceptance checks:**');
-      for (const item of feedback[key]) lines.push(`- ${attr(evidenceText(item))}`);
+      for (const item of feedback[key]) lines.push(`- \`${attr(evidenceText(item))}\``);
     }
   }
   for (const item of feedback.attachments ?? [])
     lines.push(
-      `**Attachment reference (${attr(evidenceText(item.kind))}):** \`${attr(evidenceText(item.ref))}\`${item.label ? ` — ${attr(evidenceText(item.label))}` : ''}`,
+      `**Attachment reference (${attr(evidenceText(item.kind))}):** \`${attr(evidenceText(item.ref))}\`${item.label ? ` — \`${attr(evidenceText(item.label))}\`` : ''}`,
     );
   return lines;
 }
