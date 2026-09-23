@@ -168,3 +168,28 @@ conformant backend:
 - **list** (planned): `GET /v1/sessions/{id}/feedback-annotations` — returns
   the session reviewer's comments, including `status`/`resolution`, in the
   `source` shape. Scoping is by session possession.
+
+## Additive actionable feedback evidence
+
+The v4 `Comment` wire type additionally permits `feedback` (bounded, host-selected
+reproduction context), `anchor.target` (the precise clicked descendant),
+`anchor.capturedSelectors` (original locators after repair), and `capturedScope`
+(original scope before demotion). These optional fields are forward-compatible;
+older records remain valid. Preserve them through synchronization. Malformed
+optional evidence is stripped without dropping the reviewer's words.
+
+`feedback` accepts build/state, steps, observed/expected, acceptance checks, and
+passive image/video attachment references. The capture/hydration allowlist drops
+unknown keys. URLs and application data are not automatically privacy-safe:
+configure `urlQueryParams` before creating new feedback and return non-sensitive
+facts from `captureContext`. It does not migrate prior stored URLs or sanitize
+host-defined route keys. See the public guide for bounds and examples.
+
+Verification is a separate v1 sidecar (`@brijeshp/pinflow/verification`), keyed by
+`commentId` and `revision` (`sha256:` plus 64 lowercase hex digits). It records
+outcome, interpretation, files, check results/evidence, and unresolved assumptions.
+`isVerificationCurrent` validates the shape, acceptance coverage and request hash.
+It does not prove the checks ran. Mechanical healing and team disposition do not
+change the request hash; authored content and original evidence do. Never feed a
+sidecar back into `source()` as a comment, and never infer team `done` status from
+its self-reported `verified` outcome.

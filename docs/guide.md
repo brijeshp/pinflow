@@ -549,3 +549,156 @@ For full signatures and types, see the
   through a server-side webhook proxy
 - [Vercel + Notion](https://github.com/brijeshp/pinflow/tree/main/examples/webhook-vercel-notion) —
   store submissions with a serverless function
+
+## Feedback that can be reproduced and checked
+
+A screenshot shows an appearance. A Pinflow comment can also carry the clicked
+control, the containing component, reproduction steps, intended behavior and
+acceptance checks. Enable the optional composer field and supply a small,
+explicit context object:
+
+```ts
+import { init } from '@brijeshp/pinflow';
+
+const handle = init({
+  project: 'checkout-preview',
+  expectedOutcome: true,
+  urlQueryParams: ['plan'], // [] strips all queries from new URL/route captures
+  captureContext: (target) => ({
+    build: 'preview-42',
+    state: 'cart-open',
+    steps: ['Add an item to the cart', 'Select Buy'],
+    observed: 'The checkout panel stays closed',
+    expected: 'The checkout panel opens',
+    acceptance: ['Checkout heading is visible'],
+    attachments: [{ kind: 'video', ref: 'recording-42', label: 'Checkout attempt' }],
+  }),
+});
+
+const json = handle.exportJSON();
+const markdown = handle.exportMarkdown();
+```
+
+`captureContext` runs synchronously once at the pin gesture, with the actual
+clicked element. Its result is copied, validated and frozen in time, including
+voice finalization and fallback. A thrown hook does not lose the note. Return
+only facts your application deliberately makes available; do not return raw
+application state, form values, credentials or personal data. No network,
+console, screenshot or session recording is collected automatically.
+
+The optional expected-outcome field works for text and existing voice comments.
+A saved expected-only note survives. Escape still discards unsaved input.
+React accepts the same config props; Vue exposes `captureContext`,
+`expectedOutcome` and `urlQueryParams` with the same names. Function updates to
+`captureContext` take effect without remounting. Configure the URL allowlist at
+initialization; use a keyed remount to replace object/array configuration.
+
+Limits are enforced both at capture and hydration: build/state are 120 characters;
+observed/expected are 1,000; steps/acceptance contain at most 12 entries of 500
+characters. There are at most four attachments. References are opaque IDs or
+canonical HTTPS URLs without credentials, query strings or fragments. Labels
+are 80 characters. Pinflow stores references, never media blobs, and does not
+fetch or upload them. Supply access to attachments separately when needed.
+
+`urlQueryParams` is opt-in because changing existing route keys would hide older
+pins on query-based screens. When configured, it filters queries and removes
+credentials/fragments from new `fullUrl` captures and filters default route keys.
+It never rewrites existing feedback; custom `routeKey` values and page-derived
+text/image/style context remain host-owned and may contain sensitive content.
+Without the option, legacy URL capture is unchanged. Review exports before
+sharing them and use non-sensitive preview data.
+
+Original evidence survives anchor repair. `anchor.selectors` locates the current
+anchor; `anchor.capturedSelectors` retains the original selectors after the first
+repair. `anchor.target` records the precise clicked descendant if Pinflow anchors
+its stable ancestor. `capturedScope` preserves the initial scope when repair
+marks the live scope stale. Historical evidence is not a new edit boundary.
+Ambiguous fallback text matches and incomplete searches abstain rather than
+choosing the first element.
+
+### Verification reports
+
+Use the optional, DOM-free entry point to bind a result to the exact request:
+
+```ts
+import { createVerification, isVerificationCurrent } from '@brijeshp/pinflow/verification';
+
+const comment = JSON.parse(json).comments[0];
+const report = await createVerification(comment, {
+  outcome: 'verified',
+  interpretation: 'Open checkout when Buy is selected',
+  files: ['src/Cart.tsx'],
+  checks: [
+    {
+      name: 'Checkout heading is visible',
+      result: 'passed',
+      evidence: 'playwright: checkout.spec.ts',
+    },
+  ],
+  assumptions: [],
+});
+
+// Re-read the current JSON before accepting a result from another tool.
+const current = JSON.parse(handle.exportJSON()).comments[0];
+const stillCurrent = await isVerificationCurrent(current, report);
+```
+
+The SHA-256 revision covers authored content and original capture evidence, with
+stable object-key ordering. Mechanical locator/scope repair and team disposition
+are excluded. An edit to the request invalidates the report even when a producer
+forgot to advance `updatedAt`. `feedbackRevision` exposes the same hash, and
+`readVerification` validates imported sidecar JSON without trusting unknown keys.
+These functions require Web Crypto (`crypto.subtle`), available in secure browser
+contexts and current Node runtimes; Node 18 hosts may need to supply
+`globalThis.crypto` from `node:crypto`'s `webcrypto`.
+
+A `verified` report needs passing checks with evidence references, coverage of every supplied acceptance
+criterion (check names match verbatim), and no unresolved assumptions. Use
+`partial` or `blocked` when checks fail or cannot run. A report is a self-reported
+claim to review: Pinflow does not execute tests, authenticate their results, fetch
+references, or set team-owned `status`. Store reports separately from comments.
+The four formats in the shipped `agent/` pack teach this reproduce → implement →
+verify workflow, including how to report an unbound result when only Markdown
+was supplied.
+
+### Optional source instrumentation
+
+For Vite JSX/TSX previews, use the host's existing TypeScript compiler to attach
+repository-relative `data-pinflow-source` hints at build time:
+
+```ts
+// vite.config.ts
+import ts from 'typescript';
+import { pinflowSource } from '@brijeshp/pinflow/instrumentation';
+
+export default {
+  plugins: [pinflowSource({ typescript: ts, root: process.cwd() })],
+};
+```
+
+This Node-only plugin runs during development (`apply: 'serve'`), preserves source
+maps, skips dependencies and files outside the root, and stamps intrinsic JSX
+DOM elements. Existing explicit hints take precedence. It does not instrument
+Vue templates, Svelte or arbitrary generated markup; those integrations can use
+explicit source attributes. Source hints are still page-supplied leads to verify,
+never authorization to open or change a file. The compiler is supplied by the
+host, so Pinflow adds no runtime dependency. Neither instrumentation nor
+verification is imported by the browser core.
+
+### Reliability and evaluation
+
+Same-reviewer tabs reconcile their actual edits against the latest durable
+snapshot. Sequential writes preserve unrelated feedback and do not resurrect
+completed deletions. This remains a synchronous localStorage design: it does not
+provide atomic transactions between truly simultaneous browser processes. Hosts
+requiring stronger guarantees should use the existing authenticated sync protocol
+and server-side revision/conflict handling.
+
+`tests/evaluation/target-corpus.test.ts` contains labeled synthetic targeting and
+abstention cases. `tests/verification/` checks stale revisions and honest failure
+reports. The browser suite exercises capture, save, reload and export at all
+configured viewport/device combinations. These are regression evaluations, not
+measurements of coding-agent success on customer feedback. For that, collect a
+consented corpus of resolved requests and compare target identification,
+reproduction success, acceptance-check coverage, rework rate and time to an
+accepted fix across text-only, screenshots and structured Pinflow evidence.
