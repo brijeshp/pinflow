@@ -9,6 +9,7 @@ export function authoredRevision(c: Comment): string {
     c.text,
     c.route,
     c.createdAt,
+    c.feedback,
   ]);
 }
 

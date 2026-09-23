@@ -27,6 +27,9 @@ export function Annotator(props: AnnotatorProps): null {
     // snapshotted at init — change those via a keyed remount.
     handleRef.current = init({
       ...p,
+      ...(p.captureContext
+        ? { captureContext: (target) => propsRef.current.captureContext?.(target) }
+        : {}),
       ...(p.onChange ? { onChange: (s, c) => propsRef.current.onChange?.(s, c) } : {}),
       ...(p.onSubmit ? { onSubmit: (s) => propsRef.current.onSubmit?.(s) } : {}),
       ...(p.source ? { source: () => (propsRef.current.source ?? p.source)!() } : {}),
@@ -52,6 +55,8 @@ export function Annotator(props: AnnotatorProps): null {
     props.activation?.mode,
     props.voice?.tokenEndpoint,
     props.exportUi,
+    props.expectedOutcome,
+    !!props.captureContext,
     !!props.onChange,
     !!props.onSubmit,
     !!props.source,

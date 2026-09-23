@@ -1,3 +1,4 @@
+import { normalizeFeedback } from './feedback';
 import { isAnonymous } from './identity';
 import { LABEL_MAX, SCOPE_GEN } from './scope-limits';
 import { FP_MAX } from './selector';
@@ -356,6 +357,48 @@ function scopeLines(scope: Scope): string[] {
   return lines;
 }
 
+function evidenceText(value: unknown): string {
+  return String(value ?? '')
+    .replace(/\[/g, '［')
+    .replace(/\]/g, '］');
+}
+
+// Every field is untrusted, including host-supplied context. Emit text, never active links.
+function evidenceLines(comment: Comment): string[] {
+  const lines: string[] = [];
+  if (comment.anchor.capturedSelectors)
+    lines.push(
+      `**Original selector (at capture):** \`${attr(evidenceText(comment.anchor.capturedSelectors.css))}\``,
+    );
+  if (comment.anchor.target)
+    lines.push(
+      `**Clicked descendant (at capture):** \`${attr(evidenceText(comment.anchor.target.selectors.css))}\` — ${attr(evidenceText(comment.anchor.target.textFingerprint))}`,
+    );
+  if (comment.capturedScope)
+    lines.push(
+      'Original scope is preserved in JSON as capturedScope; it is historical evidence, not a current edit boundary.',
+    );
+  const feedback = normalizeFeedback(comment.feedback);
+  if (!feedback) return lines;
+  for (const key of ['build', 'state', 'observed', 'expected'] as const) {
+    if (feedback[key])
+      lines.push(
+        `**${key === 'expected' ? 'Expected outcome' : key}:** ${attr(evidenceText(feedback[key]))}`,
+      );
+  }
+  for (const key of ['steps', 'acceptance'] as const) {
+    if (feedback[key]) {
+      lines.push(key === 'steps' ? '**Reproduction steps:**' : '**Acceptance checks:**');
+      for (const item of feedback[key]) lines.push(`- ${attr(evidenceText(item))}`);
+    }
+  }
+  for (const item of feedback.attachments ?? [])
+    lines.push(
+      `**Attachment reference (${attr(evidenceText(item.kind))}):** \`${attr(evidenceText(item.ref))}\`${item.label ? ` — ${attr(evidenceText(item.label))}` : ''}`,
+    );
+  return lines;
+}
+
 function commentBlock(comment: Comment, index: number, reviewer?: string): string {
   const { positionPercent: pos, selectors: sel, viewport: vp } = comment.anchor;
   return [
@@ -364,6 +407,7 @@ function commentBlock(comment: Comment, index: number, reviewer?: string): strin
     ...contextLine(comment),
     ...layerLine(comment),
     ...visualLines(comment),
+    ...evidenceLines(comment),
     '**Selector candidates:**',
     `- testid: ${sel.testid ? `\`${inline(sel.testid)}\`` : '(none)'}`,
     // The rung that survives a rebuild — listed where it resolves, before css.
@@ -396,6 +440,7 @@ function orphanBlock(comment: Comment & { reviewer?: string }, index: number): s
     ...contextLine(comment),
     ...layerLine(comment, true),
     ...visualLines(comment),
+    ...evidenceLines(comment),
     ...(comment.anchor.areaPercent
       ? [areaLine(comment.anchor.areaPercent, comment.anchor.covers)]
       : []),

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { rememberReviewer, rememberedReviewer } from '../../src/core/identity';
 import { routeKey } from '../../src/core/route-key';
+import { buildSelectors } from '../../src/core/selector';
 import { emptyStore, loadStore, renameReviewer, saveStore } from '../../src/core/storage';
 import type { Anchor, Comment } from '../../src/core/types';
 import { Annotator } from '../../src/core/ui/annotator';
@@ -15,6 +16,8 @@ const instances: Annotator[] = [];
 interface Editor {
   _commitTextComment(anchor: Anchor, text: string, openForEdit: boolean): void;
   _openInput(commentId: string): void;
+  _renameTo(name: string): boolean;
+  _reconcileIdentity(): void;
 }
 
 function comment(id: string, text = id): Comment {
@@ -106,6 +109,19 @@ describe('independent reviewer snapshots', () => {
     expect(savedTexts()).toEqual(['New feedback', 'Revised feedback']);
   });
 
+  it('shows newly folded feedback and the updated count after a stale tab saves an edit', () => {
+    seed([comment('existing', 'Original')]);
+    const first = tab();
+    const second = tab();
+
+    add(first, 'New feedback');
+    edit(second, 'existing', 'Revised feedback');
+
+    expect(savedTexts()).toEqual(['New feedback', 'Revised feedback']);
+    expect(second.root.querySelectorAll('.pin')).toHaveLength(2);
+    expect(second.root.querySelector('.chip')?.textContent).toBe('2');
+  });
+
   it('does not resurrect a deleted comment when a stale tab adds unrelated feedback', () => {
     seed([comment('removed', 'Deleted feedback')]);
     const first = tab();
@@ -152,6 +168,48 @@ describe('independent reviewer snapshots', () => {
   });
 });
 
+describe('reviewer rename snapshot rebasing', () => {
+  function seedDestination(): void {
+    const destination = comment('destination-feedback', 'Destination feedback');
+    // A correct anchor must not trigger an incidental healing write that
+    // masks whether the rename itself established its mutation baseline.
+    destination.anchor.selectors = buildSelectors(document.body);
+    saveStore(localStorage, {
+      ...emptyStore(PROJECT, 'Destination'),
+      comments: [destination],
+    });
+  }
+
+  it('persists deleting feedback inherited from an existing destination after renaming', () => {
+    seed([comment('source-feedback', 'Source feedback')]);
+    seedDestination();
+    const first = tab();
+
+    expect(first.editor._renameTo('Destination')).toBe(true);
+    remove(first, 'destination-feedback');
+
+    expect(loadStore(localStorage, PROJECT, 'Destination')?.comments.map((c) => c.text)).toEqual([
+      'Source feedback',
+    ]);
+  });
+
+  it('persists deleting destination feedback after adopting another tab reviewer rename', () => {
+    seed([comment('source-feedback', 'Source feedback')]);
+    seedDestination();
+    const stale = tab();
+
+    expect(renameReviewer(localStorage, PROJECT, REVIEWER, 'Destination')).toBe(true);
+    // Exercise adoption independently of a write: adoption must establish the
+    // same mutation baseline as a direct rename before the next user action.
+    stale.editor._reconcileIdentity();
+    remove(stale, 'destination-feedback');
+
+    expect(loadStore(localStorage, PROJECT, 'Destination')?.comments.map((c) => c.text)).toEqual([
+      'Source feedback',
+    ]);
+  });
+});
+
 it('keeps the source corpus reachable if remembering a reviewer rename is refused', () => {
   seed([comment('valuable-feedback', 'Keep this feedback')]);
   rememberReviewer(localStorage, PROJECT, REVIEWER);
@@ -168,4 +226,17 @@ it('keeps the source corpus reachable if remembering a reviewer rename is refuse
     comment('valuable-feedback', 'Keep this feedback'),
   ]);
   expect(renamed).toBe(false);
+});
+
+it('exports current durable feedback from a stale tab before verifying a revision', () => {
+  seed([comment('base')]);
+  const first = tab();
+  const second = tab();
+  add(first, 'new in another tab');
+  const reader = second.editor as unknown as { exportJSON(): string; exportMarkdown(): string };
+  expect(JSON.parse(reader.exportJSON()).comments.map((c: Comment) => c.text)).toContain(
+    'new in another tab',
+  );
+  edit(first, 'base', 'changed in another tab');
+  expect(reader.exportMarkdown()).toContain('changed in another tab');
 });

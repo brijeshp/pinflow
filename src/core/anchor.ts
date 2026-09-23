@@ -162,6 +162,11 @@ export function buildAnchor(
     viewport: currentViewport(),
     context,
   };
+  if (target !== el)
+    anchor.target = {
+      selectors: buildSelectors(target),
+      textFingerprint: getTextFingerprint(target),
+    };
   const layer = layerOf(el);
   if (layer) anchor.layer = layer;
   return anchor;

@@ -36,7 +36,16 @@ export interface AreaPercent {
   h: number;
 }
 
+export interface TargetEvidence {
+  selectors: SelectorCandidates;
+  textFingerprint: string;
+}
+
 export interface Anchor {
+  /** Original locators, retained on the first repair. Current selectors remain the live locator. */
+  capturedSelectors?: SelectorCandidates;
+  /** Precise clicked descendant when the stable anchor is an ancestor. Historical evidence only. */
+  target?: TargetEvidence;
   selectors: SelectorCandidates;
   textFingerprint: string;
   positionPercent: PositionPercent;
@@ -229,7 +238,22 @@ export interface VoiceMeta {
   engine?: string;
 }
 
+/** Host-selected reproduction facts. Never populated by inspecting application state or network traffic. */
+export interface FeedbackContext {
+  build?: string;
+  state?: string;
+  steps?: string[];
+  observed?: string;
+  expected?: string;
+  acceptance?: string[];
+  /** Opaque IDs or HTTPS URLs without credentials, query or fragment. No uploads or fetching. */
+  attachments?: { kind: 'image' | 'video'; ref: string; label?: string }[];
+}
+
 export interface Comment {
+  feedback?: FeedbackContext;
+  /** Original scope retained before the first repair demotes the live scope. */
+  capturedScope?: Scope;
   id: string;
   createdAt: string;
   updatedAt: string;
@@ -328,6 +352,12 @@ export interface PinflowTheme {
 }
 
 export interface PinflowConfig {
+  /** Opt-in query allowlist for new captured URLs and default route keys. [] removes all queries; undefined preserves legacy routing. Hash and credentials are removed when configured. Custom routeKey remains host-owned. */
+  urlQueryParams?: readonly string[];
+  /** Called synchronously once at pin time; return only non-sensitive, explicit reproduction facts. */
+  captureContext?: (target: Element) => FeedbackContext | undefined;
+  /** Show an optional expected outcome field in the composer. Defaults to false. */
+  expectedOutcome?: boolean;
   project: string;
   reviewer?: string;
   mode?: Mode;

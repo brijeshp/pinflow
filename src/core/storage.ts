@@ -1,3 +1,4 @@
+import { normalizeFeedback } from './feedback';
 import { rememberReviewer } from './identity';
 import { FP_MAX } from './selector';
 import { cleanLabel, CSS_MAX, EXCLUDED_CAP, MEMBER_CAP, TAG_MAX } from './scope-limits';
@@ -109,15 +110,7 @@ function validVoice(v: unknown): boolean {
   );
 }
 
-function hasValidAnchor(c: Record<string, unknown>): boolean {
-  const anchor = c['anchor'];
-  if (!isObject(anchor)) return false;
-  const selectors = anchor['selectors'];
-  const pos = anchor['positionPercent'];
-  const vp = anchor['viewport'];
-  // Numeric leaves are dereferenced unguarded downstream (Math.round on
-  // export, pixel math on render) — NaN/absent must drop the record, not
-  // produce "NaN%" artifacts (review #20).
+function validSelectors(selectors: unknown): boolean {
   return (
     isObject(selectors) &&
     typeof selectors['css'] === 'string' &&
@@ -129,7 +122,21 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
     (selectors['role'] === undefined ||
       (typeof selectors['role'] === 'string' && selectors['role'].length <= 80)) &&
     (selectors['name'] === undefined ||
-      (typeof selectors['name'] === 'string' && selectors['name'].length <= 80)) &&
+      (typeof selectors['name'] === 'string' && selectors['name'].length <= 80))
+  );
+}
+
+function hasValidAnchor(c: Record<string, unknown>): boolean {
+  const anchor = c['anchor'];
+  if (!isObject(anchor)) return false;
+  const selectors = anchor['selectors'];
+  const pos = anchor['positionPercent'];
+  const vp = anchor['viewport'];
+  // Numeric leaves are dereferenced unguarded downstream (Math.round on
+  // export, pixel math on render) — NaN/absent must drop the record, not
+  // produce "NaN%" artifacts (review #20).
+  return (
+    validSelectors(selectors) &&
     isObject(pos) &&
     pct(pos['x']) &&
     pct(pos['y']) &&
@@ -334,6 +341,27 @@ export function normalizeComments(input: unknown): Comment[] {
       const r = c['resolution'];
       if (typeof r === 'string') out.resolution = r.slice(0, 500);
       else delete out.resolution;
+      const feedback = normalizeFeedback(c['feedback']);
+      if (feedback) out.feedback = feedback;
+      else delete out.feedback;
+      const originalScope = validScope(c['capturedScope']);
+      if (originalScope) out.capturedScope = originalScope;
+      else delete out.capturedScope;
+      // Optional historical evidence is soft: corrupt evidence must not drop words.
+      out.anchor = { ...out.anchor };
+      if (!validSelectors(out.anchor.capturedSelectors)) delete out.anchor.capturedSelectors;
+      const target = out.anchor.target;
+      if (
+        !isObject(target) ||
+        !validSelectors(target['selectors']) ||
+        typeof target['textFingerprint'] !== 'string'
+      )
+        delete out.anchor.target;
+      else
+        out.anchor.target = {
+          selectors: target.selectors,
+          textFingerprint: target.textFingerprint.slice(0, FP_MAX),
+        };
       const scope = validScope(c['scope']);
       if (scope) out.scope = scope;
       else delete out.scope;
