@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import {
   createVerification,
   feedbackRevision,
@@ -120,4 +120,13 @@ it('requires evidence references before accepting a verified claim', async () =>
       checks: [{ name: 'Checkout heading is visible', result: 'passed' }],
     }),
   ).rejects.toThrow();
+});
+
+it('names the missing Web Crypto dependency instead of failing on undefined', async () => {
+  vi.stubGlobal('crypto', undefined);
+  try {
+    await expect(feedbackRevision(comment)).rejects.toThrow(/Web Crypto/);
+  } finally {
+    vi.unstubAllGlobals();
+  }
 });

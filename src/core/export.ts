@@ -380,11 +380,13 @@ function evidenceLines(comment: Comment): string[] {
     );
   const feedback = normalizeFeedback(comment.feedback);
   if (!feedback) return lines;
-  for (const key of ['build', 'state', 'observed', 'expected'] as const) {
-    if (feedback[key])
-      lines.push(
-        `**${key === 'expected' ? 'Expected outcome' : key}:** \`${attr(evidenceText(feedback[key]))}\``,
-      );
+  for (const [key, label] of [
+    ['build', 'Build'],
+    ['state', 'State'],
+    ['observed', 'Observed'],
+    ['expected', 'Expected outcome'],
+  ] as const) {
+    if (feedback[key]) lines.push(`**${label}:** \`${attr(evidenceText(feedback[key]))}\``);
   }
   for (const key of ['steps', 'acceptance'] as const) {
     if (feedback[key]) {

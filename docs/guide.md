@@ -587,7 +587,9 @@ application state, form values, credentials or personal data. No network,
 console, screenshot or session recording is collected automatically.
 
 The optional expected-outcome field works for text and existing voice comments.
-A saved expected-only note survives. Escape still discards unsaved input.
+A saved expected-only note survives. Escape still discards unsaved input, and
+context from `captureContext` alone does not keep a new pin the reviewer
+dismisses without saving.
 React accepts the same config props; Vue exposes `captureContext`,
 `expectedOutcome` and `urlQueryParams` with the same names. Function updates to
 `captureContext` take effect without remounting. Configure the URL allowlist at
@@ -613,8 +615,9 @@ anchor; `anchor.capturedSelectors` retains the original selectors after the firs
 repair. `anchor.target` records the precise clicked descendant if Pinflow anchors
 its stable ancestor. `capturedScope` preserves the initial scope when repair
 marks the live scope stale. Historical evidence is not a new edit boundary.
-Ambiguous fallback text matches and incomplete searches abstain rather than
-choosing the first element.
+Ambiguous fallback text matches abstain rather than choosing the first element.
+On a page too large to scan within budget, an exact text match is still used,
+but a fuzzy guess is not.
 
 ### Verification reports
 

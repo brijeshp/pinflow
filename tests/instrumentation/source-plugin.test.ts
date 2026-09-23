@@ -32,5 +32,8 @@ describe('optional development source instrumentation', () => {
     expect(disabled.transform('<div/>', '/project/src/X.tsx')).toBeNull();
     const result = plugin.transform('export const X = () => <div/>', '/project/src/X.tsx')!;
     expect(JSON.parse(result.map!).mappings.length).toBeGreaterThan(0);
+    // The map is returned to the bundler; a URL comment would name a file
+    // that was never written.
+    expect(result.code).not.toContain('sourceMappingURL');
   });
 });

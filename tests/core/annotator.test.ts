@@ -760,6 +760,32 @@ describe('Annotator source hydration (L2.1)', () => {
     });
   });
 
+  it('re-announces a lost update even when the server has dispositioned the comment', async () => {
+    // PROTOCOL: servers strip client dispositions, so the content repair is
+    // safe to send; suppressing it left the server with stale text forever.
+    seedStore({
+      ...makeComment('locally saved newer text'),
+      updatedAt: '2026-06-01T00:00:00.000Z',
+    });
+    const onChange = vi.fn();
+    annotator = makeWithSource(
+      vi
+        .fn()
+        .mockResolvedValue([
+          { ...makeComment(''), updatedAt: '2026-05-01T00:00:00.000Z', status: 'done' },
+        ]),
+      { onChange },
+    );
+    await flushMicrotasks();
+
+    expect(onChange).toHaveBeenCalledTimes(1);
+    const [, change] = onChange.mock.calls[0]!;
+    expect(change).toMatchObject({
+      type: 'update',
+      comment: { id: 'c1', text: 'locally saved newer text', status: 'done' },
+    });
+  });
+
   it('reconciles local-only comments: one add per comment the server list lacks (finding C)', async () => {
     seedStore(makeComment('mine')); // id c1 — never reached the server
     const onChange = vi.fn();

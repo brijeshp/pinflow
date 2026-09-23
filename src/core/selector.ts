@@ -504,11 +504,15 @@ export function findByCandidates(
     //
     // Only an EXACT fingerprint match displaces a positional hit — and exact
     // is laid-out by construction (acceptance above requires a client rect).
-    // A prefix is not proof of uniqueness. Prefer structural evidence if the
-    // bounded walk could not finish, and never pick the first tied stranger.
-    if (node) return positional;
+    // A tied exact match abstains to structural evidence, and a tied fuzzy
+    // guess never picks the first stranger. A walk cut short by its budget
+    // (`node` still set) keeps an untied exact hit — most real pages exceed
+    // the budget, and abstaining there disabled this rung wherever it
+    // mattered — but drops the fuzzy guess, which an unscanned node could beat.
     return (
-      (!ambiguousExact ? exact : null) ?? positional ?? (!exact && !ambiguousBest ? best : null)
+      (!ambiguousExact ? exact : null) ??
+      positional ??
+      (!node && !exact && !ambiguousBest ? best : null)
     );
   }
   return positional;

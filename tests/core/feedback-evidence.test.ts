@@ -82,6 +82,39 @@ describe('actionable feedback evidence', () => {
       root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Expected outcome"]')!.value,
     ).toBe('Checkout opens');
   });
+  it('discards a dismissed new pin even when host context prefilled it', () => {
+    const onChange = vi.fn();
+    const { root } = capture({
+      onChange,
+      captureContext: () => ({ observed: 'Panel stays closed', expected: 'Panel opens' }),
+    });
+    root
+      .querySelector('textarea')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(loadStore(localStorage, 'evidence', 'Sam')?.comments ?? []).toEqual([]);
+    expect(onChange.mock.calls.map(([, change]) => change.type)).toEqual(['add', 'delete']);
+  });
+  it('keeps a new pin whose prefilled expected outcome the reviewer saves', () => {
+    const { root } = capture({ captureContext: () => ({ expected: 'Panel opens' }) });
+    root.querySelector<HTMLButtonElement>('.save')!.click();
+    expect(saved()).toMatchObject({ text: '', feedback: { expected: 'Panel opens' } });
+  });
+  it('drops an empty save when host context has no expected outcome', () => {
+    const { root } = capture({ captureContext: () => ({ observed: 'Panel stays closed' }) });
+    root.querySelector<HTMLButtonElement>('.save')!.click();
+    expect(loadStore(localStorage, 'evidence', 'Sam')?.comments ?? []).toEqual([]);
+  });
+  it('keeps a saved expected-only note when it is reopened and dismissed', () => {
+    const { root } = capture({ expectedOutcome: true });
+    root.querySelector<HTMLTextAreaElement>('textarea[aria-label="Expected outcome"]')!.value =
+      'Checkout opens';
+    root.querySelector<HTMLButtonElement>('.save')!.click();
+    root.querySelector<HTMLButtonElement>('.pin')!.click();
+    root
+      .querySelector('textarea')!
+      .dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    expect(saved()).toMatchObject({ text: '', feedback: { expected: 'Checkout opens' } });
+  });
   it('contains a failing host hook without losing the comment', () => {
     vi.spyOn(console, 'warn').mockImplementation(() => {});
     const { root } = capture({
@@ -254,4 +287,19 @@ it('renders bare URLs as code so Markdown previews cannot autolink evidence pros
   expect(md).toContain('**Expected outcome:** `Visit https://example.com`');
   expect(md).toContain('- `Open www.example.com`');
   expect(md).toContain('`image-42` — `https://example.com`');
+});
+
+it('labels every context field in the same sentence case', () => {
+  const { root } = capture({
+    captureContext: () => ({
+      build: 'preview-42',
+      state: 'cart-open',
+      observed: 'Nothing happens',
+    }),
+  });
+  save(root);
+  const md = app!.exportMarkdown();
+  expect(md).toContain('**Build:** `preview-42`');
+  expect(md).toContain('**State:** `cart-open`');
+  expect(md).toContain('**Observed:** `Nothing happens`');
 });

@@ -34,7 +34,7 @@ SSR installs, and hosts that set `reviewer` to an empty string, return an inert 
 Required: `project`.
 
 - `captureContext?: (target: Element) => FeedbackContext | undefined`: capture bounded reproduction facts synchronously once at the gesture. Throws are contained; values are detached and validated. No automatic network or application-state capture.
-- `expectedOutcome?: boolean`: optional composer field, default false; existing expected outcomes stay visible. Saved expected/observed-only feedback is not an empty draft.
+- `expectedOutcome?: boolean`: optional composer field, default false; existing expected outcomes stay visible. A saved expected-only note is not an empty draft; host `captureContext` alone does not keep a new pin dismissed without saving.
 - `urlQueryParams?: readonly string[]`: opt-in allowlist for new captured URLs/default route keys; removes credentials and fragments too. Undefined preserves legacy behavior; custom route keys and historical records are unchanged.
 
 | Option          | Type / values                                                   | Meaning                                                                                                                                                                                                                                                                                                                                                            |

@@ -70,9 +70,38 @@ describe('target selection evaluation corpus', () => {
   });
 });
 
-it('abstains when an early exact hit cannot be proven unique within the visit budget', () => {
+// Most real pages exceed the scan budget (2,000 scored nodes, or 2 ms — a few
+// hundred nodes on a phone). Abstaining whenever the scan is cut short would
+// switch off the text rung, the one that survives a rebuild, on those pages.
+it('keeps an early exact hit when a large page exhausts the scan budget', () => {
   vi.spyOn(performance, 'now').mockReturnValue(0);
   document.body.innerHTML = '<p>Unique target phrase</p>' + '<div>noise</div>'.repeat(3000);
+  expect(
+    findByCandidates(
+      document,
+      { testid: null, id: null, css: '', xpath: '' },
+      'Unique target phrase',
+    ),
+  ).toBe(document.querySelector('p'));
+});
+
+it('prefers a truncated-scan exact hit over a structural hit that contradicts the text', () => {
+  vi.spyOn(performance, 'now').mockReturnValue(0);
+  document.body.innerHTML =
+    '<p>Unique target phrase</p><div id="moved">Something else entirely</div>' +
+    '<div>noise</div>'.repeat(3000);
+  expect(
+    findByCandidates(
+      document,
+      { testid: null, id: null, css: '#moved', xpath: '' },
+      'Unique target phrase',
+    ),
+  ).toBe(document.querySelector('p'));
+});
+
+it('abstains from a fuzzy best guess when the scan is cut short', () => {
+  vi.spyOn(performance, 'now').mockReturnValue(0);
+  document.body.innerHTML = '<p>Unique target phrases</p>' + '<div>noise</div>'.repeat(3000);
   expect(
     findByCandidates(
       document,

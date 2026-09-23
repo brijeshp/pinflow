@@ -73,7 +73,12 @@ export function pinflowSource(options: SourcePluginOptions) {
         },
         transformers: { before: [transformer] },
       });
-      return { code: output.outputText, map: output.sourceMapText ?? null };
+      // The map travels in the return value; the emitted URL comment would
+      // point the browser at a .map file that does not exist.
+      return {
+        code: output.outputText.replace(/\n\/\/# sourceMappingURL=\S+\s*$/, '\n'),
+        map: output.sourceMapText ?? null,
+      };
     },
   };
 }

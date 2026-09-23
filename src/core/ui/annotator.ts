@@ -135,6 +135,9 @@ interface ActiveVoice {
 interface ActiveInput {
   wrap: HTMLDivElement;
   commentId: string;
+  /** Opened by the gesture that created the comment: nothing in it is the
+   *  reviewer's until they save, however much host context prefilled. */
+  fresh: boolean;
   /** Detach the popup's document-level dismiss listeners. */
   cleanup(): void;
   /** Persist the draft's current text and close (frozen popups just close).
@@ -638,7 +641,6 @@ export class Annotator {
   private _emitChange(type: 'add' | 'update' | 'delete', comment: Comment): void {
     const current = this._store.comments.find((c) => c.id === comment.id);
     if (type === 'delete' ? current : !current) return;
-    if (type === 'update' && current && isResolved(current)) return;
     if (current) comment = current;
     // Tombstone BEFORE the callback gate: the hydration race exists whether
     // or not the host listens to onChange.
@@ -1731,7 +1733,7 @@ export class Annotator {
     this._persist();
     this._emitChange('add', comment);
     this._renderPins();
-    if (openForEdit) this._openInput(comment.id);
+    if (openForEdit) this._openInput(comment.id, true);
   }
 
   private _loadVoiceModule(): Promise<VoiceModule> {
@@ -2110,7 +2112,7 @@ export class Annotator {
   // anywhere outside dismisses, dropping unsaved edits. Dismissing a comment
   // whose saved text is still empty deletes it — no orphan pins littering the
   // page from an accidental gesture.
-  private _openInput(commentId: string): void {
+  private _openInput(commentId: string, fresh = false): void {
     this._closeActiveInput();
     const comment = this._store.comments.find((c) => c.id === commentId);
     if (!comment) return;
@@ -2176,7 +2178,7 @@ export class Annotator {
         this._persist();
         this._emitChange('update', updated);
       }
-      this._closeActiveInput();
+      this._closeActiveInput(true, true);
     };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
@@ -2227,6 +2229,7 @@ export class Annotator {
     this._activeInput = {
       wrap,
       commentId,
+      fresh,
       cleanup: disarm,
       save: () => (frozen ? this._closeActiveInput() : save()),
     };
@@ -2307,8 +2310,10 @@ export class Annotator {
 
   // Closing never saves — Save is explicit. A dismissed comment whose SAVED
   // text is still empty gets deleted (`cleanupEmpty=false` for delete/destroy:
-  // delete already removed it; destroy must not write during teardown).
-  private _closeActiveInput(cleanupEmpty = true): void {
+  // delete already removed it; destroy must not write during teardown). A
+  // saved expected outcome counts as content; host context on a fresh pin the
+  // reviewer never saved does not, or every dismissed gesture would persist.
+  private _closeActiveInput(cleanupEmpty = true, saved = false): void {
     const input = this._activeInput;
     // AFTER the guard, not before it. _openInput closes any previous composer
     // on its way in, so an unconditional clear here wiped the outline that the
@@ -2323,7 +2328,12 @@ export class Annotator {
     const c = this._store.comments.find((x) => x.id === input.commentId);
     // Resolved comments are exempt: they can't be empty in practice (the team
     // dispositioned real feedback) but a shared record must never self-delete.
-    if (c && c.text === '' && !c.feedback?.expected && !c.feedback?.observed && !isResolved(c)) {
+    if (
+      c &&
+      c.text === '' &&
+      ((input.fresh && !saved) || !c.feedback?.expected) &&
+      !isResolved(c)
+    ) {
       this._store = deleteCommentFromStore(this._store, input.commentId);
       this._persist();
       this._emitChange('delete', c);

@@ -44,7 +44,14 @@ export async function feedbackRevision(comment: Comment): Promise<string> {
     anchor: { ...anchor, selectors: capturedSelectors ?? selectors },
     scope: comment.capturedScope ?? comment.scope,
   });
-  const hash = await globalThis.crypto.subtle.digest('SHA-256', new TextEncoder().encode(snapshot));
+  // Absent on Node 18 without a flag and in insecure (http, non-localhost)
+  // browser contexts; the bare property read would throw an opaque TypeError.
+  const subtle = globalThis.crypto?.subtle;
+  if (!subtle)
+    throw new Error(
+      'Pinflow verification requires Web Crypto (crypto.subtle): use a secure browser context, or on Node 18 assign globalThis.crypto from node:crypto webcrypto',
+    );
+  const hash = await subtle.digest('SHA-256', new TextEncoder().encode(snapshot));
   return `sha256:${Array.from(new Uint8Array(hash), (byte) => byte.toString(16).padStart(2, '0')).join('')}`;
 }
 
