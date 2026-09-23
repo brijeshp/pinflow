@@ -1,4 +1,4 @@
-import { anchorTarget, anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
+import { anchorTarget, anchorToScreen, buildAnchor, inAnchorLayer, resolveAnchor } from '../anchor';
 import { demoteScope, resolveScope } from '../scope';
 import type { ScopeRect } from '../scope';
 import { ScopeOutline } from './outline';
@@ -27,6 +27,7 @@ import {
   upsertComment,
 } from '../storage';
 import { rememberedReviewer } from '../identity';
+import { authoredRevision, reconcileSnapshots } from '../persistence';
 import type {
   Scope,
   ActivationConfig,
@@ -149,6 +150,8 @@ export class Annotator {
   private readonly _routeKey: () => string;
   private _reviewer: string | null;
   private _store: ReviewerStore;
+  private _baseline: ReviewerStore;
+  private _healsPending = false;
   private _annotating = false;
   private _pins = new Map<string, HTMLButtonElement>();
   // Marching-ants footprints for area comments (one per visible area comment,
@@ -269,6 +272,7 @@ export class Annotator {
         ? (loadStore(deps.storage, deps.config.project, deps.reviewer) ??
           emptyStore(deps.config.project, deps.reviewer))
         : emptyStore(deps.config.project, '');
+    this._baseline = this._store;
     this._renderDock();
     this._renderPins();
     this._startGesture();
@@ -290,7 +294,12 @@ export class Annotator {
     this._mutations = new MutationObserver(this._onReflow);
     const observe = (): void => {
       if (!this._destroyed && document.body)
-        this._mutations?.observe(document.body, { childList: true, subtree: true });
+        this._mutations?.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['open', 'hidden', 'aria-hidden', 'class', 'style'],
+        });
     };
     if (document.body) observe();
     else document.addEventListener('DOMContentLoaded', observe, { once: true });
@@ -538,7 +547,21 @@ export class Annotator {
   private _persist(): void {
     this._invalidateViewCaches();
     this._reconcileIdentity();
-    saveStore(this._deps.storage, this._store);
+    this._writeStore();
+  }
+
+  private _writeStore(): void {
+    const disk = loadStore(this._deps.storage, this._store.project, this._store.reviewer);
+    this._trackTies(disk?.comments ?? [], this._store.comments);
+    this._store = {
+      ...this._store,
+      comments: reconcileSnapshots(
+        this._baseline.comments,
+        this._store.comments,
+        disk?.comments ?? [],
+      ),
+    };
+    if (saveStore(this._deps.storage, this._store)) this._baseline = this._store;
   }
 
   /**
@@ -601,6 +624,10 @@ export class Annotator {
   // A2: notify the host after a persisted mutation. Host exceptions must never
   // break the annotator, and a torn-down world must never call out.
   private _emitChange(type: 'add' | 'update' | 'delete', comment: Comment): void {
+    const current = this._store.comments.find((c) => c.id === comment.id);
+    if (type === 'delete' ? current : !current) return;
+    if (type === 'update' && current && isResolved(current)) return;
+    if (current) comment = current;
     // Tombstone BEFORE the callback gate: the hydration race exists whether
     // or not the host listens to onChange.
     if (type === 'delete') this._pendingDeletes?.add(comment.id);
@@ -721,14 +748,7 @@ export class Annotator {
    * selector data whose feedback is fully present in the artifact, so
    * neither makes a comment "unexported" (0.11.0 review #7). */
   private _rev(c: Comment): string {
-    return JSON.stringify([
-      c.updatedAt,
-      c.status ?? 'open',
-      c.resolution ?? '',
-      c.text,
-      c.route,
-      c.createdAt,
-    ]);
+    return authoredRevision(c);
   }
 
   // Ids whose two copies tie on updatedAt but differ in revision, mapped to
@@ -827,7 +847,7 @@ export class Annotator {
     // cache, however, still holds pre-heal comment objects and must go, or
     // later re-resolves would use the stale selectors (0.3.0 review #6).
     this._visibleCache = null;
-    saveStore(this._deps.storage, this._store);
+    this._healsPending = true;
   }
 
   private _syncChip(): void {
@@ -945,11 +965,17 @@ export class Annotator {
     this._reconcileIdentity();
     if (this._reviewer !== null) {
       const disk = loadStore(this._deps.storage, this._deps.config.project, this._reviewer);
-      if (disk)
+      if (disk) {
+        this._trackTies(disk.comments, this._store.comments);
         this._store = {
           ...this._store,
-          comments: this._unionTracked(disk.comments, this._store.comments),
+          comments: unionByRecency(
+            disk.comments,
+            reconcileSnapshots(this._baseline.comments, this._store.comments, disk.comments),
+          ),
         };
+        this._baseline = disk;
+      }
     }
     const cur = this._store.comments;
     const changed =
@@ -1577,6 +1603,7 @@ export class Annotator {
     this._store =
       loadStore(this._deps.storage, this._deps.config.project, name) ??
       emptyStore(this._deps.config.project, name);
+    this._baseline = this._store;
     this._renderPins();
     this._hydrateFromSource(); // the store just became real — sync it (L2.1)
     return true;
@@ -1748,10 +1775,9 @@ export class Annotator {
     // describe one moment that must never split across a navigation.
     scope?: Scope,
   ): VoiceHost {
-    const commitVoice = (text: string, voice: VoiceMeta): void => {
-      if (this._activeVoice === active) this._activeVoice = null;
+    const voiceComment = (text: string, voice: VoiceMeta): Comment => {
       const t = now();
-      const comment: Comment = {
+      return {
         id: createId(),
         createdAt: t,
         updatedAt: t,
@@ -1765,6 +1791,10 @@ export class Annotator {
         // gesture, not of the modality.
         ...(scope ? { scope } : {}),
       };
+    };
+    const commitVoice = (text: string, voice: VoiceMeta): void => {
+      if (this._activeVoice === active) this._activeVoice = null;
+      const comment = voiceComment(text, voice);
       this._store = upsertComment(this._store, comment);
       this._persist();
       this._emitChange('add', comment);
@@ -1786,24 +1816,10 @@ export class Annotator {
       commit: ({ text, voice }) => {
         if (this._destroyed) {
           if (text.trim().length === 0 || this._reviewer === null) return;
-          const t = now();
           const stored =
             loadStore(this._deps.storage, this._deps.config.project, this._reviewer) ??
             emptyStore(this._deps.config.project, this._reviewer);
-          saveStore(
-            this._deps.storage,
-            upsertComment(stored, {
-              id: createId(),
-              createdAt: t,
-              updatedAt: t,
-              route,
-              fullUrl,
-              text,
-              modality: 'voice',
-              voice,
-              anchor,
-            }),
-          );
+          saveStore(this._deps.storage, upsertComment(stored, voiceComment(text, voice)));
           return;
         }
         commitVoice(text, voice);
@@ -1899,6 +1915,13 @@ export class Annotator {
       this._ui.root.appendChild(pin);
       this._pins.set(c.id, pin);
     });
+    this._flushHeals();
+  }
+
+  private _flushHeals(): void {
+    if (!this._healsPending) return;
+    this._healsPending = false;
+    this._writeStore();
   }
 
   // The footprint is the anchored element's live rect × the stored
@@ -2012,6 +2035,7 @@ export class Annotator {
       const area = this._areas.get(id);
       if (area) this._placeArea(area, c, target, rect);
     }
+    this._flushHeals();
     // A pass that skipped its parked pins because of the gate still owes them
     // one retry once it expires: the pass was triggered by a change (a
     // mutation, a scroll), and a dialog reopening 100 ms after it closed is
@@ -2038,7 +2062,8 @@ export class Annotator {
   // _repositionPins) — its position can't change per frame.
   private _cachedAnchor(c: Comment): Element | null {
     const hit = this._anchorCache.get(c.id);
-    if (hit === null || (hit !== undefined && hit.isConnected)) return hit;
+    if (hit === null || (hit !== undefined && hit.isConnected && inAnchorLayer(c.anchor, hit)))
+      return hit;
     const el = resolveAnchor(c.anchor);
     this._anchorCache.set(c.id, el);
     return el;

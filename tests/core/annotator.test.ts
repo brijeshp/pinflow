@@ -1173,6 +1173,7 @@ describe('voice transcript survives destroy during in-flight stop (review #5)', 
   });
 
   it('a commit landing AFTER destroy() persists storage-only (no DOM, no loss)', async () => {
+    document.body.innerHTML = '<section><button id="voice-target">Save</button></section>';
     let capturedHost: VoiceHost | null = null;
     const loadVoice = (): Promise<VoiceModule> =>
       Promise.resolve({
@@ -1184,7 +1185,7 @@ describe('voice transcript survives destroy during in-flight stop (review #5)', 
     const annotator = makeAnnotator({ voice: true, loadVoice });
     (
       annotator as unknown as { _placeCommentAt(x: number, y: number, t: Element): void }
-    )._placeCommentAt(10, 10, document.body);
+    )._placeCommentAt(10, 10, document.querySelector('button')!);
     await flushMicrotasks();
     expect(capturedHost).not.toBeNull();
 
@@ -1193,6 +1194,7 @@ describe('voice transcript survives destroy during in-flight stop (review #5)', 
     capturedHost!.commit({ text: 'words that must survive', voice: { durationMs: 1200 } });
     const stored = loadStore(localStorage, PROJECT, REVIEWER);
     expect(stored?.comments.some((c) => c.text === 'words that must survive')).toBe(true);
+    expect(stored?.comments.find((c) => c.text === 'words that must survive')?.scope).toBeDefined();
     // And absolutely no DOM resurrection:
     expect(document.querySelector('[data-pinflow-root]')).toBeNull();
   });

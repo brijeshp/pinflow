@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { resolveAnchor } from '../../src/core/anchor';
+import { buildAnchor, resolveAnchor } from '../../src/core/anchor';
 import { emptyStore, saveStore } from '../../src/core/storage';
 import { routeKey } from '../../src/core/route-key';
 import type { Comment, Mode } from '../../src/core/types';
@@ -71,6 +71,45 @@ const resolveCalls = (): number => vi.mocked(resolveAnchor).mock.calls.length;
 
 describe('Annotator reflow caching', () => {
   let annotator: Annotator | null = null;
+
+  it('writes a batch of selector repairs once instead of once per pin', () => {
+    document.body.innerHTML = Array.from(
+      { length: 25 },
+      (_, i) => `<button id="target-${i}">Target ${i}</button>`,
+    ).join('');
+    const comments = Array.from(document.querySelectorAll('button'), (target, i) => {
+      const c = makeComment(`c${i}`, buildAnchor(target, 0, 0).selectors);
+      c.anchor.selectors.css = '#old-path';
+      return c;
+    });
+    seed(comments);
+    const writes = vi.spyOn(localStorage, 'setItem');
+    annotator = makeAnnotator('reviewer');
+    expect(writes.mock.calls.filter(([key]) => key.startsWith('pinflow:c:'))).toHaveLength(1);
+    writes.mockRestore();
+  });
+
+  it('parks a connected native-dialog target on close and restores it on reopen', () => {
+    document.body.innerHTML =
+      '<dialog open aria-label="Settings"><button id="save-settings">Save</button></dialog>';
+    const dialog = document.querySelector('dialog')!;
+    const target = dialog.querySelector('button')!;
+    const c = makeComment('dialog-note', buildAnchor(target, 0, 0).selectors);
+    c.anchor = buildAnchor(target, 0, 0);
+    seed([c]);
+    annotator = makeAnnotator('reviewer');
+    const pin = document
+      .querySelector('[data-pinflow-root]')!
+      .shadowRoot!.querySelector<HTMLElement>('.pin')!;
+    dialog.removeAttribute('open');
+    reposition(annotator);
+    expect(pin.dataset['orphaned']).toBe('true');
+    expect(pin.style.display).toBe('none');
+    dialog.setAttribute('open', '');
+    vi.spyOn(performance, 'now').mockReturnValue(20_000);
+    reposition(annotator);
+    expect(pin.dataset['orphaned']).toBeUndefined();
+  });
 
   afterEach(() => {
     annotator?.destroy();

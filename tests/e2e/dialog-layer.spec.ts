@@ -11,6 +11,35 @@ const TEXTAREA = '[data-pinflow-root] textarea';
 const SAVE_BUTTON = '[data-pinflow-root] button.save';
 const PIN = '[data-pinflow-root] button.pin';
 
+test('a native dialog that stays mounted parks its pin on close and restores it on reopen', async ({
+  page,
+}) => {
+  await page.goto('/?reviewer=NativeDialog');
+  await page.evaluate(() => {
+    const dialog = document.createElement('dialog');
+    dialog.id = 'native-review';
+    dialog.setAttribute('aria-label', 'Settings');
+    const button = document.createElement('button');
+    button.id = 'native-save';
+    button.textContent = 'Save settings';
+    dialog.append(button);
+    document.body.append(dialog);
+    dialog.show();
+  });
+  await page.locator(CONTROL).click();
+  await page.locator('#native-save').click({ force: true });
+  await page.locator(TEXTAREA).fill('Keep the settings');
+  await page.locator(SAVE_BUTTON).click();
+  await expect(page.locator(PIN)).toBeVisible();
+  await page.evaluate(() =>
+    (document.querySelector('#native-review') as HTMLDialogElement).close(),
+  );
+  await expect(page.locator(PIN)).toBeHidden();
+  await expect(page.locator(PIN)).toHaveAttribute('data-orphaned', 'true');
+  await page.evaluate(() => (document.querySelector('#native-review') as HTMLDialogElement).show());
+  await expect(page.locator(PIN)).toBeVisible();
+});
+
 test('a dialog pin parks when the dialog unmounts and returns when it reopens', async ({
   page,
 }) => {

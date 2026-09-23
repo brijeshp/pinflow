@@ -392,16 +392,18 @@ export function loadStore(
 let warnedWriteFailure = false;
 
 /** Guarded write — never throws. On failure the session degrades to in-memory. */
-export function saveStore(storage: Storage, store: ReviewerStore): void {
+export function saveStore(storage: Storage, store: ReviewerStore): boolean {
   const payload: PersistedStore = { ...store, schemaVersion: SCHEMA_VERSION };
   try {
     storage.setItem(storageKey(store.project, store.reviewer), JSON.stringify(payload));
+    return true;
   } catch (err: unknown) {
     if (!warnedWriteFailure) {
       warnedWriteFailure = true;
       console.warn('[pinflow] failed to persist comments', err);
     }
   }
+  return false;
 }
 
 /**
@@ -466,7 +468,7 @@ export function renameReviewer(
   // still exists: if this write is the one that fails, the old name still
   // points at an intact corpus (0.7.0 review, residual risk 2). Remembering
   // after the delete could strand the corpus under a name nobody resolves to.
-  rememberReviewer(storage, project, to);
+  if (!rememberReviewer(storage, project, to)) return false;
   try {
     storage.removeItem(storageKey(project, from));
   } catch {
