@@ -127,7 +127,7 @@
     {
       "name": "core (IIFE, gz)",
       "path": "dist/pinflow.iife.js",
-      "limit": "27.4 KB",
+      "limit": "26.71 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow/voice"
@@ -136,7 +136,7 @@
     {
       "name": "core (ESM, gz)",
       "path": "dist/index.js",
-      "limit": "27.3 KB",
+      "limit": "26.57 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow/voice"
@@ -151,7 +151,7 @@
     {
       "name": "react wrapper (ESM, gz)",
       "path": "dist/react.js",
-      "limit": "0.6 KB",
+      "limit": "0.51 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow",
@@ -161,7 +161,7 @@
     {
       "name": "vue wrapper (ESM, gz)",
       "path": "dist/vue.js",
-      "limit": "0.8 KB",
+      "limit": "0.69 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow",
