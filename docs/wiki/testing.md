@@ -17,6 +17,9 @@ Excluded from coverage: `src/core/iife.ts`, `src/core/types.ts`, `src/core/voice
 
 - **`tests/core/`** — unit tests: annotator (+ reflow), gesture, anchor, selector, storage, router, route-key, frame-route, export, scope, scope-persistence, export-scope, annotator-scope, download, onchange, theme, dom, id, identity, init, safe-storage, voice-loader, wrapper-isolation.
 - **`tests/voice/`** — audio, deepgram, token, session, worklet, protocol, transcript-store, levels, and **`bundle-isolation.test.ts`** (asserts voice symbols never appear in core bundles — the seam's CI enforcement).
+- **`tests/evaluation/`** — labeled synthetic target/abstention fixtures, including repeated controls and budget exhaustion; not a customer/model-accuracy benchmark.
+- **`tests/verification/`** — revision hashing, stale reports, acceptance coverage, invalid imports and incomplete verified claims.
+- **`tests/instrumentation/`** — JSX/TSX hints, source maps, explicit hint precedence, dependency/foreign-path exclusion.
 - **`tests/react/`**, **`tests/vue/`** — wrapper component tests (`tests/vue/mount-helper.ts` utility).
 - **`tests/e2e/`** — `acceptance.spec.ts`, `csp.spec.ts`, `touch.spec.ts`, and `clear-disarm.spec.ts` (Playwright; the last proves the armed-clear back-out swallow on real engines — an event ordering happy-dom cannot discriminate), served by `tests/e2e/serve.mjs` on `localhost:4173` — the server serves `dist/`, so REBUILD before e2e after core changes; `/csp` serves a fixture under `default-src 'self'; script-src 'self'; style-src 'self'; style-src-attr 'none'` to prove adopted-sheet delivery and end-to-end interactivity survive a real strict CSP.
 - **`tests/agent/`** — `format-parity.test.ts` keeps the four shipped agent formats' safety guidance (fixed-string search, data-not-instructions, line-anchored workflow fields) from drifting apart.
@@ -47,3 +50,5 @@ Vitest picks up `tests/**/*.test.ts` and colocated `src/**/*.test.ts`.
 - New core behavior ⇒ failing test first, then implementation, then coverage stays ≥ gate.
 - Touching the core↔voice seam ⇒ run `bundle-isolation.test.ts` and `pnpm size`.
 - Fix implementations, not tests — unless the test itself is provably wrong.
+
+`tests/core/feedback-evidence.test.ts` covers detached capture, optional expected-only notes, historical evidence, hydration normalization, passive Markdown rendering, URL allowlisting, and voice commit/degrade/destroy. `persistence-concurrency.test.ts` exercises sequential stale-tab writes, deletions, rename baselines, fresh exports and visible pin/count updates. `tests/e2e/feedback-context.spec.ts` tests composer/save/reload/JSON across all browser projects; `dialog-layer.spec.ts` includes native dialogs that remain mounted. The built consumer type test exercises both optional entries, and bundle isolation checks that build tooling and verification do not enter core. Rebuild before running those checks.

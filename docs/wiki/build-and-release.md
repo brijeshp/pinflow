@@ -4,7 +4,7 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 ## Build configs (`tsup.config.ts`)
 
-- **Core + voice** (`src/core/index.ts`, `src/voice/index.ts`): ESM + CJS. Core externalizes `@brijeshp/pinflow/voice` so the lazy `import('@brijeshp/pinflow/voice')` stays a runtime reference — voice never enters the core graph ("0 bytes for text users").
+- **Core + separate optional entries** (`src/core/index.ts`, `src/voice/index.ts`, `src/verification/index.ts`, `src/instrumentation/index.ts`): ESM + CJS. Verification and development instrumentation are independent ESM/CJS exports, with no core import edge. Instrumentation receives TypeScript from its host and uses only Node built-ins at runtime. Core externalizes `@brijeshp/pinflow/voice` so the lazy `import('@brijeshp/pinflow/voice')` stays a runtime reference — voice never enters the core graph ("0 bytes for text users").
 - **IIFE** (`src/core/iife.ts` → `dist/pinflow.iife.js`): minified standalone bundle for CDN (unpkg/jsdelivr). Also externalizes `@brijeshp/pinflow/voice`.
 
 **All three configs set `treeshake: true`.** The IIFE entry was the sole omission until 0.9.0, and it cost 191 B gz: because the voice specifier is an external DYNAMIC import, esbuild emits its `__require`/`__toESM` CJS-interop preamble unconditionally, and rollup's post-pass is what drops it. Use `true`, never `'smallest'` — that preset sets `propertyReadSideEffects: false`, which licenses rollup to delete the layout-forcing `.offsetHeight`/`.offsetWidth` reads in `annotator.ts` that exist to flush style. The change is invisible in raw bytes (raw fell 32 B while gz fell 296 B on the shipped artifact), so judge it on `pnpm size` only.
