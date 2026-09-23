@@ -8,8 +8,8 @@ Everything a host can call, as it exists in code. Entry points, config options, 
 - **`@brijeshp/pinflow/voice`** (`src/voice/index.ts` → `dist/voice.js|cjs`) — voice module; lazy-loaded by core when `config.voice` is set. Never import it directly.
 - **`@brijeshp/pinflow/react`** (`src/react/index.ts` → `dist/react.js|cjs`) — `<Annotator>` component.
 - **`@brijeshp/pinflow/vue`** (`src/vue/index.ts` → `dist/vue.js|cjs`) — `<Annotator>` component (registered name `PinflowAnnotator`).
-- **`@brijeshp/pinflow/verification`** (`src/verification/index.ts`) — DOM-free `feedbackRevision`, `createVerification`, `readVerification`, `isVerificationCurrent`, plus report types. Requires Web Crypto; never imports core runtime.
-- **`@brijeshp/pinflow/instrumentation`** (`src/instrumentation/index.ts`) — Node-only Vite-compatible `pinflowSource` development plugin; host supplies TypeScript. Neither optional entry is imported by the browser core.
+- **`@brijeshp/pinflow/verification`** (`src/verification/index.ts`) — DOM-free `feedbackRevision`, `createVerification`, `readVerification`, `isVerificationCurrent`, plus report types. Requires Web Crypto (`crypto.subtle`) and throws a named error without it; never imports core runtime.
+- **`@brijeshp/pinflow/instrumentation`** (`src/instrumentation/index.ts`) — Node-only Vite-compatible `pinflowSource` development plugin; host supplies TypeScript. The source map is returned to the bundler, never referenced by a `sourceMappingURL` comment. Neither optional entry is imported by the browser core.
 - **CDN/IIFE** (`src/core/iife.ts` → `dist/pinflow.iife.js`) — auto-inits via `<script data-project="...">` or exposes `window.Pinflow.init()`.
 
 ## Core functions (`src/core/index.ts`)
