@@ -170,7 +170,7 @@ function findByName(
   role: string,
   name: string,
   deadline: number,
-): Element[] {
+): Element[] | null {
   const out: Element[] = [];
   // The fallback alternative is a bare tag name: a stored role that is not
   // one (hydrated, hostile) must not be spliced into the selector unescaped.
@@ -189,7 +189,8 @@ function findByName(
   }
   for (let i = 0; i < list.length; i++) {
     // Sampled every four, not sixteen: a candidate's name read is not free.
-    if ((i & 3) === 3 && performance.now() > deadline) break;
+    // A partial scan cannot prove uniqueness, even if it found one match.
+    if ((i & 3) === 3 && performance.now() > deadline) return null;
     const el = list[i]!;
     if (roleOf(el) === role && accessibleName(el, labels) === name) {
       out.push(el);
@@ -360,12 +361,12 @@ export function findByCandidates(
   // budget (0.4.1 review #7).
   const deadline = performance.now() + FINGERPRINT_WALK_MS;
   if (selectors.testid) {
-    const hit = root.querySelector(`[data-testid="${CSS.escape(selectors.testid)}"]`);
-    if (hit) return hit;
+    const hits = root.querySelectorAll(`[data-testid="${CSS.escape(selectors.testid)}"]`);
+    if (hits.length === 1) return hits[0]!;
   }
   if (selectors.id) {
-    const hit = root.querySelector(`#${CSS.escape(selectors.id)}`);
-    if (hit) return hit;
+    const hits = root.querySelectorAll(`#${CSS.escape(selectors.id)}`);
+    if (hits.length === 1) return hits[0]!;
   }
   // Role + accessible name: the rung a CSS-modules rebuild cannot kill. Only a
   // UNIQUE match resolves. An ambiguous name contributes nothing — it must not
@@ -375,7 +376,7 @@ export function findByCandidates(
   // reorder, where the walk below would have found the true target (review #1).
   if (selectors.role && selectors.name) {
     const named = findByName(root, selectors.role, selectors.name, deadline);
-    if (named.length === 1) return named[0]!;
+    if (named?.length === 1) return named[0]!;
   }
   // A positional hit that contradicts a strong stored fingerprint is demoted,
   // not discarded: it still beats a merely-fuzzy candidate at the bottom of

@@ -15,6 +15,39 @@ function html(s: string): Document {
 }
 
 describe('selector', () => {
+  it('uses the captured path to distinguish repeated test IDs', () => {
+    const doc = html(
+      '<button data-testid="remove">Remove Alice</button><button data-testid="remove">Remove Bob</button>',
+    );
+    const target = doc.querySelectorAll('button')[1]!;
+    expect(findByCandidates(doc, buildSelectors(target), getTextFingerprint(target))).toBe(target);
+  });
+
+  it('does not infer uniqueness from a name search that exhausted its budget', () => {
+    const doc = html(
+      '<button aria-label="Delete">A</button><button aria-label="Other">B</button><button aria-label="Other">C</button><button aria-label="Delete">D</button>',
+    );
+    const clock = vi.spyOn(performance, 'now').mockReturnValueOnce(0).mockReturnValue(3);
+    try {
+      expect(
+        findByCandidates(
+          doc,
+          {
+            testid: null,
+            id: null,
+            css: '#absent',
+            xpath: '/absent',
+            role: 'button',
+            name: 'Delete',
+          },
+          '',
+        ),
+      ).toBeNull();
+    } finally {
+      clock.mockRestore();
+    }
+  });
+
   it('prefers data-testid', () => {
     const doc = html('<button data-testid="cta">Go</button>');
     const el = doc.querySelector('button')!;
