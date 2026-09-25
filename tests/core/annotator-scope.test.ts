@@ -27,9 +27,8 @@ function mockRect(el: Element, r: { left: number; top: number; width: number; he
 
 // A page with a real component boundary, so the ladder has something to find.
 function page(): { section: HTMLElement; button: HTMLButtonElement } {
-  // <main> above the component on purpose: anchorTarget canonicalises the
-  // click to the testid element, so the CHANGE node is the section and the
-  // ceiling has to come from above it.
+  // The button is the precise target; its enclosing testid section supplies
+  // the component boundary while the outer landmark remains context.
   document.body.innerHTML =
     '<main><section data-testid="pricing"><button id="cta">Upgrade</button></section></main>';
   const section = document.querySelector('section') as HTMLElement;
@@ -102,11 +101,11 @@ describe('scope capture on the commit paths', () => {
     clickPage(button);
     const scope = stored()[0]?.scope;
     expect(scope).toBeDefined();
-    // Ceiling above, change within: the landmark is the boundary and the
-    // anchored component is what the note may alter.
-    expect(scope!.boundary.tag).toBe('main');
-    expect(scope!.rung).toBe('landmark');
-    expect(scope!.members?.[0]?.testid).toBe('pricing');
+    // The section is the component boundary and its button is the selected node.
+    expect(scope!.boundary.tag).toBe('section');
+    expect(scope!.rung).toBe('testid');
+    expect(scope!.boundary.testid).toBe('pricing');
+    expect(scope!.members?.[0]?.tag).toBe('button');
   });
 
   it('resolves scope exactly once per placement, never on a reflow frame', async () => {
@@ -318,8 +317,8 @@ describe('a heal demotes the scope it invalidated', () => {
     // The agent rewrote the page: same text, different position, so the ladder
     // heals onto an element that is NOT the one the reviewer pinned.
     document.body.innerHTML =
-      '<section data-testid="pricing"><i>spacer</i><button id="cta">Upgrade</button></section>';
-    const moved = document.querySelector('#cta') as HTMLElement;
+      '<section data-testid="pricing"><i>spacer</i><button id="moved-cta">Upgrade</button></section>';
+    const moved = document.querySelector('#moved-cta') as HTMLElement;
     mockRect(document.body, { left: 0, top: 0, width: 1000, height: 800 });
     mockRect(document.querySelector('section')!, { left: 0, top: 100, width: 600, height: 300 });
     mockRect(moved, { left: 40, top: 200, width: 200, height: 48 });
@@ -331,6 +330,6 @@ describe('a heal demotes the scope it invalidated', () => {
     expect(healed.confidence).toBe('low');
     expect(healed.stale).toBe(true);
     // The boundary survives — it is the one claim a heal does not invalidate.
-    expect(healed.boundary.tag).toBe('main');
+    expect(healed.boundary.tag).toBe('section');
   });
 });

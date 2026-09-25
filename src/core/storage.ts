@@ -1,10 +1,12 @@
+import { normalizeDetails } from './details';
 import { normalizeFeedback } from './feedback';
 import { rememberReviewer } from './identity';
 import { FP_MAX } from './selector';
+import { PATH } from './target';
 import { cleanLabel, CSS_MAX, EXCLUDED_CAP, MEMBER_CAP, TAG_MAX } from './scope-limits';
 import { validateSourcePath } from './source-path';
 import { now } from './time';
-import type { ChangeNode, Comment, ReviewerStore, Scope, ScopeNode } from './types';
+import type { ChangeNode, Comment, ReviewerStore, Scope, ScopeNode, TargetEvidence } from './types';
 
 // Exported: exportJSON's `pinflowExport` field shares this version namespace —
 // "v4" means one thing everywhere (storage blob, JSON export, sync protocol).
@@ -123,6 +125,39 @@ function validSelectors(selectors: unknown): boolean {
       (typeof selectors['role'] === 'string' && selectors['role'].length <= 80)) &&
     (selectors['name'] === undefined ||
       (typeof selectors['name'] === 'string' && selectors['name'].length <= 80))
+  );
+}
+
+function validEvidence(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    (value['rootDepth'] === undefined ||
+      (typeof value['rootDepth'] === 'number' &&
+        Number.isInteger(value['rootDepth']) &&
+        value['rootDepth'] >= 0 &&
+        value['rootDepth'] <= 8)) &&
+    (value['identity'] === undefined ||
+      value['identity'] === 'id' ||
+      value['identity'] === 'testid') &&
+    (value['ambiguous'] === undefined || value['ambiguous'] === true) &&
+    // Position among lookalikes: only ever paired, and a count of one is
+    // spelled by absence. `ordinal` indexes a scan result on every resolve.
+    (value['count'] === undefined
+      ? value['ordinal'] === undefined
+      : Number.isInteger(value['count']) &&
+        (value['count'] as number) >= 2 &&
+        (value['count'] as number) <= 500 &&
+        Number.isInteger(value['ordinal']) &&
+        (value['ordinal'] as number) >= 0 &&
+        (value['ordinal'] as number) < (value['count'] as number)) &&
+    // Evaluated as XPath against every candidate: positional steps only.
+    (value['path'] === undefined ||
+      (typeof value['path'] === 'string' &&
+        value['path'].length <= 200 &&
+        PATH.test(value['path']))) &&
+    validSelectors(value['selectors']) &&
+    typeof value['textFingerprint'] === 'string' &&
+    value['textFingerprint'].length <= FP_MAX
   );
 }
 
@@ -349,6 +384,36 @@ export function normalizeComments(input: unknown): Comment[] {
       else delete out.capturedScope;
       // Optional historical evidence is soft: corrupt evidence must not drop words.
       out.anchor = { ...out.anchor };
+      const details = normalizeDetails(out.anchor.details);
+      if (details) out.anchor.details = details;
+      else delete out.anchor.details;
+      const evidence = (v: TargetEvidence): TargetEvidence => ({
+        selectors: { ...v.selectors },
+        textFingerprint: v.textFingerprint,
+        ...(v.rootDepth !== undefined ? { rootDepth: v.rootDepth } : {}),
+        ...(v.identity ? { identity: v.identity } : {}),
+        ...(v.count !== undefined ? { ordinal: v.ordinal, count: v.count } : {}),
+        ...(v.path !== undefined ? { path: v.path } : {}),
+        ...(v.ambiguous ? { ambiguous: true } : {}),
+      });
+      // Binding constraints are the one kind of evidence that must not be
+      // soft: dropping a corrupt owner or host would WIDEN the target. Dropping
+      // the record would cost the reviewer their words. So the note survives
+      // with an unresolvable binding (an empty shadow path) and parks until
+      // it is re-placed; the orphan export still carries everything it said.
+      const { owner, shadowPath } = out.anchor as unknown as Record<string, unknown>;
+      const hosts =
+        shadowPath === undefined ||
+        (Array.isArray(shadowPath) && shadowPath.length <= 8 && shadowPath.every(validEvidence))
+          ? (shadowPath as TargetEvidence[] | undefined)
+          : [];
+      if (owner === undefined || validEvidence(owner)) {
+        if (owner) out.anchor.owner = evidence(owner as TargetEvidence);
+        if (hosts) out.anchor.shadowPath = hosts.map(evidence);
+      } else {
+        delete out.anchor.owner;
+        out.anchor.shadowPath = [];
+      }
       if (!validSelectors(out.anchor.capturedSelectors)) delete out.anchor.capturedSelectors;
       const target = out.anchor.target;
       if (
@@ -361,6 +426,9 @@ export function normalizeComments(input: unknown): Comment[] {
         out.anchor.target = {
           selectors: target.selectors,
           textFingerprint: target.textFingerprint.slice(0, FP_MAX),
+          ...(validContext(target['context']) && target['context']
+            ? { context: target.context }
+            : {}),
         };
       const scope = validScope(c['scope']);
       if (scope) out.scope = scope;

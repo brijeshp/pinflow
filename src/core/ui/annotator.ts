@@ -1,5 +1,6 @@
 import { normalizeFeedback, captureFeedback, captureUrl } from '../feedback';
 import type { FeedbackContext } from '../types';
+import { eventTarget, matchesOwner } from '../target';
 import { anchorTarget, anchorToScreen, buildAnchor, inAnchorLayer, resolveAnchor } from '../anchor';
 import { demoteScope, resolveScope } from '../scope';
 import type { ScopeRect } from '../scope';
@@ -144,6 +145,14 @@ interface ActiveInput {
    *  Lets export surfaces resolve an open draft LOSSLESSLY before acting. */
   save(): void;
 }
+
+const MUTATIONS: MutationObserverInit = {
+  childList: true,
+  characterData: true,
+  subtree: true,
+  attributes: true,
+  attributeFilter: ['open', 'hidden', 'aria-hidden', 'class', 'style', 'id', 'data-testid'],
+};
 
 export class Annotator {
   private readonly _ui: UIRoot;
@@ -300,16 +309,12 @@ export class Annotator {
     // createUIRoot defers its append the same way, and observe(null) throws.
     this._mutations = new MutationObserver(this._onReflow);
     const observe = (): void => {
-      if (!this._destroyed && document.body)
-        this._mutations?.observe(document.body, {
-          childList: true,
-          subtree: true,
-          attributes: true,
-          attributeFilter: ['open', 'hidden', 'aria-hidden', 'class', 'style'],
-        });
+      if (!this._destroyed && document.body) this._mutations?.observe(document.body, MUTATIONS);
     };
-    if (document.body) observe();
-    else document.addEventListener('DOMContentLoaded', observe, { once: true });
+    if (document.body) {
+      observe();
+      for (const target of this._anchorCache.values()) if (target) this._observeTarget(target);
+    } else document.addEventListener('DOMContentLoaded', observe, { once: true });
     // Desktop accelerator for the export sheet. A chord, so it can never
     // collide with typing in host inputs; gated at registration (config is
     // immutable per instance).
@@ -713,14 +718,18 @@ export class Annotator {
       width: this._panelEl.offsetWidth || 280,
       height: this._panelEl.offsetHeight || 180,
     };
-    const vp = { width: window.innerWidth, height: window.innerHeight };
+    const vp = this._ui.bounds();
     if (!anchor) {
-      place(this._panelEl, { left: 16, top: Math.max(16, vp.height - size.height - 16) });
+      place(this._panelEl, {
+        left: vp.left + 16,
+        top: Math.max(vp.top + 16, vp.top + vp.height - size.height - 16),
+      });
       return;
     }
     const rect = anchor.getBoundingClientRect();
     // Chip sits left, control sits right: align the panel toward the wider side.
-    const left = rect.left + size.width / 2 > vp.width / 2 ? rect.right - size.width : rect.left;
+    const left =
+      rect.left + size.width / 2 > vp.left + vp.width / 2 ? rect.right - size.width : rect.left;
     place(this._panelEl, flipPosition({ left, top: rect.top - size.height - 8 }, size, vp, 0));
   }
 
@@ -839,7 +848,16 @@ export class Annotator {
       : comment;
   }
 
+  private _observeTarget(target: Element): void {
+    let root = target.getRootNode();
+    for (let depth = 0; root instanceof ShadowRoot && depth < 8; depth++) {
+      this._mutations?.observe(root, MUTATIONS);
+      root = root.host.getRootNode();
+    }
+  }
+
   private _persistHeal(commentId: string, target: Element): void {
+    this._observeTarget(target);
     if (this._deps.mode !== 'reviewer') return;
     const c = this._store.comments.find((x) => x.id === commentId);
     if (!c) return;
@@ -1220,7 +1238,7 @@ export class Annotator {
       this._scheduleHoverFrame();
       return;
     }
-    const target = e.target;
+    const target = eventTarget(e);
     // Preview = capture: highlight the CANONICAL anchor target (the nearest
     // data-testid ancestor, exactly what a click will store), not the leaf
     // under the cursor — the box the reviewer sees is the box they select.
@@ -1615,7 +1633,7 @@ export class Annotator {
     e.preventDefault();
     e.stopImmediatePropagation();
     this._exitAnnotateMode();
-    this._placeCommentAt(e.clientX, e.clientY, e.target as Element);
+    this._placeCommentAt(e.clientX, e.clientY, eventTarget(e)!);
   };
 
   // Stealth defers the (blocking) identity prompt from init to the first
@@ -1648,6 +1666,7 @@ export class Annotator {
     covers?: string,
     region?: ScopeRect,
   ): void {
+    this._ui.syncLayer();
     if (this._ui.host.contains(target)) return; // never annotate our own UI
     if (!this._ensureIdentity()) return; // identity is required before any comment exists
     // Resolved ONCE, here, at commit time — never on a reflow frame. A live
@@ -1692,7 +1711,10 @@ export class Annotator {
     // neither box makes the resolve blink.
     if (scoped) this._outline.show(this._ui.root, scoped, region);
     const scope = scoped?.scope;
-    const feedback = captureFeedback(this._deps.config.captureContext, target);
+    const feedback = captureFeedback(this._deps.config.captureContext, target, {
+      clientX,
+      clientY,
+    });
     if (this._deps.config.voice) {
       if (this._activeVoice) return; // one recording at a time
       this._startVoiceDot(anchor, clientX, clientY, scope, feedback);
@@ -1754,11 +1776,7 @@ export class Annotator {
     mount.style.cssText = 'position:fixed;';
     place(
       mount,
-      flipPosition(
-        { left: clientX, top: clientY },
-        { width: 280, height: 140 },
-        { width: window.innerWidth, height: window.innerHeight },
-      ),
+      flipPosition({ left: clientX, top: clientY }, { width: 280, height: 140 }, this._ui.bounds()),
     );
     this._ui.root.appendChild(mount);
 
@@ -1905,6 +1923,10 @@ export class Annotator {
   }
 
   private _renderPins(): void {
+    // Full renders release observed detached roots; resolved targets re-register below.
+    this._mutations?.disconnect();
+    if (document.body) this._mutations?.observe(document.body, MUTATIONS);
+    this._ui.syncLayer();
     this._invalidateViewCaches();
     // Every count-changing path funnels through here (place, save-dismiss of
     // an empty draft, delete, hydration merge, builder clear), so the export
@@ -2048,6 +2070,7 @@ export class Annotator {
   // Cheap path used on scroll/resize: just reposition existing pins, skipping
   // the querySelector + element-create cost of a full renderPins().
   private _repositionPins(): void {
+    this._ui.syncLayer();
     // Orphan recovery is bounded, not per-frame: an anchor that mounted AFTER
     // the initial render (async host content) re-runs the ladder at most every
     // 500ms during reflow, so scrolling stays cheap while orphans can heal
@@ -2101,10 +2124,17 @@ export class Annotator {
   // _repositionPins) — its position can't change per frame.
   private _cachedAnchor(c: Comment): Element | null {
     const hit = this._anchorCache.get(c.id);
-    if (hit === null || (hit !== undefined && hit.isConnected && inAnchorLayer(c.anchor, hit)))
+    if (
+      hit === null ||
+      (hit !== undefined &&
+        hit.isConnected &&
+        inAnchorLayer(c.anchor, hit) &&
+        matchesOwner(c.anchor, hit))
+    )
       return hit;
     const el = resolveAnchor(c.anchor);
     this._anchorCache.set(c.id, el);
+    if (el) this._persistHeal(c.id, el);
     return el;
   }
 
@@ -2139,6 +2169,23 @@ export class Annotator {
       wrap.appendChild(el('div', 'res', 'Expected outcome (optional)'));
       wrap.appendChild(outcome);
     }
+    const intent = el('select');
+    intent.setAttribute('aria-label', 'Apply to');
+    for (const [value, label] of [
+      ['', 'Not specified'],
+      ['instance', 'This instance'],
+      ['component', 'This component'],
+      ['matching', 'All matching items'],
+    ]) {
+      const option = el('option', undefined, label);
+      option.value = value!;
+      intent.appendChild(option);
+    }
+    intent.value = comment.feedback?.intent ?? '';
+    intent.disabled = frozen;
+    const intentLabel = el('label', 'scope-label', 'Apply to (optional)');
+    intentLabel.appendChild(intent);
+    wrap.appendChild(intentLabel);
     if (frozen) {
       const mark = comment.status === 'done' ? '✓ Done' : '✕ Declined';
       const note = comment.resolution ? ` — ${comment.resolution}` : '';
@@ -2159,7 +2206,8 @@ export class Annotator {
       if (
         persisted &&
         (ta.value !== persisted.text ||
-          (outcome && outcome.value !== (persisted.feedback?.expected ?? '')))
+          (outcome && outcome.value !== (persisted.feedback?.expected ?? '')) ||
+          intent.value !== (persisted.feedback?.intent ?? ''))
       ) {
         // Hand-correcting a voice transcript flags the meta as edited (immutably).
         const voicePatch = persisted.voice ? { voice: { ...persisted.voice, edited: true } } : {};
@@ -2169,11 +2217,13 @@ export class Annotator {
           updatedAt: now(),
           ...voicePatch,
         };
-        if (outcome) {
-          const feedback = normalizeFeedback({ ...persisted.feedback, expected: outcome.value });
-          if (feedback) updated.feedback = feedback;
-          else delete updated.feedback;
-        }
+        const feedback = normalizeFeedback({
+          ...persisted.feedback,
+          ...(outcome ? { expected: outcome.value } : {}),
+          intent: intent.value,
+        });
+        if (feedback) updated.feedback = feedback;
+        else delete updated.feedback;
         this._store = upsertComment(this._store, updated);
         this._persist();
         this._emitChange('update', updated);
@@ -2182,6 +2232,7 @@ export class Annotator {
     };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
+        e.preventDefault(); // dismiss the editor without cancelling its native modal host
         e.stopPropagation(); // don't also exit annotate mode
         this._closeActiveInput();
       } else if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
@@ -2303,7 +2354,7 @@ export class Annotator {
       flipPosition(
         { left: pr.right, top: pr.top },
         { width: wrap.offsetWidth || 280, height: wrap.offsetHeight || 120 },
-        { width: window.innerWidth, height: window.innerHeight },
+        this._ui.bounds(),
       ),
     );
   }
@@ -2344,6 +2395,12 @@ export class Annotator {
   // Only classify comments on the current route — we can't tell if a comment
   // on another route would resolve without navigating there, so those stay
   // "live" conservatively (spec §5.2 intent: orphaned = element missing now).
+  private _resolution = (c: Comment): import('../types').TargetResolution => {
+    const report: import('../types').TargetResolution = { availability: 'not-checked' };
+    if (c.route === this._routeKey()) resolveAnchor(c.anchor, document, report);
+    return report;
+  };
+
   private _isOrphaned = (c: Comment): boolean => {
     if (c.route !== this._routeKey()) return false;
     return resolveAnchor(c.anchor) === null;
@@ -2356,7 +2413,10 @@ export class Annotator {
    */
   exportJSON(): string {
     if (this._deps.mode === 'reviewer') this._foldDurable();
-    return exportStoresJSON(this._deps.mode === 'builder' ? this._allStores() : this._store);
+    return exportStoresJSON(
+      this._deps.mode === 'builder' ? this._allStores() : this._store,
+      this._resolution,
+    );
   }
 
   private _allStores(): ReviewerStore[] {
@@ -2398,7 +2458,7 @@ export class Annotator {
   private _buildArtifact(attributeTo?: string): [md: string, filename: string] {
     if (this._deps.mode === 'reviewer') this._foldDurable();
     const { project, describeRoute } = this._deps.config;
-    const meta = { generatedAt: now(), project };
+    const meta = { generatedAt: now(), project, resolve: this._resolution };
     const builder = this._deps.mode === 'builder';
     const who = attributeTo ?? this._displayName();
     return [

@@ -52,3 +52,18 @@ Vitest picks up `tests/**/*.test.ts` and colocated `src/**/*.test.ts`.
 - Fix implementations, not tests — unless the test itself is provably wrong.
 
 `tests/core/feedback-evidence.test.ts` covers detached capture, optional expected-only notes, historical evidence, hydration normalization, passive Markdown rendering, URL allowlisting, and voice commit/degrade/destroy. `persistence-concurrency.test.ts` exercises sequential stale-tab writes, deletions, rename baselines, fresh exports and visible pin/count updates. `tests/e2e/feedback-context.spec.ts` tests composer/save/reload/JSON across all browser projects; `dialog-layer.spec.ts` includes native dialogs that remain mounted. The built consumer type test exercises both optional entries, and bundle isolation checks that build tooling and verification do not enter core. Rebuild before running those checks.
+
+`target-integrity.spec.ts` covers filtered/reordered/recycled repeated controls,
+precise controls under app test IDs, native `showModal()` save/Escape/nested
+reopen, and nested open-shadow label isolation and mutation recovery. Ordinary
+pointer/keyboard actions verify modal interactivity without forced clicks.
+`target-integrity.test.ts`, `target-binding-safety.test.ts` and
+`capture-details.test.ts` cover diagnostics, ambiguous owners, malformed binding
+constraints, bounded detached snapshots, sensitive input omission and passive
+export. `target-owner-ordinal.test.ts` covers lookalike owners resolving by
+position and parking on a count change, textless owners, the pinned control's
+label excluded from its row's identity, and the cap/budget fallback that keeps a
+pin from parking at placement; the e2e spec's placeholder-card test proves the
+same across reload. Its transformed-modal and re-render tests cover the confined
+overlay; `anchor-actions.test.ts` covers the action roles a leaf click climbs to. `feedback-evidence.test.ts` also covers intent
+save/reopen/cancel/clear.

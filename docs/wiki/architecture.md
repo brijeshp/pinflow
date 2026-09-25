@@ -20,6 +20,9 @@ src/
     safe-storage.ts   in-memory fallback when localStorage is blocked
     anchor.ts         element anchoring: build/resolve/screen-project anchors
     selector.ts       selector-candidate generation + resolution ladder
+    target.ts         composed targets, repeated owner constraints and shadow host paths
+    capture.ts        bounded DOM text/state/geometry snapshot at placement
+    details.ts        DOM-free snapshot normalizer shared by capture, storage and export
     scope.ts          region → element SET: the blast-radius ladder + covered set
     scope-limits.ts   record caps shared by scope.ts and storage.ts (neither may import the other)
     source-path.ts    data-pinflow-source validator; DOM-free so export.ts can use it
@@ -45,9 +48,9 @@ Voice must cost text-only users **0 bytes**. `@brijeshp/pinflow/voice` is marked
 ## Data flow (happy path)
 
 1. **Activate**: control button, or stealth gesture (`src/core/gesture/`) in `stealth`/`both` modes.
-2. **Pin**: click an element → `buildAnchor()` (`src/core/anchor.ts`) resolves the nearest `data-testid` ancestor of the click target, then captures selector candidates (`src/core/selector.ts`), a text fingerprint, and percentage offsets from it.
+2. **Pin**: click an element → `buildAnchor()` (`src/core/anchor.ts`) prefers the nearest actionable control, otherwise a `data-testid` ancestor without crossing a modal/structural boundary, then captures selector candidates (`src/core/selector.ts`), a text fingerprint, and percentage offsets from it.
 3. **Comment**: text via the explicit-save editor popup, or voice via the lazily-loaded module streaming Deepgram transcripts back through `VoiceHost.commit`.
-   3b. **Scope**: `resolveScope()` (`src/core/scope.ts`) derives the edit boundary ONCE at placement — never on a reflow frame — and `ScopeOutline` paints it before the composer opens.
+   3b. **Scope**: `resolveScope()` (`src/core/scope.ts`) derives the containing boundary ONCE at placement — never on a reflow frame — and `ScopeOutline` paints it before the composer opens.
 4. **Persist**: `upsertComment()` → baseline/desired/disk reconciliation (`persistence.ts`) → `saveStore()` (`src/core/storage.ts`) under `pinflow:c:<project>:<reviewer>`; `onChange` fires after each persisted mutation.
 5. **Hydrate** (hosts with a backend): `config.source()` fetched once at identity resolution, merged by comment id (`mergeComments()`); server wins disposition, local-only/newer comments re-announce through `onChange` so sync losses self-heal.
 6. **Re-render**: route changes (`src/core/router.ts` or host-driven `Handle.refreshRoute()`) close any open draft popup and re-scope pins to the current logical screen (`src/core/route-key.ts`, or host-supplied `config.routeKey`).
@@ -67,4 +70,4 @@ Voice must cost text-only users **0 bytes**. `@brijeshp/pinflow/voice` is marked
 
 ## Optional feedback tooling
 
-`captureContext` runs once with the actual clicked element and carries explicit reproduction facts through text/voice storage and export. Original selectors/scope survive repair, and repairs flush once per render/reposition pass. The verification entry hashes the original evidence and authored request; it validates reports without executing checks or changing status. The development instrumentation entry accepts the host compiler and emits relative source hints plus source maps for JSX/TSX. Both are separate package exports, never core imports, and add no mandatory runtime dependencies.
+`captureContext` runs once with the actual composed clicked element and viewport click coordinates and carries explicit reproduction facts through text/voice storage and export. Original selectors/scope survive repair, and repairs flush once per render/reposition pass. The verification entry hashes the original evidence and authored request; it validates reports without executing checks or changing status. The development instrumentation entry accepts the host compiler and emits relative source hints plus source maps for JSX/TSX. Both are separate package exports, never core imports, and add no mandatory runtime dependencies.

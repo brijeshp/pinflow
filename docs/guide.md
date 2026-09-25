@@ -705,3 +705,93 @@ measurements of coding-agent success on customer feedback. For that, collect a
 consented corpus of resolved requests and compare target identification,
 reproduction success, acceptance-check coverage, rework rate and time to an
 accepted fix across text-only, screenshots and structured Pinflow evidence.
+
+### Precise targets and intended scope
+
+Pinflow prefers the clicked action over an app/row test ID and preserves the raw
+clicked descendant when it anchors a containing control. Repeated controls carry
+owner evidence. If a row disappears or changes identity, the pin parks; it must
+not move onto the next row. Give repeated entities stable, non-sensitive IDs or
+unique test IDs. Identical unnamed rows resolve by position and park as soon as
+one is added or filtered away. A row's text identifies it, except the pinned
+control's own label, so fixing that label keeps the pin; other text changes in
+the row, such as a live timestamp, may require re-placing it. Existing comments
+without owner evidence keep their older locator behavior.
+
+The composer’s **Apply to** field declares **This instance**, **This component**,
+or **All matching items**. Leaving it unspecified does not imply all instances.
+Exported **Selected** members describe what the gesture covered. Scope confidence
+measures captured containment, not identity or permission to edit everything.
+
+**Current target** reports a current locator match, an unresolved target, or
+`not-checked` for other routes. A match, particularly `fuzzy` or `positional`, is
+not proof of identity. JSON carries these diagnostics separately in
+`targetResolution`; capture evidence and revision hashes remain unchanged.
+Parked notes keep historical selections and viewport. A closed modal does not
+mean the element was deleted.
+
+Text is capped at 512 characters, traversal at 64 text nodes, and fragment boxes
+at 12. Bounds, parent bounds, line height, display, gap, overflow and dimensions
+help explain wrapping or spacing. `truncated` signals a cap; rectangles do not
+identify the phrase the reviewer meant. Boolean checked/disabled/ARIA states are
+captured without form values. These facts describe capture time, not a test result.
+Ask for a precise phrase or expected result when the note still leaves it unclear.
+
+### Host adapters for application state and canvas
+
+Use explicit safe state, not arbitrary datasets or application objects. For
+example, a hash-filtered task list can expose its filter and a public task label:
+
+```ts
+const review = init({
+  project: 'tasks-preview',
+  routeKey: () => `tasks:${location.hash === '#/active' ? 'active' : 'all'}`,
+  captureContext: (target) => ({
+    build: 'preview-42',
+    subject: target.closest('li')?.querySelector('label')?.textContent ?? 'Task list',
+    state: location.hash === '#/active' ? 'filter: active' : 'filter: all',
+  }),
+});
+const refresh = () => review.refreshRoute();
+window.addEventListener('hashchange', refresh);
+// On host teardown: removeEventListener('hashchange', refresh); review.destroy();
+```
+
+For a canvas/chart, the host owns hit testing. The second capture argument uses
+viewport CSS pixels, matching `getBoundingClientRect()`. Convert them to the
+coordinate system your chart expects, including any backing-store scale:
+
+```ts
+const review = init({
+  project: 'chart-preview',
+  captureContext: (target, { clientX, clientY }) => {
+    if (!(target instanceof HTMLCanvasElement)) return;
+    const rect = target.getBoundingClientRect();
+    if (!rect.width || !rect.height) return;
+    // chart.hitTest is your adapter, returning a safe public label for a point.
+    const point = chart.hitTest(
+      ((clientX - rect.left) * target.width) / rect.width,
+      ((clientY - rect.top) * target.height) / rect.height,
+    );
+    return point ? { subject: point.publicLabel, state: chart.publicViewName } : undefined;
+  },
+});
+```
+
+`subject` is capped at 120 characters. Host-supplied subject, state, steps and
+expected outcomes are labeled unverified; Pinflow does not observe the behavior
+merely because the host describes it. Supply only facts available at the gesture.
+
+Inside a native `showModal()` dialog the overlay moves into the dialog so it
+stays interactive. If that dialog has a transform, filter or containment, pins
+still land on the page, but the dock and composer are confined to the dialog's
+box until it closes.
+
+Open shadow roots use composed event targets, root-local labels and a host/inner
+locator path, with a maximum depth of eight. Give hosts stable IDs when there are
+multiple similar widgets. Excessive depth remains unresolved. Canvas, frames and
+custom hosts without an open root signal limited DOM evidence. Closed roots and
+cross-origin frames need host cooperation; Pinflow cannot inspect their contents,
+and a closed root on a generic built-in element is not externally detectable.
+For development source hints, use the opt-in instrumentation described above;
+validate every source hint against the repository before editing.

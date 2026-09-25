@@ -56,11 +56,11 @@ function render(scope?: Scope, over: Partial<Comment> = {}): string {
 }
 
 describe('the scope lines', () => {
-  it('names the boundary, the changed nodes, and what not to touch', () => {
+  it('names the boundary, the selected nodes, and what the region only touched', () => {
     const md = render(REGION);
     expect(md).toContain('**Scope:**');
     expect(md).toContain('data-testid="plans"');
-    expect(md).toContain('**Change');
+    expect(md).toContain('**Selected');
     expect(md).toContain('main > div.grid > article:nth-of-type(1)');
     expect(md).toContain('**Do not change');
     expect(md).toContain('main > aside');
@@ -93,7 +93,7 @@ describe('the scope lines', () => {
     expect(md).toContain('**Insertion point:**');
     expect(md).toContain('Intro');
     expect(md).toContain('Details');
-    expect(md).not.toContain('**Change');
+    expect(md).not.toContain('**Selected');
   });
 
   it('says so when a heal invalidated the node lists', () => {
@@ -103,7 +103,7 @@ describe('the scope lines', () => {
     const { members: _m, excluded: _x, ...kept } = REGION;
     const md = render({ ...kept, stale: true });
     expect(md).toMatch(/stale/i);
-    expect(md).not.toContain('**Change');
+    expect(md).not.toContain('**Selected');
   });
 
   it('says so when the change set was truncated', () => {
@@ -274,7 +274,7 @@ describe('scope fields are untrusted input like every other field', () => {
       '**Motion:** `<div>` (\u201cPricing\u201d) — `main > div.card` animates rotate',
     );
     const lines = md.split('\n');
-    expect(lines.indexOf(line)).toBeLessThan(lines.findIndex((l) => l.startsWith('**Change')));
+    expect(lines.indexOf(line)).toBeLessThan(lines.findIndex((l) => l.startsWith('**Selected')));
   });
 
   it('emits no Motion line when nothing animates', () => {
@@ -303,14 +303,14 @@ describe('scope fields are untrusted input like every other field', () => {
 
   it('says the members are a slice when the region cut a repeated set', () => {
     const md = render({ ...REGION, siblings: 5 });
-    const line = md.split('\n').find((l) => l.startsWith('**Change'));
-    expect(line).toBe('**Change — 2 of 5 `<article>` this note may alter:**');
+    const line = md.split('\n').find((l) => l.startsWith('**Selected'));
+    expect(line).toBe('**Selected — 2 of 5 `<article>` observed at capture:**');
   });
 
   it('stays silent when the members are the whole set', () => {
     const md = render(REGION);
-    const line = md.split('\n').find((l) => l.startsWith('**Change'));
-    expect(line).toBe('**Change — 2 element(s) this note may alter:**');
+    const line = md.split('\n').find((l) => l.startsWith('**Selected'));
+    expect(line).toBe('**Selected — 2 element(s) observed at capture:**');
   });
 
   it('cannot smuggle a tag that terminates the pseudo-element early', () => {

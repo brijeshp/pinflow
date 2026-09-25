@@ -63,7 +63,7 @@ export const Annotator = defineComponent({
         expectedOutcome: props.expectedOutcome,
         urlQueryParams: props.urlQueryParams?.slice(),
         captureContext: props.captureContext
-          ? (target) => props.captureContext?.(target)
+          ? (target, point) => props.captureContext?.(target, point)
           : undefined,
         theme: props.theme && { ...props.theme },
         routeKey: props.routeKey,

@@ -18,7 +18,9 @@ export const STYLES =
   // in neutral chrome; the count chip joins it when there is something to
   // export. Children carry pointer-events — the dock itself stays inert.
   // .arm/.chip share the circle; each keeps only its color/size deltas.
-  '.dock{position:fixed;left:16px;bottom:16px;display:flex;align-items:center;gap:8px}' +
+  // The --pf-o* variables are set only while the overlay is confined to a host
+  // dialog's box (dom.ts syncLayer); unset, both resolve to the viewport corner.
+  '.dock{position:fixed;left:calc(var(--pf-ox,0px) + 16px);bottom:calc(100% - var(--pf-oy,0px) - var(--pf-oh,100%) + 16px);display:flex;align-items:center;gap:8px}' +
   '.arm,.chip{pointer-events:auto;height:26px;border:0;padding:0;border-radius:999px;font:inherit;font-weight:600;box-shadow:0 4px 10px rgba(0,0,0,.28),0 0 0 2px var(--pf-surface,light-dark(#fff,#1e222b));cursor:pointer;display:grid;place-items:center}' +
   '.arm{width:26px;background:#0f172a;color:#f8fafc}' +
   // The glyph is DRAWN, not typeset: two crossing bars centered by grid math.
@@ -93,9 +95,10 @@ export const STYLES =
   // zoom trigger at the source.
   // Spec 'Mobile considerations': hit targets >=44px. Keyed to the POINTER,
   // not the viewport — a landscape phone is 844px wide and still a thumb.
-  '@media (pointer:coarse){.input textarea,.panel input.name{font-size:16px}.panel button{min-height:44px}}' +
+  '@media (pointer:coarse){.input textarea,.input select,.panel input.name{font-size:16px}.panel button{min-height:44px}}' +
   '.input .actions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--pf-text-muted,inherit)}' +
   // Read-only disposition line in a resolved comment's popup ("✓ Done — note").
+  '.input .scope-label{display:block;margin-top:8px;font-size:12px}.input select{display:block;box-sizing:border-box;width:100%;margin-top:4px;padding:6px;border:1px solid currentColor;border-radius:6px;background:transparent;color:inherit;font:inherit}' +
   '.input .res{margin-top:8px;font-size:12px;color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
   // .62, not .55: the quiet state must still clear AA 4.5:1 at 13px on both
   // light-dark surfaces (0.11.0 review #1 measured .55 at ~4.0:1 on light).
