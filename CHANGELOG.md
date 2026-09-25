@@ -1,5 +1,55 @@
 # Changelog
 
+## 1.0.0
+
+### Major Changes
+
+- 7eebba5: Published under its own name: the package is now **`pinflowjs`** (was `@brijeshp/pinflow`) and the repository lives at `github.com/pinflowjs/pinflow`. All module specifiers change accordingly:
+  - `import { init } from 'pinflowjs'`
+  - `import { Annotator } from 'pinflowjs/react'` (same for `/vue`)
+  - `pinflowjs/verification` and `pinflowjs/instrumentation` for the optional sidecars
+  - CDN: `https://cdn.jsdelivr.net/npm/pinflowjs` serves the IIFE directly
+
+  Runtime identity is unchanged: storage keys (`pinflow:c:…`), `window.Pinflow`, `data-pinflow-*` attributes, the worklet processor name and export artifact fields all keep the `pinflow` brand, so existing stored comments survive the upgrade untouched. The old `@brijeshp/pinflow` name is deprecated on npm and points here.
+
+### Minor Changes
+
+- 380fba2: Capture optional reproduction steps, expected outcomes, acceptance checks and passive attachment references. Preserve original selectors, scope and clicked-descendant evidence across repair. Add an opt-in URL query allowlist, a composer expected-outcome field, and matching React/Vue props.
+
+  Abstain on ambiguous fallback text matches, and on fuzzy guesses from a scan cut short by its budget; an untied exact text match is still used on large pages. Correct same-reviewer reconciliation after rename and refresh pins when another tab's feedback is folded into a local save.
+
+- cfe5859: Add separate verification and development source-instrumentation entry points without runtime dependencies. Verification binds reports to the exact feedback revision and validates acceptance coverage and evidence references. Development JSX/TSX instrumentation supplies source-file hints using the host's compiler. Update the agent pack with reproduction and verification guidance.
+- 543a22b: Keep repeated-control feedback bound to its captured entity when lists filter,
+  reorder or recycle rows, without parking a pin at placement: lookalike rows and
+  shadow hosts resolve by position among equals, and a fix to the pinned control's
+  own label keeps its row. Corrupt binding evidence parks a note instead of
+  dropping it. Leaf clicks climb to link, option, radio, menu-item and summary
+  controls. Inside a transformed native modal the overlay stays on target and
+  confines its chrome to the dialog's box. Preserve precise controls and dialog boundaries beneath
+  app test IDs, support nested open shadow targets, and make native modal composers
+  work with ordinary clicks and keyboard input.
+
+  Separate historical selection from current target diagnostics and declared edit
+  scope. Parked Markdown retains capture-time membership and viewport. Capture
+  bounded text, geometry, layout and safe boolean UI state; expose click coordinates
+  and a host subject field for canvas hit tests. Add an optional apply-to selector
+  and integration guidance. Existing single-argument capture hooks remain supported.
+
+  The richer capture and target-integrity checks add approximately 3.5 kB gzip to
+  core. This is an owner-approved feature budget increase; final ceilings are
+  ratcheted from CI measurements with approximately 50 bytes of headroom. Voice
+  and framework wrapper ceilings remain unchanged.
+
+### Patch Changes
+
+- 3c77e9b: Raise the size ceilings for actionable feedback, as an approved trade. Core rises from 25.04 kB (IIFE) and 24.91 kB (ESM) gzipped to 26.71 kB and 26.57 kB; the React and Vue wrappers rise from 470 B and 610 B to 510 B and 690 B for the new props. The bytes buy structured feedback capture and export, the expected-outcome composer field, the URL query allowlist, per-tab baseline reconciliation and the targeting fixes. Verification and source instrumentation ship as separate entry points and add nothing to core. Ceilings sit about 50 B over the CI measurement (26.66 kB and 26.52 kB) and the README badge reads 27 kB to match.
+- 37cc8f7: Disambiguate repeated test IDs using the remaining target evidence and stop treating an incomplete accessible-name search as a unique match.
+- 3595f25: Park pins when a native dialog closes without unmounting, restore them when it reopens, and preserve captured edit scope when voice finalization completes after teardown.
+- 3595f25: Reconcile changes against each tab's saved baseline so stale tabs preserve completed additions, edits, and deletions. Preserve the old reviewer store when remembering a rename fails, and batch selector repairs into one persistence write per render. The localStorage backend remains lockless; truly simultaneous cross-process writes require a host-provided transactional backend.
+- de91371: The package description no longer quotes a bundle size.
+
+  It said 17 kB, which was true at 0.6.0 and has been wrong since; npm and GitHub both surface that line. It now says "zero dependencies", which is an invariant rather than a measurement. The README hero carried the same figure and is corrected, and the size badge now tracks the enforced ceiling it links to.
+
 ## 0.12.1
 
 ### Patch Changes
