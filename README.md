@@ -10,7 +10,7 @@ Add a comment layer to any web page, then hand the export to your coding agent.
 
 [![npm](https://img.shields.io/npm/v/pinflowjs)](https://www.npmjs.com/package/pinflowjs)
 [![license](https://img.shields.io/npm/l/pinflowjs)](./LICENSE)
-[![core size](https://img.shields.io/badge/core-27_kB_gzipped-2563eb)](./package.json)
+[![core size](https://img.shields.io/badge/core-31_kB_gzipped-2563eb)](./package.json)
 
 [Try it on pinflow.dev](https://pinflow.dev) · [Guide](./docs/guide.md) · [API](./docs/wiki/api.md) · [Examples](./examples)
 
@@ -104,7 +104,6 @@ No runtime dependencies, MIT, no telemetry, and CI won't let the bundle past its
   across people or devices means [wiring up a backend](./docs/guide.md#connect-your-own-backend).
 - It can't see your source, only the rendered DOM. Connecting an element to a file is the agent's
   job, which is why the export gives it so much to go on.
-- It's pre-1.0. The API can still move.
 
 ## Docs
 
