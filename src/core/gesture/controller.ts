@@ -1,3 +1,4 @@
+import { eventTarget } from '../target';
 import { acquireSelectionGuard } from '../ui/selection-guard';
 import type { ActivationConfig } from '../types';
 
@@ -186,7 +187,7 @@ export class GestureController {
 
   private _onPointerDown = (e: Event): void => {
     const pe = e as PointerEvent;
-    const target = e.target as Element | null;
+    const target = eventTarget(e);
     if (!target) return;
 
     if (this._opts.suspended?.()) return;

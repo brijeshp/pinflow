@@ -37,11 +37,57 @@ export interface AreaPercent {
 }
 
 export interface TargetEvidence {
+  /** Owner's root depth in the shadow host chain; absent means the target root. */
+  rootDepth?: number;
+  identity?: 'id' | 'testid';
+  /** Position among same-tag nodes sharing this text at capture, recorded only when there were several; resolution requires the same count. */
+  ordinal?: number;
+  count?: number;
+  /** Relative XPath from the owner to the anchored element, excluded from the owner's text so a fix to the pinned control keeps its entity. */
+  path?: string;
+  /** The lookalike scan hit its cap or budget at capture: a locator hint, never a constraint. */
+  ambiguous?: true;
+  context?: Anchor['context'];
   selectors: SelectorCandidates;
   textFingerprint: string;
 }
 
+export interface CaptureRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+export interface CaptureDetails {
+  text?: string;
+  truncated?: true;
+  state?: string[];
+  bounds?: CaptureRect;
+  parentBounds?: CaptureRect;
+  textRects?: CaptureRect[];
+  layout?: {
+    display?: string;
+    lineHeight?: string;
+    gap?: string;
+    overflow?: string;
+    width?: string;
+    height?: string;
+  };
+  limitation?: 'canvas' | 'frame' | 'shadow-host';
+}
+export interface CapturePoint {
+  clientX: number;
+  clientY: number;
+}
+
 export interface Anchor {
+  /** Bounded DOM facts, distinct from host-supplied observations and reviewer intent. */
+  details?: CaptureDetails;
+  /** Semantic repeated owner: a resolution constraint, never just a source hint. */
+  owner?: TargetEvidence;
+  /** Outer-to-inner open shadow hosts. A missing host parks the target; an empty path is a binding that cannot be resolved (excessive nesting, or corrupt binding evidence on hydration). */
+  shadowPath?: TargetEvidence[];
+
   /** Original locators, retained on the first repair. Current selectors remain the live locator. */
   capturedSelectors?: SelectorCandidates;
   /** Precise clicked descendant when the stable anchor is an ancestor. Historical evidence only. */
@@ -190,9 +236,9 @@ export interface Scope {
   gen: number;
   rung: ScopeRung;
   confidence: ScopeConfidence;
-  /** The containing boundary — the edit ceiling. */
+  /** Capture-time containing boundary; not proof of current identity or edit permission. */
   boundary: ScopeNode;
-  /** The changed node set. Non-empty tuple: "a region with no members" is unrepresentable. */
+  /** Geometrically selected nodes. Non-empty tuple: "a region with no members" is unrepresentable. */
   members?: [ChangeNode, ...ChangeNode[]];
   /**
    * Total same-tag children of the members' shared parent, when the members are
@@ -202,7 +248,7 @@ export interface Scope {
    * set, or do not share one parent and tag.
    */
   siblings?: number;
-  /** Grazed neighbours the agent must not edit to satisfy the note. */
+  /** Grazed neighbours; weak geometric evidence, not a declaration of reviewer intent. */
   excluded?: [ScopeNode, ...ScopeNode[]];
   /** Insertion point: the siblings bracketing the drawn region, in document order. */
   between?: { before?: ScopeNode; after?: ScopeNode };
@@ -240,6 +286,10 @@ export interface VoiceMeta {
 
 /** Host-selected reproduction facts. Never populated by inspecting application state or network traffic. */
 export interface FeedbackContext {
+  /** Host-supplied semantic hit-test result, e.g. chart series/category. Never independently verified. */
+  subject?: string;
+  /** Reviewer/host-declared intent, distinct from geometric selection. */
+  intent?: 'instance' | 'component' | 'matching';
   build?: string;
   state?: string;
   steps?: string[];
@@ -355,7 +405,7 @@ export interface PinflowConfig {
   /** Opt-in query allowlist for new captured URLs and default route keys. [] removes all queries; undefined preserves legacy routing. Hash and credentials are removed when configured. Custom routeKey remains host-owned. */
   urlQueryParams?: readonly string[];
   /** Called synchronously once at pin time; return only non-sensitive, explicit reproduction facts. */
-  captureContext?: (target: Element) => FeedbackContext | undefined;
+  captureContext?: (target: Element, point: CapturePoint) => FeedbackContext | undefined;
   /** Show an optional expected outcome field in the composer. Defaults to false. */
   expectedOutcome?: boolean;
   project: string;
@@ -425,4 +475,11 @@ export interface PinflowConfig {
   activation?: ActivationConfig;
   /** Opt-in voice annotation config. Omit for pure pin/text behavior. */
   voice?: VoiceConfig;
+}
+
+/** Export-time diagnostics, never capture-time scope confidence or edit permission. */
+export interface TargetResolution {
+  availability: 'matched' | 'unresolved' | 'not-checked';
+  rung?: 'testid' | 'id' | 'name' | 'css' | 'xpath' | 'text' | 'fuzzy' | 'positional';
+  owner?: 'agrees' | 'unresolved' | 'not-recorded';
 }

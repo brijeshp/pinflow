@@ -19,7 +19,11 @@ describe('packed package type surface', () => {
       import type { PinflowTheme, PinflowConfig, Comment, Handle, AreaPercent } from './dist/index';
       import { createVerification, feedbackRevision } from './dist/verification';
       import { pinflowSource } from './dist/instrumentation';
-      import type { FeedbackContext } from './dist/index';
+      import type { FeedbackContext, CapturePoint, CaptureDetails, TargetResolution } from './dist/index';
+      const point: CapturePoint = {clientX: 10, clientY: 20};
+      const details: CaptureDetails = {state: ['checked=true']};
+      const resolution: TargetResolution = {availability: 'matched', rung: 'id', owner: 'agrees'};
+      export { point, details, resolution };
       const evidence: FeedbackContext = {expected: 'Checkout opens'};
       export { createVerification, feedbackRevision, pinflowSource, evidence };
       const theme: PinflowTheme = { accent: '#123456', radius: '8px' };
@@ -30,6 +34,7 @@ describe('packed package type surface', () => {
         theme,
         exportUi: 'auto',
         describeRoute: (k: string) => k,
+        captureContext: (target, point) => ({subject: target.tagName + point.clientX, intent: 'instance'}),
       };
       const handle: Handle = init(config);
       const md: string = handle.exportMarkdown();

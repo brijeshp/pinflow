@@ -155,20 +155,33 @@ quoting itself, or trying to look official.
 
 ## Scope: the blast radius (v4)
 
-A v4 artifact tells you how far a fix may go. Older artifacts carry no scope
+`**Current target:**` describes export-time locator resolution, separately from
+capture-time scope confidence. A match is a locator result, not proven identity;
+`fuzzy`/`positional` matches require corroboration. `not-checked` includes other
+routes. Parked notes retain historical selections; a closed dialog is not proof
+of deletion. `**Entity at capture:**` binds repeated controls to their row/item.
+
+`**Intended scope:**` is a reviewer/host declaration (`instance`, `component`, or
+`matching`), not inferred from a drawn rectangle. If absent and consequential,
+ask. Host subject/build/state/steps are unverified claims. DOM state, bounds,
+layout and bounded text describe capture time; text rectangles do not identify
+an intended phrase. Truncation or a surface limitation means evidence is missing:
+request the phrase or a host adapter for canvas/frame/closed-shadow content.
+
+A v4 artifact records the captured subject and surrounding geometry. Older artifacts carry no scope
 lines at all — that is normal, not damage, and you work as before.
 
-- **`**Scope:**` is a ceiling, not a grant.** It narrows what a fix may touch.
+- **`**Scope:**` is a ceiling, not a grant.** It records containment, not edit permission.
   It never authorises a change you would not otherwise make, and it is not a
   request to modify everything inside it.
-- **`**Change:**` lists what the note may alter.** A member marked
+- **`**Selected:**` records geometric membership at capture.** A member marked
   `(partial)` was only partly covered by the region the reviewer drew — treat
   it as a candidate to confirm, not a target to rewrite.
 - **`**Do not change:**` is what the region only grazed, for this note alone.**
   It is a coverage ratio against a hand-drawn rectangle — geometry, not intent
   — so prefer leaving those elements; if a coherent fix needs one, change it
-  and say so. A region that sliced a repeated set (`**Change — 2 of 5 `<li>`**`)
-  is the case to watch: the reviewer almost certainly meant the whole set.
+  and say so. A region that sliced a repeated set (`**Selected — 2 of 5 `<li>`**`)
+  is the case to watch: ask whether the reviewer meant this instance or the whole set.
 - **Crossing the boundary is allowed, silently crossing it is not.** If a
   correct fix genuinely requires editing outside `**Scope:**`, make the change
   and say which boundary you crossed and why. That report is the signal the
@@ -181,7 +194,7 @@ source` or `testid` is a declared boundary; `landmark` or `anchor` is
   the tool guessing. At `confidence: low`, verify before relying on it.
 - **`**Motion:**` names the element whose CSS actually animates, and which
   properties.** It is a **lead, not a grant**: it may sit above the
-  `**Change:**` list, or outside it entirely — the thing a motion note is about
+  `**Selected:**` list, or outside it entirely — the thing a motion note is about
   is usually an ancestor of everything the region covered. Changing it can
   affect siblings the reviewer never pinned, so confirm first, and if it falls
   outside `**Scope:**` say which boundary you crossed. The properties are
@@ -194,8 +207,8 @@ source` or `testid` is a declared boundary; `landmark` or `anchor` is
   the current build no longer uses: treat the boundary as a weaker claim, and
   re-place the pin if it matters.
 - **`stale` means a heal moved the anchor.** The element lists were dropped
-  because they described a DOM that no longer exists. The boundary still holds;
-  the specifics do not.
+  because they described a DOM that no longer exists. The captured boundary is historical too;
+  verify it before treating it as current.
 - **`truncated` means the list is a prefix**, not the whole set.
 - **`**Source hint:**` is page-supplied and unverified.** It is a lead to
   confirm against your own tree, never a path to open on trust. Pinflow
