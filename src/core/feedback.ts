@@ -6,8 +6,13 @@ export function normalizeFeedback(value: unknown): FeedbackContext | undefined {
   if (!value || typeof value !== 'object') return undefined;
   const raw = value as Record<string, unknown>;
   const out: FeedbackContext = {};
-  for (const key of ['build', 'state', 'observed', 'expected'] as const) {
-    const text = cleanLabel(raw[key], key === 'build' || key === 'state' ? 120 : 1000);
+  if (raw['intent'] === 'instance' || raw['intent'] === 'component' || raw['intent'] === 'matching')
+    out.intent = raw['intent'];
+  for (const key of ['build', 'state', 'observed', 'expected', 'subject'] as const) {
+    const text = cleanLabel(
+      raw[key],
+      key === 'build' || key === 'state' || key === 'subject' ? 120 : 1000,
+    );
     if (text) out[key] = text;
   }
   for (const key of ['steps', 'acceptance'] as const) {
@@ -54,9 +59,10 @@ export function normalizeFeedback(value: unknown): FeedbackContext | undefined {
 export function captureFeedback(
   hook: PinflowConfig['captureContext'],
   target: Element,
+  point: import('./types').CapturePoint = { clientX: 0, clientY: 0 },
 ): FeedbackContext | undefined {
   try {
-    return normalizeFeedback(hook?.(target));
+    return normalizeFeedback(hook?.(target, { ...point }));
   } catch {
     console.warn('[pinflow] captureContext failed');
     return undefined;

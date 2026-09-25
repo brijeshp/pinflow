@@ -1,9 +1,11 @@
 import { STYLES } from './styles';
+import { parentElement } from '../target';
 
 export interface UIRoot {
   host: HTMLElement;
   shadow: ShadowRoot;
   root: HTMLDivElement;
+  syncLayer(): void;
   destroy(): void;
 }
 
@@ -66,6 +68,26 @@ export function createUIRoot(strategy: StyleStrategy = resolveStyleStrategy()): 
   // APPEND waits for DOM ready (mirroring iife.ts), which keeps init()'s
   // synchronous Handle contract intact.
   let destroyed = false;
+  // Native modal descendants remain interactive; the rest of body is inert.
+  const syncLayer = (): void => {
+    if (destroyed || !document.body) return;
+    let modal: Element | null = null;
+    try {
+      let active = document.activeElement;
+      while (active?.shadowRoot?.activeElement) active = active.shadowRoot.activeElement;
+      for (let node = active; node; node = parentElement(node)) {
+        if (node.matches('dialog:modal')) {
+          modal = node;
+          break;
+        }
+      }
+      modal ??= [...document.querySelectorAll('dialog:modal')].pop() ?? null;
+    } catch {
+      /* Older engines have no native modal selector. */
+    }
+    const parent = modal ?? document.body;
+    if (host.parentElement !== parent) parent.appendChild(host);
+  };
   if (document.body) {
     document.body.appendChild(host);
   } else {
@@ -81,6 +103,7 @@ export function createUIRoot(strategy: StyleStrategy = resolveStyleStrategy()): 
     host,
     shadow,
     root,
+    syncLayer,
     destroy() {
       destroyed = true;
       host.remove();

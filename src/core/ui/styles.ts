@@ -93,9 +93,10 @@ export const STYLES =
   // zoom trigger at the source.
   // Spec 'Mobile considerations': hit targets >=44px. Keyed to the POINTER,
   // not the viewport — a landscape phone is 844px wide and still a thumb.
-  '@media (pointer:coarse){.input textarea,.panel input.name{font-size:16px}.panel button{min-height:44px}}' +
+  '@media (pointer:coarse){.input textarea,.input select,.panel input.name{font-size:16px}.panel button{min-height:44px}}' +
   '.input .actions{display:flex;justify-content:space-between;align-items:center;margin-top:8px;font-size:12px;color:var(--pf-text-muted,inherit)}' +
   // Read-only disposition line in a resolved comment's popup ("✓ Done — note").
+  '.input .scope-label{display:block;margin-top:8px;font-size:12px}.input select{display:block;box-sizing:border-box;width:100%;margin-top:4px;padding:6px;border:1px solid currentColor;border-radius:6px;background:transparent;color:inherit;font:inherit}' +
   '.input .res{margin-top:8px;font-size:12px;color:var(--pf-text-muted,light-dark(#64748b,#99a1b3))}' +
   // .62, not .55: the quiet state must still clear AA 4.5:1 at 13px on both
   // light-dark surfaces (0.11.0 review #1 measured .55 at ~4.0:1 on light).

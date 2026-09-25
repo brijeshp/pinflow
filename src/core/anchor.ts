@@ -6,7 +6,19 @@ import {
   getTextFingerprint,
   roleOf,
 } from './selector';
-import type { Anchor, PositionPercent, Viewport } from './types';
+import { captureDetails } from './capture';
+import type { Anchor, PositionPercent, Viewport, TargetResolution } from './types';
+import {
+  ACTION,
+  LAYER,
+  containingLayer,
+  captureBinding,
+  bindingRoot,
+  resolveOwner,
+  targetEvidence,
+  parentElement,
+  nearestOwner,
+} from './target';
 
 export function currentViewport(): Viewport {
   return { width: window.innerWidth, height: window.innerHeight };
@@ -82,6 +94,8 @@ function visualSnapshot(el: Element): NonNullable<Anchor['context']>['styles'] |
 // so empty/whitespace testids are skipped consistently with capture.
 export function anchorTarget(el: Element): Element {
   for (let cur: Element | null = el; cur; cur = cur.parentElement) {
+    if (cur.matches(ACTION)) return cur;
+    if (cur !== el && cur.matches('main,body,html,' + LAYER)) break;
     if (getTestId(cur)) return cur;
   }
   return el;
@@ -90,7 +104,6 @@ export function anchorTarget(el: Element): Element {
 // What counts as a modal layer. `dialog` alone would match a closed native
 // dialog on resolve — its subtree exists, display:none — so the open state is
 // part of the definition on both sides.
-const LAYER = '[role="dialog"],[role="alertdialog"],[aria-modal="true"],dialog[open]';
 
 // The dialog's accessible name through the shared ladder, then the first
 // heading inside it — which is what a host's modal title almost always is
@@ -105,7 +118,7 @@ function layerName(dialog: Element): string | undefined {
 }
 
 function layerOf(el: Element): Anchor['layer'] {
-  const dialog = el.closest(LAYER);
+  const dialog = containingLayer(el);
   if (!dialog) return undefined;
   const name = layerName(dialog);
   return name ? { role: 'dialog', name } : { role: 'dialog' };
@@ -113,12 +126,14 @@ function layerOf(el: Element): Anchor['layer'] {
 
 /** Connectivity alone does not make a cached target's modal layer available. */
 export function inAnchorLayer(anchor: Anchor, el: Element): boolean {
+  for (let node: Element | null = el; node; node = parentElement(node))
+    if (node.matches('dialog:not([open]),[hidden],[aria-hidden="true"]')) return false;
+  if (getComputedStyle(el).display === 'none') return false;
   const layer = anchor.layer;
   if (!layer) return true;
-  const dialog = el.closest(LAYER);
+  const dialog = containingLayer(el);
   return (
     !!dialog &&
-    !el.closest('dialog:not([open]),[hidden],[aria-hidden="true"]') &&
     getComputedStyle(dialog).display !== 'none' &&
     (layer.name === undefined || layerName(dialog) === layer.name)
   );
@@ -162,12 +177,19 @@ export function buildAnchor(
     viewport: currentViewport(),
     context,
   };
+  const details = captureDetails(el);
+  if (details) anchor.details = details;
   if (target !== el)
     anchor.target = {
-      selectors: buildSelectors(target),
-      textFingerprint: getTextFingerprint(target),
+      ...targetEvidence(target),
+      context: {
+        role: roleOf(target),
+        name: accessibleName(target) ?? getTextFingerprint(target),
+        styles: visualSnapshot(target) ?? {},
+      },
     };
-  const layer = layerOf(el);
+  Object.assign(anchor, captureBinding(el));
+  const layer = layerOf(target);
   if (layer) anchor.layer = layer;
   return anchor;
 }
@@ -180,15 +202,63 @@ export function buildAnchor(
 // parks the pin: it never falls through to the page. The guide promises a
 // removed element hides its pin; a closed modal is the common case of
 // "removed", and healing onto `main` was breaking that promise.
-export function resolveAnchor(anchor: Anchor, root: Document = document): Element | null {
-  const layer = anchor.layer;
-  if (!layer) return findByCandidates(root, anchor.selectors, anchor.textFingerprint);
-  for (const dialog of Array.from(root.querySelectorAll(LAYER))) {
-    if (!inAnchorLayer(anchor, dialog)) continue;
-    const hit = findByCandidates(dialog, anchor.selectors, anchor.textFingerprint);
-    if (hit && dialog.contains(hit)) return hit;
+export function resolveAnchor(
+  anchor: Anchor,
+  root: Document = document,
+  report?: TargetResolution,
+): Element | null {
+  if (report) {
+    report.availability = 'unresolved';
+    report.owner = anchor.owner ? 'unresolved' : 'not-recorded';
+    delete report.rung;
   }
-  return null;
+  const base = bindingRoot(anchor, root);
+  if (!base) return null;
+  const ownerBase =
+    anchor.owner?.rootDepth === undefined
+      ? base
+      : bindingRoot(anchor, root, anchor.owner.rootDepth);
+  const owner = anchor.owner && ownerBase ? resolveOwner(ownerBase, anchor.owner) : null;
+  if (anchor.owner && !owner) return null;
+  if (report && owner) report.owner = 'agrees';
+  let selectors = anchor.selectors;
+  if (owner && anchor.owner) {
+    const prefix = anchor.owner.selectors.css + ' > ';
+    if (selectors.css.startsWith(prefix))
+      selectors = {
+        ...selectors,
+        css: ':scope > ' + selectors.css.slice(prefix.length),
+        xpath: '',
+      };
+  }
+  // A layer can live outside the inner shadow root. Its containing host then
+  // carries the layer check, while selector lookup stays inside that root.
+  const roots =
+    owner && ownerBase === base
+      ? [owner]
+      : anchor.layer && !(base instanceof ShadowRoot)
+        ? [...base.querySelectorAll(LAYER)].filter((el) => inAnchorLayer(anchor, el))
+        : [base];
+  const hits: Array<{ element: Element; rung: TargetResolution['rung'] }> = [];
+  for (const scope of roots) {
+    let rung: TargetResolution['rung'];
+    const hit = findByCandidates(scope, selectors, anchor.textFingerprint, (value) => {
+      rung = value;
+    });
+    if (
+      hit &&
+      scope.contains(hit) &&
+      (!owner || nearestOwner(hit) === owner) &&
+      inAnchorLayer(anchor, hit)
+    )
+      hits.push({ element: hit, rung });
+  }
+  if (hits.length !== 1) return null;
+  if (report) {
+    report.availability = 'matched';
+    if (hits[0]!.rung) report.rung = hits[0]!.rung;
+  }
+  return hits[0]!.element;
 }
 
 export interface ScreenPosition {

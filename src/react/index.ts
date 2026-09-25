@@ -28,7 +28,7 @@ export function Annotator(props: AnnotatorProps): null {
     handleRef.current = init({
       ...p,
       ...(p.captureContext
-        ? { captureContext: (target) => propsRef.current.captureContext?.(target) }
+        ? { captureContext: (target, point) => propsRef.current.captureContext?.(target, point) }
         : {}),
       ...(p.onChange ? { onChange: (s, c) => propsRef.current.onChange?.(s, c) } : {}),
       ...(p.onSubmit ? { onSubmit: (s) => propsRef.current.onSubmit?.(s) } : {}),

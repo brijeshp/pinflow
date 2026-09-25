@@ -1,3 +1,4 @@
+import { normalizeDetails } from './details';
 import { normalizeFeedback } from './feedback';
 import { rememberReviewer } from './identity';
 import { FP_MAX } from './selector';
@@ -126,6 +127,24 @@ function validSelectors(selectors: unknown): boolean {
   );
 }
 
+function validEvidence(value: unknown): boolean {
+  return (
+    isObject(value) &&
+    (value['rootDepth'] === undefined ||
+      (typeof value['rootDepth'] === 'number' &&
+        Number.isInteger(value['rootDepth']) &&
+        value['rootDepth'] >= 0 &&
+        value['rootDepth'] <= 8)) &&
+    (value['identity'] === undefined ||
+      value['identity'] === 'id' ||
+      value['identity'] === 'testid') &&
+    (value['ambiguous'] === undefined || value['ambiguous'] === true) &&
+    validSelectors(value['selectors']) &&
+    typeof value['textFingerprint'] === 'string' &&
+    value['textFingerprint'].length <= FP_MAX
+  );
+}
+
 function hasValidAnchor(c: Record<string, unknown>): boolean {
   const anchor = c['anchor'];
   if (!isObject(anchor)) return false;
@@ -137,6 +156,11 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
   // produce "NaN%" artifacts (review #20).
   return (
     validSelectors(selectors) &&
+    (anchor['owner'] === undefined || validEvidence(anchor['owner'])) &&
+    (anchor['shadowPath'] === undefined ||
+      (Array.isArray(anchor['shadowPath']) &&
+        anchor['shadowPath'].length <= 8 &&
+        anchor['shadowPath'].every(validEvidence))) &&
     isObject(pos) &&
     pct(pos['x']) &&
     pct(pos['y']) &&
@@ -349,6 +373,18 @@ export function normalizeComments(input: unknown): Comment[] {
       else delete out.capturedScope;
       // Optional historical evidence is soft: corrupt evidence must not drop words.
       out.anchor = { ...out.anchor };
+      const details = normalizeDetails(out.anchor.details);
+      if (details) out.anchor.details = details;
+      else delete out.anchor.details;
+      const evidence = (v: import('./types').TargetEvidence): import('./types').TargetEvidence => ({
+        selectors: { ...v.selectors },
+        textFingerprint: v.textFingerprint,
+        ...(v.rootDepth !== undefined ? { rootDepth: v.rootDepth } : {}),
+        ...(v.identity ? { identity: v.identity } : {}),
+        ...(v.ambiguous ? { ambiguous: true } : {}),
+      });
+      if (out.anchor.owner) out.anchor.owner = evidence(out.anchor.owner);
+      if (out.anchor.shadowPath) out.anchor.shadowPath = out.anchor.shadowPath.map(evidence);
       if (!validSelectors(out.anchor.capturedSelectors)) delete out.anchor.capturedSelectors;
       const target = out.anchor.target;
       if (
@@ -361,6 +397,9 @@ export function normalizeComments(input: unknown): Comment[] {
         out.anchor.target = {
           selectors: target.selectors,
           textFingerprint: target.textFingerprint.slice(0, FP_MAX),
+          ...(validContext(target['context']) && target['context']
+            ? { context: target.context }
+            : {}),
         };
       const scope = validScope(c['scope']);
       if (scope) out.scope = scope;

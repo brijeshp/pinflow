@@ -36,11 +36,14 @@ function save(root: ShadowRoot) {
 }
 
 describe('actionable feedback evidence', () => {
-  it('keeps the precise clicked child as evidence while anchoring its stable parent', () => {
-    document.body.innerHTML = '<section data-testid="card"><button id="buy">Buy</button></section>';
-    const anchor = buildAnchor(document.querySelector('button')!, 10, 10);
-    expect(anchor.selectors.testid).toBe('card');
-    expect(anchor.target).toMatchObject({ selectors: { id: 'buy' }, textFingerprint: 'Buy' });
+  it('keeps the precise clicked child as evidence while anchoring its nearest control', () => {
+    document.body.innerHTML =
+      '<section data-testid="card"><button id="buy"><span>Buy</span></button></section>';
+    const anchor = buildAnchor(document.querySelector('span')!, 10, 10);
+    expect(anchor.selectors.id).toBe('buy');
+    expect(anchor.context?.role).toBe('button');
+    expect(anchor.target).toMatchObject({ textFingerprint: 'Buy' });
+    expect(anchor.target?.selectors.css).toContain('span');
   });
   it('captures a bounded detached context once at the gesture and exports it', () => {
     const context = {
@@ -57,7 +60,7 @@ describe('actionable feedback evidence', () => {
     context.expected = 'Mutated';
     save(root);
     expect(hook).toHaveBeenCalledTimes(1);
-    expect(hook).toHaveBeenCalledWith(target);
+    expect(hook).toHaveBeenCalledWith(target, { clientX: 10, clientY: 10 });
     expect(saved().feedback).toMatchObject({
       build: 'release-42',
       steps: ['Add an item', 'Select Buy'],
@@ -164,12 +167,12 @@ describe('actionable feedback evidence', () => {
     const { root } = capture();
     save(root);
     const before = saved();
-    document.querySelector('section')!.className = 'rebuilt';
+    document.querySelector('button')!.id = 'rebuilt';
     app!.refreshRoute();
     const first = saved();
     expect(first.anchor.capturedSelectors).toEqual(before.anchor.selectors);
     expect(first.capturedScope).toEqual(before.scope);
-    document.querySelector('section')!.className = 'rebuilt-again';
+    document.querySelector('button')!.id = 'rebuilt-again';
     app!.refreshRoute();
     expect(saved().anchor.capturedSelectors).toEqual(before.anchor.selectors);
     expect(saved().capturedScope).toEqual(before.scope);
@@ -302,4 +305,37 @@ it('labels every context field in the same sentence case', () => {
   expect(md).toContain('**Build:** `preview-42`');
   expect(md).toContain('**State:** `cart-open`');
   expect(md).toContain('**Observed:** `Nothing happens`');
+});
+
+it.each(['instance', 'component', 'matching'] as const)(
+  'persists the explicit %s intent and restores it when reopened',
+  (intent) => {
+    const { root } = capture();
+    const select = root.querySelector<HTMLSelectElement>('select[aria-label="Apply to"]')!;
+    expect(select.value).toBe('');
+    select.value = intent;
+    select.dispatchEvent(new Event('change', { bubbles: true }));
+    save(root);
+    expect(saved().feedback?.intent).toBe(intent);
+    root.querySelector<HTMLButtonElement>('.pin')!.click();
+    expect(root.querySelector<HTMLSelectElement>('select[aria-label="Apply to"]')!.value).toBe(
+      intent,
+    );
+  },
+);
+
+it('does not persist an unsaved intent edit and allows clearing an explicit intent', () => {
+  const { root } = capture({
+    captureContext: () => ({ intent: 'component', subject: 'Checkout' }),
+  });
+  save(root);
+  root.querySelector<HTMLButtonElement>('.pin')!.click();
+  root.querySelector<HTMLSelectElement>('select[aria-label="Apply to"]')!.value = 'matching';
+  root.querySelector('textarea')!.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+  expect(saved().feedback?.intent).toBe('component');
+  root.querySelector<HTMLButtonElement>('.pin')!.click();
+  root.querySelector<HTMLSelectElement>('select[aria-label="Apply to"]')!.value = '';
+  root.querySelector<HTMLButtonElement>('.save')!.click();
+  expect(saved().feedback?.intent).toBeUndefined();
+  expect(saved().feedback?.subject).toBe('Checkout');
 });

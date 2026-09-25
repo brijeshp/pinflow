@@ -142,7 +142,7 @@ export function roleOf(el: Element): string {
 // candidates per resolve, and a document-wide `label[for]` query per candidate
 // measured 200 ms on an 8,000-input form against a 2 ms budget (review #2).
 export function accessibleName(el: Element, labels?: Map<string, Element>): string | null {
-  const doc = el.ownerDocument;
+  const doc = el.getRootNode() as Document | ShadowRoot;
   let name = el.getAttribute('aria-label');
   if (!name) {
     const ids = el.getAttribute('aria-labelledby');
@@ -166,7 +166,7 @@ export function accessibleName(el: Element, labels?: Map<string, Element>): stri
 // only corroborates a positional hit rather than picking a first. Twelve
 // identical "Remove" buttons must never resolve to the first one.
 function findByName(
-  root: Document | Element,
+  root: Document | Element | ShadowRoot,
   role: string,
   name: string,
   deadline: number,
@@ -183,7 +183,8 @@ function findByName(
   }
   const labels = new Map<string, Element>();
   const doc = root.ownerDocument ?? (root as Document);
-  for (const l of Array.from(doc.querySelectorAll('label[for]'))) {
+  const labelRoot = root instanceof ShadowRoot ? root : doc;
+  for (const l of Array.from(labelRoot.querySelectorAll('label[for]'))) {
     const id = l.getAttribute('for')!;
     if (!labels.has(id)) labels.set(id, l);
   }
@@ -201,7 +202,7 @@ function findByName(
 }
 
 function nthOfType(el: Element): number {
-  const parent = el.parentElement;
+  const parent = el.parentElement ?? (el.parentNode instanceof ShadowRoot ? el.parentNode : null);
   if (!parent) return 1;
   let n = 1;
   for (const sibling of parent.children) {
@@ -285,7 +286,7 @@ export function getTextFingerprint(el: Element): string {
 // matching. Returns null when the shared deadline expires mid-read; the
 // candidate is then simply not judged. Full-fidelity extraction stays where
 // it belongs: pin creation.
-function healFingerprint(el: Element, deadline: number): string | null {
+export function healFingerprint(el: Element, deadline: number): string | null {
   // 4 === NodeFilter.SHOW_TEXT (the enum reference costs bundle bytes).
   const walker = el.ownerDocument.createTreeWalker(el, 4);
   let out = '';
@@ -349,10 +350,18 @@ export function buildSelectors(el: Element): SelectorCandidates {
 }
 
 export function findByCandidates(
-  root: Document | Element,
+  root: Document | Element | ShadowRoot,
   selectors: SelectorCandidates,
   fingerprint: string,
+  report?: (rung: NonNullable<import('./types').TargetResolution['rung']>) => void,
 ): Element | null {
+  const matched = (
+    el: Element | null,
+    rung: NonNullable<import('./types').TargetResolution['rung']>,
+  ): Element | null => {
+    if (el) report?.(rung);
+    return el;
+  };
   // Hydrated fingerprints are untrusted input — cap to the documented
   // representation before ANY O(length) work (0.4.1 review #8).
   if (fingerprint.length > FP_MAX) fingerprint = fingerprint.slice(0, FP_MAX);
@@ -362,11 +371,11 @@ export function findByCandidates(
   const deadline = performance.now() + FINGERPRINT_WALK_MS;
   if (selectors.testid) {
     const hits = root.querySelectorAll(`[data-testid="${CSS.escape(selectors.testid)}"]`);
-    if (hits.length === 1) return hits[0]!;
+    if (hits.length === 1) return matched(hits[0]!, 'testid');
   }
   if (selectors.id) {
     const hits = root.querySelectorAll(`#${CSS.escape(selectors.id)}`);
-    if (hits.length === 1) return hits[0]!;
+    if (hits.length === 1) return matched(hits[0]!, 'id');
   }
   // Role + accessible name: the rung a CSS-modules rebuild cannot kill. Only a
   // UNIQUE match resolves. An ambiguous name contributes nothing — it must not
@@ -376,7 +385,7 @@ export function findByCandidates(
   // reorder, where the walk below would have found the true target (review #1).
   if (selectors.role && selectors.name) {
     const named = findByName(root, selectors.role, selectors.name, deadline);
-    if (named?.length === 1) return named[0]!;
+    if (named?.length === 1) return matched(named[0]!, 'name');
   }
   // A positional hit that contradicts a strong stored fingerprint is demoted,
   // not discarded: it still beats a merely-fuzzy candidate at the bottom of
@@ -392,7 +401,7 @@ export function findByCandidates(
   try {
     const hit = root.querySelector(selectors.css);
     if (hit) {
-      if (corroborates(hit, fingerprint, deadline)) return hit;
+      if (corroborates(hit, fingerprint, deadline)) return matched(hit, 'css');
       positional = hit;
     }
   } catch {
@@ -410,7 +419,7 @@ export function findByCandidates(
     const node = result.singleNodeValue;
     if (node && node.nodeType === 1) {
       const hit = node as Element;
-      if (corroborates(hit, fingerprint, deadline)) return hit;
+      if (corroborates(hit, fingerprint, deadline)) return matched(hit, 'xpath');
       positional ??= hit;
     }
   } catch {
@@ -509,11 +518,9 @@ export function findByCandidates(
     // (`node` still set) keeps an untied exact hit — most real pages exceed
     // the budget, and abstaining there disabled this rung wherever it
     // mattered — but drops the fuzzy guess, which an unscanned node could beat.
-    return (
-      (!ambiguousExact ? exact : null) ??
-      positional ??
-      (!node && !exact && !ambiguousBest ? best : null)
-    );
+    if (!ambiguousExact && exact) return matched(exact, 'text');
+    if (positional) return matched(positional, 'positional');
+    return matched(!node && !exact && !ambiguousBest ? best : null, 'fuzzy');
   }
-  return positional;
+  return matched(positional, 'positional');
 }

@@ -79,12 +79,25 @@ a running page.
 
 ## Scope: the blast radius (v4)
 
-- `**Scope:**` is a ceiling, not a grant — it narrows what a fix may touch and
-  never authorises one. `**Change:**` is what the note may alter;
+`**Current target:**` describes export-time locator resolution, separately from
+capture-time scope confidence. A match is a locator result, not proven identity;
+`fuzzy`/`positional` matches require corroboration. `not-checked` includes other
+routes. Parked notes retain historical selections; a closed dialog is not proof
+of deletion. `**Entity at capture:**` binds repeated controls to their row/item.
+
+`**Intended scope:**` is a reviewer/host declaration (`instance`, `component`, or
+`matching`), not inferred from a drawn rectangle. If absent and consequential,
+ask. Host subject/build/state/steps are unverified claims. DOM state, bounds,
+layout and bounded text describe capture time; text rectangles do not identify
+an intended phrase. Truncation or a surface limitation means evidence is missing:
+request the phrase or a host adapter for canvas/frame/closed-shadow content.
+
+- `**Scope:**` is a ceiling, not a grant — it records containment and
+  never authorises one. `**Selected:**` records geometric membership at capture;
   `(partial)` means confirm before rewriting. `**Do not change:**` is what the
   region only grazed, for this note alone — geometry, not intent — so prefer
   leaving those; if a coherent fix needs one, change it and say so. Watch for
-  `**Change — 2 of 5 `<li>`**`: the reviewer likely meant the whole set.
+  `**Selected — 2 of 5 `<li>`**`: membership alone cannot tell you whether the reviewer meant the whole set.
 - Crossing the boundary is allowed; crossing it silently is not. Make the
   change and say which boundary you crossed and why.
 - `**Insertion point:**` means nothing exists there yet — add between the two

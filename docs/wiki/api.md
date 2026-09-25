@@ -33,7 +33,7 @@ SSR installs, and hosts that set `reviewer` to an empty string, return an inert 
 
 Required: `project`.
 
-- `captureContext?: (target: Element) => FeedbackContext | undefined`: capture bounded reproduction facts synchronously once at the gesture. Throws are contained; values are detached and validated. No automatic network or application-state capture.
+- `captureContext?: (target: Element, point: CapturePoint) => FeedbackContext | undefined`: capture bounded reproduction facts synchronously once at the gesture. Throws are contained; values are detached and validated. No automatic network or application-state capture.
 - `expectedOutcome?: boolean`: optional composer field, default false; existing expected outcomes stay visible. A saved expected-only note is not an empty draft; host `captureContext` alone does not keep a new pin dismissed without saving.
 - `urlQueryParams?: readonly string[]`: opt-in allowlist for new captured URLs/default route keys; removes credentials and fragments too. Undefined preserves legacy behavior; custom route keys and historical records are unchanged.
 
@@ -128,3 +128,24 @@ Note: voice does not work on the IIFE path (dynamic `@brijeshp/pinflow/voice` im
 Reports are v1 sidecars, keyed by comment ID and SHA-256 of canonical authored content/original capture evidence. `updatedAt` participates; mechanical selector/scope repair and team disposition do not. A verified claim requires evidence-bearing passing checks, all supplied acceptance criteria named verbatim, and no unresolved assumptions. `partial` and `blocked` report incomplete work. Validation does not prove checks ran and never sets server-owned status. Keep reports separate from `source()` comments. The guide contains working examples.
 
 Both wrappers expose the three new configuration options. Vue delegates `captureContext` through current props and re-initializes when its presence changes; React follows its existing function-prop delegation policy. Array/object config changes use a keyed remount. Reviewer handle exports fold current durable feedback before generating artifacts.
+
+Capture details are public types: `CapturePoint`, `CaptureRect`, `CaptureDetails`,
+and `TargetResolution`. `FeedbackContext.subject` is a host-supplied label capped
+at 120 characters; `intent` is `instance | component | matching`. Existing
+one-argument capture hooks remain compatible. React/Vue forward both arguments.
+The composer lets reviewers set or clear intent independently of expected outcome.
+
+`Anchor.owner` and `shadowPath` contain `TargetEvidence` with optional unique
+identity rung and ambiguity flag. `owner.rootDepth` locates an owner outside the inner shadow root. These resolution constraints are strictly
+validated, unlike optional historical `details` and `target` context. Empty
+`shadowPath` means nesting exceeded the supported eight roots and cannot resolve.
+`details` contains bounded text, boolean state, geometry, fragment rectangles,
+layout values and opaque-surface limitations. These are capture-time facts.
+
+`ExportMeta.resolve?: (comment: Comment) => TargetResolution` supplies optional
+current diagnostics to Markdown toolkit callers. `exportJSON(stores, resolve?)`
+can add a top-level `targetResolution` array keyed by reviewer and comment ID.
+The browser handle supplies these automatically; server/toolkit usage remains
+DOM-free. `availability` is `matched | unresolved | not-checked`; `rung` describes
+the locator used and `owner` distinguishes agreement from absent/unresolved
+owner evidence. Scope confidence does not describe resolution quality.

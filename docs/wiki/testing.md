@@ -52,3 +52,12 @@ Vitest picks up `tests/**/*.test.ts` and colocated `src/**/*.test.ts`.
 - Fix implementations, not tests — unless the test itself is provably wrong.
 
 `tests/core/feedback-evidence.test.ts` covers detached capture, optional expected-only notes, historical evidence, hydration normalization, passive Markdown rendering, URL allowlisting, and voice commit/degrade/destroy. `persistence-concurrency.test.ts` exercises sequential stale-tab writes, deletions, rename baselines, fresh exports and visible pin/count updates. `tests/e2e/feedback-context.spec.ts` tests composer/save/reload/JSON across all browser projects; `dialog-layer.spec.ts` includes native dialogs that remain mounted. The built consumer type test exercises both optional entries, and bundle isolation checks that build tooling and verification do not enter core. Rebuild before running those checks.
+
+`target-integrity.spec.ts` covers filtered/reordered/recycled repeated controls,
+precise controls under app test IDs, native `showModal()` save/Escape/nested
+reopen, and nested open-shadow label isolation and mutation recovery. Ordinary
+pointer/keyboard actions verify modal interactivity without forced clicks.
+`target-integrity.test.ts`, `target-binding-safety.test.ts` and
+`capture-details.test.ts` cover diagnostics, ambiguous owners, malformed binding
+constraints, bounded detached snapshots, sensitive input omission and passive
+export. `feedback-evidence.test.ts` also covers intent save/reopen/cancel/clear.
