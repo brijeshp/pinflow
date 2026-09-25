@@ -75,3 +75,9 @@ read the figure CI prints, ratchet to that + ~50 B.
 | `pnpm release`       | build + changeset publish                       |
 
 Prettier config lives inline in `package.json`: singleQuote, semi, trailingComma `all`, printWidth 100. Engines: node >= 18; package manager: pnpm.
+
+The feedback target-integrity feature has an owner-approved core budget increase
+for entity/shadow constraints, modal handling, bounded capture facts and current
+resolution diagnostics. Temporary 31 kB ceilings allow CI measurement; ratchet
+each core entry from its own CI result plus approximately 50 bytes before merge.
+Voice and framework wrapper ceilings are unchanged.
