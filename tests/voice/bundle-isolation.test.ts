@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 
-// The core bundles must never contain voice code — the lazy `import('@brijeshp/pinflow/voice')`
+// The core bundles must never contain voice code — the lazy `import('pinflowjs/voice')`
 // stays an external runtime reference. A size budget alone can hide a small leak,
 // so assert the symbols are absent. Runs only when a build is present.
 const CORE_BUNDLES = ['dist/index.js', 'dist/index.cjs', 'dist/pinflow.iife.js'];
@@ -26,7 +26,7 @@ describe('bundle isolation', () => {
         `${file} must not contain optional verification or build tooling`,
       ).not.toMatch(/transpileModule|node:path|SHA-256/);
       expect(contents, `${file} should keep the external voice import`).toContain(
-        '@brijeshp/pinflow/voice',
+        'pinflowjs/voice',
       );
     }
   });

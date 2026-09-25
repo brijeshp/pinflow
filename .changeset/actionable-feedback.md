@@ -1,5 +1,5 @@
 ---
-'@brijeshp/pinflow': minor
+'pinflowjs': minor
 ---
 
 Capture optional reproduction steps, expected outcomes, acceptance checks and passive attachment references. Preserve original selectors, scope and clicked-descendant evidence across repair. Add an opt-in URL query allowlist, a composer expected-outcome field, and matching React/Vue props.

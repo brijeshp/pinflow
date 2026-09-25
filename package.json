@@ -1,5 +1,5 @@
 {
-  "name": "@brijeshp/pinflow",
+  "name": "pinflowjs",
   "version": "0.12.1",
   "description": "Add a comment layer to any web page, then hand the export to your coding agent. One script tag, zero dependencies, and reviewers don't install anything.",
   "keywords": [
@@ -15,13 +15,13 @@
     "vibe-coding"
   ],
   "license": "MIT",
-  "homepage": "https://github.com/brijeshp/pinflow#readme",
+  "homepage": "https://github.com/pinflowjs/pinflow#readme",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/brijeshp/pinflow.git"
+    "url": "git+https://github.com/pinflowjs/pinflow.git"
   },
   "bugs": {
-    "url": "https://github.com/brijeshp/pinflow/issues"
+    "url": "https://github.com/pinflowjs/pinflow/issues"
   },
   "author": "Pinflow contributors",
   "type": "module",
@@ -130,7 +130,7 @@
       "limit": "26.71 KB",
       "gzip": true,
       "ignore": [
-        "@brijeshp/pinflow/voice"
+        "pinflowjs/voice"
       ]
     },
     {
@@ -139,7 +139,7 @@
       "limit": "26.57 KB",
       "gzip": true,
       "ignore": [
-        "@brijeshp/pinflow/voice"
+        "pinflowjs/voice"
       ]
     },
     {
@@ -154,7 +154,7 @@
       "limit": "0.51 KB",
       "gzip": true,
       "ignore": [
-        "@brijeshp/pinflow",
+        "pinflowjs",
         "react"
       ]
     },
@@ -164,7 +164,7 @@
       "limit": "0.69 KB",
       "gzip": true,
       "ignore": [
-        "@brijeshp/pinflow",
+        "pinflowjs",
         "vue"
       ]
     }

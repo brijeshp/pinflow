@@ -33,11 +33,11 @@ export default defineConfig([
     // One file per entry — avoids emitting shared `chunk-*.js` files that
     // would show up alongside the published package on unpkg/jsdelivr.
     splitting: false,
-    // Keep the lazy `import('@brijeshp/pinflow/voice')` a runtime reference so voice code
+    // Keep the lazy `import('pinflowjs/voice')` a runtime reference so voice code
     // is never pulled into the core graph (the "0 bytes for text users" rule).
-    external: ['@brijeshp/pinflow/voice'],
+    external: ['pinflowjs/voice'],
     esbuildOptions(options) {
-      options.external = [...(options.external ?? []), '@brijeshp/pinflow/voice'];
+      options.external = [...(options.external ?? []), 'pinflowjs/voice'];
       options.mangleProps = MANGLE_PRIVATE;
     },
     target: 'es2020',
@@ -47,7 +47,7 @@ export default defineConfig([
     entry: { pinflow: 'src/core/iife.ts' },
     format: ['iife'],
     // The other two configs already treeshake; this entry was the sole omission.
-    // Because `@brijeshp/pinflow/voice` is an external DYNAMIC import in iife
+    // Because `pinflowjs/voice` is an external DYNAMIC import in iife
     // format, esbuild emits its `__require`/`__toESM` CJS-interop preamble
     // unconditionally — dead here, and rollup's post-pass is what drops it.
     // NEVER `'smallest'`: that preset sets `propertyReadSideEffects: false`,
@@ -58,9 +58,9 @@ export default defineConfig([
     minify: true,
     sourcemap: true,
     define,
-    external: ['@brijeshp/pinflow/voice'],
+    external: ['pinflowjs/voice'],
     esbuildOptions(options) {
-      options.external = [...(options.external ?? []), '@brijeshp/pinflow/voice'];
+      options.external = [...(options.external ?? []), 'pinflowjs/voice'];
       options.mangleProps = MANGLE_PRIVATE;
     },
     target: 'es2020',
@@ -85,7 +85,7 @@ export default defineConfig([
     minify: true,
     define,
     splitting: false,
-    external: ['@brijeshp/pinflow', 'react', 'vue'],
+    external: ['pinflowjs', 'react', 'vue'],
     esbuildOptions(options) {
       options.mangleProps = MANGLE_PRIVATE;
     },
