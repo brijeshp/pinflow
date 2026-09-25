@@ -33,7 +33,7 @@ Vitest picks up `tests/**/*.test.ts` and colocated `src/**/*.test.ts`.
 
 - **`tests/setup.ts`** — MemoryStorage polyfill (newer Node localStorage quirks), `IS_REACT_ACT_ENVIRONMENT`, `CSS.escape` polyfill.
 - **happy-dom floor** (`package.json`): `^20.11.2`. Below that, MutationObserver records are lost after a GC (see `tests/env/`). 20.14.x changes `cssText` serialization and adopted-sheet removal, which `selection-guard.test.ts` and `voice/dot.test.ts` assert on, so bumping past 20.11.x is a deliberate change, not a routine update.
-- **Aliases** (`vitest.config.ts`): `@brijeshp/pinflow/voice` and bare `pinflow` resolve to `src/` sources so lazy voice stays lazy and wrappers exercise core internals without a build step.
+- **Aliases** (`vitest.config.ts`): `pinflowjs/voice` and bare `pinflowjs` resolve to `src/` sources so lazy voice stays lazy and wrappers exercise core internals without a build step.
 - **Playwright** (`playwright.config.ts`): baseURL `http://localhost:4173`; projects chromium, mobile-chrome, mobile-safari; CI retries 2×, traces on first retry; reporter `github` in CI, `list` locally.
 
 ## How to run

@@ -30,7 +30,7 @@ devices, appear in a team workspace, or survive cleared browser data.
 Install the package when your app uses a bundler:
 
 ```bash
-npm install @brijeshp/pinflow
+npm install pinflowjs
 ```
 
 The script-tag setup does not require Node.js. Package consumers and contributors need Node.js
@@ -40,7 +40,7 @@ use.
 ### JavaScript or TypeScript
 
 ```ts
-import { init } from '@brijeshp/pinflow';
+import { init } from 'pinflowjs';
 
 const pinflow = init({
   project: 'checkout-redesign',
@@ -54,7 +54,7 @@ the host app is torn down.
 ### React
 
 ```tsx
-import { Annotator } from '@brijeshp/pinflow/react';
+import { Annotator } from 'pinflowjs/react';
 
 export default function App() {
   return (
@@ -77,7 +77,7 @@ Pinflow uses browser APIs, so put the React wrapper behind a client-component bo
 // app/pinflow-provider.tsx
 'use client';
 
-import { Annotator } from '@brijeshp/pinflow/react';
+import { Annotator } from 'pinflowjs/react';
 
 export function PinflowProvider() {
   return <Annotator project="checkout-redesign" />;
@@ -85,13 +85,13 @@ export function PinflowProvider() {
 ```
 
 Mount `PinflowProvider` from your layout or page. See the complete
-[Next.js example](https://github.com/brijeshp/pinflow/tree/main/examples/nextjs).
+[Next.js example](https://github.com/pinflowjs/pinflow/tree/main/examples/nextjs).
 
 ### Vue
 
 ```vue
 <script setup lang="ts">
-import { Annotator } from '@brijeshp/pinflow/vue';
+import { Annotator } from 'pinflowjs/vue';
 </script>
 
 <template>
@@ -107,7 +107,7 @@ props have special meaning in Vue. The other configuration names are unchanged.
 Only `project` is required.
 
 ```ts
-import { init } from '@brijeshp/pinflow';
+import { init } from 'pinflowjs';
 
 const pinflow = init({
   project: 'checkout-redesign',
@@ -137,7 +137,7 @@ const pinflow = init({
 | `theme`         | Applies Pinflow's optional visual design tokens.                                                                                |
 | `voice`         | Enables voice comments through a short-lived token provider.                                                                    |
 
-See the [API reference](https://github.com/brijeshp/pinflow/blob/main/docs/wiki/api.md) for
+See the [API reference](https://github.com/pinflowjs/pinflow/blob/main/docs/wiki/api.md) for
 complete types, wrapper behavior, and the returned handle.
 
 ### Choose how reviewers activate Pinflow
@@ -297,8 +297,8 @@ None of it is code, so it costs your users nothing. Install whichever format you
 
 ```bash
 mkdir -p .claude/skills .claude/commands
-cp -r node_modules/@brijeshp/pinflow/agent/skills/pinflow-feedback .claude/skills/
-cp node_modules/@brijeshp/pinflow/agent/commands/review-feedback.md .claude/commands/
+cp -r node_modules/pinflowjs/agent/skills/pinflow-feedback .claude/skills/
+cp node_modules/pinflowjs/agent/commands/review-feedback.md .claude/commands/
 ```
 
 Cursor and Windsurf read `agent/rules/pinflow.md`; `agent/AGENTS.snippet.md` appends to an
@@ -374,7 +374,7 @@ the host normally owns collection. Set `exportUi: 'always'` if you want backend 
 export at the same time.
 
 The full merge behavior, data shape, and backend responsibilities are documented in the
-[sync protocol](https://github.com/brijeshp/pinflow/blob/main/PROTOCOL.md).
+[sync protocol](https://github.com/pinflowjs/pinflow/blob/main/PROTOCOL.md).
 
 ### Return a resolution to the reviewer
 
@@ -420,7 +420,7 @@ token minting, or transcription fails, Pinflow falls back to a text comment.
 
 Voice is available through the installed ESM/CJS package. It is not supported by the CDN/IIFE
 build. See the
-[voice documentation](https://github.com/brijeshp/pinflow/blob/main/docs/wiki/voice.md) for
+[voice documentation](https://github.com/pinflowjs/pinflow/blob/main/docs/wiki/voice.md) for
 the token flow and failure behavior.
 
 ## Builder mode
@@ -513,12 +513,12 @@ If the widget does not appear:
 
 ## API at a glance
 
-| Import                    | Use                                                                   |
-| ------------------------- | --------------------------------------------------------------------- |
-| `@brijeshp/pinflow`       | Core `init`, `destroy`, `routeOf`, version, types, and export helpers |
-| `@brijeshp/pinflow/react` | React `<Annotator>` wrapper                                           |
-| `@brijeshp/pinflow/vue`   | Vue `<Annotator>` wrapper                                             |
-| `@brijeshp/pinflow/voice` | Internal lazy voice entry; do not import directly                     |
+| Import            | Use                                                                   |
+| ----------------- | --------------------------------------------------------------------- |
+| `pinflowjs`       | Core `init`, `destroy`, `routeOf`, version, types, and export helpers |
+| `pinflowjs/react` | React `<Annotator>` wrapper                                           |
+| `pinflowjs/vue`   | Vue `<Annotator>` wrapper                                             |
+| `pinflowjs/voice` | Internal lazy voice entry; do not import directly                     |
 
 The handle returned by `init()` exposes:
 
@@ -531,23 +531,23 @@ The handle returned by `init()` exposes:
 | `downloadExport()` | Download Markdown and copy it to the clipboard.                |
 
 For full signatures and types, see the
-[API reference](https://github.com/brijeshp/pinflow/blob/main/docs/wiki/api.md).
+[API reference](https://github.com/pinflowjs/pinflow/blob/main/docs/wiki/api.md).
 
 ## Examples
 
-- [Vanilla HTML](https://github.com/brijeshp/pinflow/tree/main/examples/vanilla-html) — one
+- [Vanilla HTML](https://github.com/pinflowjs/pinflow/tree/main/examples/vanilla-html) — one
   script tag, no build step
-- [React + Vite](https://github.com/brijeshp/pinflow/tree/main/examples/react-vite) — the React
+- [React + Vite](https://github.com/pinflowjs/pinflow/tree/main/examples/react-vite) — the React
   wrapper in a Vite app
-- [Next.js](https://github.com/brijeshp/pinflow/tree/main/examples/nextjs) — App Router with a
+- [Next.js](https://github.com/pinflowjs/pinflow/tree/main/examples/nextjs) — App Router with a
   client boundary
-- [Lovable or Bolt prototype](https://github.com/brijeshp/pinflow/tree/main/examples/lovable-prototype) —
+- [Lovable or Bolt prototype](https://github.com/pinflowjs/pinflow/tree/main/examples/lovable-prototype) —
   add Pinflow to generated output
-- [Slack](https://github.com/brijeshp/pinflow/tree/main/examples/webhook-slack) — send feedback
+- [Slack](https://github.com/pinflowjs/pinflow/tree/main/examples/webhook-slack) — send feedback
   through a server-side webhook proxy
-- [Discord](https://github.com/brijeshp/pinflow/tree/main/examples/webhook-discord) — send feedback
+- [Discord](https://github.com/pinflowjs/pinflow/tree/main/examples/webhook-discord) — send feedback
   through a server-side webhook proxy
-- [Vercel + Notion](https://github.com/brijeshp/pinflow/tree/main/examples/webhook-vercel-notion) —
+- [Vercel + Notion](https://github.com/pinflowjs/pinflow/tree/main/examples/webhook-vercel-notion) —
   store submissions with a serverless function
 
 ## Feedback that can be reproduced and checked
@@ -558,7 +558,7 @@ acceptance checks. Enable the optional composer field and supply a small,
 explicit context object:
 
 ```ts
-import { init } from '@brijeshp/pinflow';
+import { init } from 'pinflowjs';
 
 const handle = init({
   project: 'checkout-preview',
@@ -624,7 +624,7 @@ but a fuzzy guess is not.
 Use the optional, DOM-free entry point to bind a result to the exact request:
 
 ```ts
-import { createVerification, isVerificationCurrent } from '@brijeshp/pinflow/verification';
+import { createVerification, isVerificationCurrent } from 'pinflowjs/verification';
 
 const comment = JSON.parse(json).comments[0];
 const report = await createVerification(comment, {
@@ -672,7 +672,7 @@ repository-relative `data-pinflow-source` hints at build time:
 ```ts
 // vite.config.ts
 import ts from 'typescript';
-import { pinflowSource } from '@brijeshp/pinflow/instrumentation';
+import { pinflowSource } from 'pinflowjs/instrumentation';
 
 export default {
   plugins: [pinflowSource({ typescript: ts, root: process.cwd() })],

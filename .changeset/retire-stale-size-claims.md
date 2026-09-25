@@ -1,5 +1,5 @@
 ---
-'@brijeshp/pinflow': patch
+'pinflowjs': patch
 ---
 
 The package description no longer quotes a bundle size.

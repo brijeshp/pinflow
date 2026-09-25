@@ -15,10 +15,7 @@ Then open `http://localhost:3000/?reviewer=YourName` and click any element to le
 ## How it works
 
 ```html
-<script
-  src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow@latest"
-  data-project="vanilla-demo"
-></script>
+<script src="https://cdn.jsdelivr.net/npm/pinflowjs@latest" data-project="vanilla-demo"></script>
 ```
 
 That's the entire integration. No npm, no build step, no config file.

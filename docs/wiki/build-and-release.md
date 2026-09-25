@@ -4,8 +4,8 @@ Three tsup entry groups build core, voice, and framework wrappers to ESM/CJS/IIF
 
 ## Build configs (`tsup.config.ts`)
 
-- **Core + separate optional entries** (`src/core/index.ts`, `src/voice/index.ts`, `src/verification/index.ts`, `src/instrumentation/index.ts`): ESM + CJS. Verification and development instrumentation are independent ESM/CJS exports, with no core import edge. Instrumentation receives TypeScript from its host and uses only Node built-ins at runtime. Core externalizes `@brijeshp/pinflow/voice` so the lazy `import('@brijeshp/pinflow/voice')` stays a runtime reference — voice never enters the core graph ("0 bytes for text users").
-- **IIFE** (`src/core/iife.ts` → `dist/pinflow.iife.js`): minified standalone bundle for CDN (unpkg/jsdelivr). Also externalizes `@brijeshp/pinflow/voice`.
+- **Core + separate optional entries** (`src/core/index.ts`, `src/voice/index.ts`, `src/verification/index.ts`, `src/instrumentation/index.ts`): ESM + CJS. Verification and development instrumentation are independent ESM/CJS exports, with no core import edge. Instrumentation receives TypeScript from its host and uses only Node built-ins at runtime. Core externalizes `pinflowjs/voice` so the lazy `import('pinflowjs/voice')` stays a runtime reference — voice never enters the core graph ("0 bytes for text users").
+- **IIFE** (`src/core/iife.ts` → `dist/pinflow.iife.js`): minified standalone bundle for CDN (unpkg/jsdelivr). Also externalizes `pinflowjs/voice`.
 
 **All three configs set `treeshake: true`.** The IIFE entry was the sole omission until 0.9.0, and it cost 191 B gz: because the voice specifier is an external DYNAMIC import, esbuild emits its `__require`/`__toESM` CJS-interop preamble unconditionally, and rollup's post-pass is what drops it. Use `true`, never `'smallest'` — that preset sets `propertyReadSideEffects: false`, which licenses rollup to delete the layout-forcing `.offsetHeight`/`.offsetWidth` reads in `annotator.ts` that exist to flush style. The change is invisible in raw bytes (raw fell 32 B while gz fell 296 B on the shipped artifact), so judge it on `pnpm size` only.
 
@@ -45,6 +45,7 @@ read the figure CI prints, ratchet to that + ~50 B.
 ## Release flow
 
 - `pnpm changeset` for every user-facing change (`.changeset/config.json`: public access, baseBranch `main`).
+- The package publishes **unscoped as `pinflowjs`** from `github.com/pinflowjs/pinflow` (`package.json` `name`, `repository`, `homepage`, `bugs`). The former `@brijeshp/pinflow` name is deprecated on npm and must not be reintroduced anywhere a consumer copies from (README, `docs/guide.md`, `agent/`, `examples/`). The self-reference specifiers in `tsup.config.ts` (`external`), `vitest.config.ts` (`alias`), `tsconfig.json` (`paths`) and the `size-limit` `ignore` lists must all name the same package string.
 - `release.yml` uses `changesets/action@v1` to open a version PR / publish to npm on push to `main` (requires `NPM_TOKEN`).
 - npm publish protections are belt-and-braces: `files` allowlist (`dist`, `agent`, `README.md`, `LICENSE`, `CHANGELOG.md`) **and** a whitelist-style `.npmignore` (`*` then `!` negations). Both must be updated together when adding a shipped directory — `files` alone happens to work with `npm pack`, but the two disagreeing defeats the point of having both. Provenance enabled (`publishConfig.provenance: true`).
 - **`agent/`** ships the artifact reading protocol in four formats (skill, slash command, editor rule, `AGENTS.md` snippet); `agent/README.md` maps each to the tools that read it. Markdown only — it is not part of any bundle and costs consumers zero bytes, but it is published, so it is part of the package's public surface.

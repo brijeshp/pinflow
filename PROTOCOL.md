@@ -185,7 +185,7 @@ configure `urlQueryParams` before creating new feedback and return non-sensitive
 facts from `captureContext`. It does not migrate prior stored URLs or sanitize
 host-defined route keys. See the public guide for bounds and examples.
 
-Verification is a separate v1 sidecar (`@brijeshp/pinflow/verification`), keyed by
+Verification is a separate v1 sidecar (`pinflowjs/verification`), keyed by
 `commentId` and `revision` (`sha256:` plus 64 lowercase hex digits). It records
 outcome, interpretation, files, check results/evidence, and unresolved assumptions.
 `isVerificationCurrent` validates the shape, acceptance coverage and request hash.

@@ -105,7 +105,7 @@ request the phrase or a host adapter for canvas/frame/closed-shadow content.
 ## Reproduce and verify the exact request
 
 1. Read the matching JSON export alongside the Markdown. Use the comment ID
-   and `feedbackRevision(comment)` from `@brijeshp/pinflow/verification` to bind
+   and `feedbackRevision(comment)` from `pinflowjs/verification` to bind
    the work to the exact request. Record the revision before editing.
 2. Follow the reproduction steps using the recorded build, state and viewport.
    Separate observed behavior from inferred causes. Report inability to reproduce

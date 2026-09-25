@@ -6,7 +6,7 @@ import { vi } from 'vitest';
 // when the module doesn't carry the contract.
 describe('loadVoice interop hardening', () => {
   afterEach(() => {
-    vi.doUnmock('@brijeshp/pinflow/voice');
+    vi.doUnmock('pinflowjs/voice');
     vi.resetModules();
   });
 
@@ -17,14 +17,14 @@ describe('loadVoice interop hardening', () => {
 
   it('unwraps an ESM default export', async () => {
     const mod = { start: () => Promise.resolve({ stop: () => Promise.resolve(), dispose() {} }) };
-    vi.doMock('@brijeshp/pinflow/voice', () => ({ default: mod }));
+    vi.doMock('pinflowjs/voice', () => ({ default: mod }));
     await expect(load()).resolves.toBe(mod);
   });
 
   it('falls back to a CJS-shaped namespace carrying start()', async () => {
     // `default: undefined` keeps vitest's missing-export trap quiet while
     // still exercising the ?? fallback branch.
-    vi.doMock('@brijeshp/pinflow/voice', () => ({
+    vi.doMock('pinflowjs/voice', () => ({
       default: undefined,
       start: () => Promise.resolve({ stop: () => Promise.resolve(), dispose() {} }),
     }));
@@ -33,7 +33,7 @@ describe('loadVoice interop hardening', () => {
   });
 
   it('rejects a module without a start function instead of exploding later', async () => {
-    vi.doMock('@brijeshp/pinflow/voice', () => ({ default: {} }));
+    vi.doMock('pinflowjs/voice', () => ({ default: {} }));
     await expect(load()).rejects.toThrow('invalid module');
   });
 });
