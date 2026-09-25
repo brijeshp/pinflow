@@ -20,9 +20,9 @@ From an installed copy (drop whichever destination your tools don't use):
 
 ```bash
 mkdir -p .claude/skills .claude/commands .agents/skills
-cp -r node_modules/@brijeshp/pinflow/agent/skills/pinflow-feedback .claude/skills/
-cp -r node_modules/@brijeshp/pinflow/agent/skills/pinflow-feedback .agents/skills/
-cp node_modules/@brijeshp/pinflow/agent/commands/review-feedback.md .claude/commands/
+cp -r node_modules/pinflowjs/agent/skills/pinflow-feedback .claude/skills/
+cp -r node_modules/pinflowjs/agent/skills/pinflow-feedback .agents/skills/
+cp node_modules/pinflowjs/agent/commands/review-feedback.md .claude/commands/
 ```
 
 ## Why this exists

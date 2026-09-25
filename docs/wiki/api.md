@@ -5,11 +5,11 @@ Everything a host can call, as it exists in code. Entry points, config options, 
 ## Package exports
 
 - **`pinflow`** (`src/core/index.ts` → `dist/index.js|cjs`) — core: `init()`, `destroy()`, `routeOf()`, `version`, exported types (incl. `PinflowTheme`), plus the artifact toolkit re-exports (`exportReviewer`, `exportBuilder`, `exportJSON`, `exportFilename` and the `DescribeRoute`/`ExportMeta`/`IsOrphaned` types) so hosts can render artifacts from their own data without an active instance.
-- **`@brijeshp/pinflow/voice`** (`src/voice/index.ts` → `dist/voice.js|cjs`) — voice module; lazy-loaded by core when `config.voice` is set. Never import it directly.
-- **`@brijeshp/pinflow/react`** (`src/react/index.ts` → `dist/react.js|cjs`) — `<Annotator>` component.
-- **`@brijeshp/pinflow/vue`** (`src/vue/index.ts` → `dist/vue.js|cjs`) — `<Annotator>` component (registered name `PinflowAnnotator`).
-- **`@brijeshp/pinflow/verification`** (`src/verification/index.ts`) — DOM-free `feedbackRevision`, `createVerification`, `readVerification`, `isVerificationCurrent`, plus report types. Requires Web Crypto (`crypto.subtle`) and throws a named error without it; never imports core runtime.
-- **`@brijeshp/pinflow/instrumentation`** (`src/instrumentation/index.ts`) — Node-only Vite-compatible `pinflowSource` development plugin; host supplies TypeScript. The source map is returned to the bundler, never referenced by a `sourceMappingURL` comment. Neither optional entry is imported by the browser core.
+- **`pinflowjs/voice`** (`src/voice/index.ts` → `dist/voice.js|cjs`) — voice module; lazy-loaded by core when `config.voice` is set. Never import it directly.
+- **`pinflowjs/react`** (`src/react/index.ts` → `dist/react.js|cjs`) — `<Annotator>` component.
+- **`pinflowjs/vue`** (`src/vue/index.ts` → `dist/vue.js|cjs`) — `<Annotator>` component (registered name `PinflowAnnotator`).
+- **`pinflowjs/verification`** (`src/verification/index.ts`) — DOM-free `feedbackRevision`, `createVerification`, `readVerification`, `isVerificationCurrent`, plus report types. Requires Web Crypto (`crypto.subtle`) and throws a named error without it; never imports core runtime.
+- **`pinflowjs/instrumentation`** (`src/instrumentation/index.ts`) — Node-only Vite-compatible `pinflowSource` development plugin; host supplies TypeScript. The source map is returned to the bundler, never referenced by a `sourceMappingURL` comment. Neither optional entry is imported by the browser core.
 - **CDN/IIFE** (`src/core/iife.ts` → `dist/pinflow.iife.js`) — auto-inits via `<script data-project="...">` or exposes `window.Pinflow.init()`.
 
 ## Core functions (`src/core/index.ts`)
@@ -81,7 +81,7 @@ declaration would lose to the host's inline `all:initial`).
 `<Annotator {...PinflowConfig} />` renders `null`; mounts on first render. Re-inits only on stable primitives (`project`, `mode`, `reviewer`, `activation.mode`, `voice.tokenEndpoint`, `exportUi`, `expectedOutcome`). Function props (`onChange`, `onSubmit`, `source`, `routeKey`, `describeRoute`, `captureContext`) DELEGATE to the latest render — fresh closures apply without re-init. Object props (`theme`, `activation`, `voice`) are snapshotted at init; change them via a keyed remount.
 
 ```jsx
-import { Annotator } from '@brijeshp/pinflow/react';
+import { Annotator } from 'pinflowjs/react';
 <Annotator project="my-app" theme={{ accent: '#2d8b8b' }} onChange={handleChange} />;
 ```
 
@@ -91,7 +91,7 @@ Props cover the FULL `PinflowConfig`, with two renames: **`onSubmit` is exposed 
 
 ```vue
 <script setup>
-import { Annotator } from '@brijeshp/pinflow/vue';
+import { Annotator } from 'pinflowjs/vue';
 </script>
 <template>
   <Annotator project="my-app" :activation="{ mode: 'stealth' }" />
@@ -102,20 +102,17 @@ import { Annotator } from '@brijeshp/pinflow/vue';
 
 ```html
 <!-- auto-init -->
-<script
-  src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow@latest"
-  data-project="my-prototype"
-></script>
+<script src="https://cdn.jsdelivr.net/npm/pinflowjs@latest" data-project="my-prototype"></script>
 
 <!-- manual -->
-<script src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow@latest"></script>
+<script src="https://cdn.jsdelivr.net/npm/pinflowjs@latest"></script>
 <script>
   const handle = window.Pinflow.init({ project: 'x', theme: { accent: '#f00' } });
   handle.destroy();
 </script>
 ```
 
-Note: voice does not work on the IIFE path (dynamic `@brijeshp/pinflow/voice` import has no resolver there); it degrades to text.
+Note: voice does not work on the IIFE path (dynamic `pinflowjs/voice` import has no resolver there); it degrades to text.
 
 ## Versioning & breaking changes
 

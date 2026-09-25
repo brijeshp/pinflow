@@ -16,7 +16,7 @@ Open `http://localhost:3000/?reviewer=YourName`.
 ```tsx
 // app/pinflow-provider.tsx
 'use client';
-import { Annotator } from '@brijeshp/pinflow/react';
+import { Annotator } from 'pinflowjs/react';
 export function PinflowProvider() {
   return <Annotator project="my-prototype" />;
 }

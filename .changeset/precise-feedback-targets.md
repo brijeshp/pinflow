@@ -1,5 +1,5 @@
 ---
-'@brijeshp/pinflow': minor
+'pinflowjs': minor
 ---
 
 Keep repeated-control feedback bound to its captured entity when lists filter,

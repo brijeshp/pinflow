@@ -17,7 +17,7 @@
     "forceConsistentCasingInFileNames": true,
     "resolveJsonModule": true,
     "paths": {
-      "@brijeshp/pinflow": ["./src/core/index.ts"]
+      "pinflowjs": ["./src/core/index.ts"]
     },
     "declaration": true,
     "declarationMap": true,

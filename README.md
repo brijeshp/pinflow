@@ -1,15 +1,15 @@
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/brijeshp/pinflow/main/.github/assets/hero-dark.svg">
-  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/brijeshp/pinflow/main/.github/assets/hero-light.svg">
-  <img alt="A reviewer pins a comment on an Upgrade button; Pinflow exports Markdown carrying the element, its selectors, the surrounding context and a computed-style snapshot." src="https://raw.githubusercontent.com/brijeshp/pinflow/main/.github/assets/hero-light.svg" width="880" height="380">
+  <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/pinflowjs/pinflow/main/.github/assets/hero-dark.svg">
+  <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/pinflowjs/pinflow/main/.github/assets/hero-light.svg">
+  <img alt="A reviewer pins a comment on an Upgrade button; Pinflow exports Markdown carrying the element, its selectors, the surrounding context and a computed-style snapshot." src="https://raw.githubusercontent.com/pinflowjs/pinflow/main/.github/assets/hero-light.svg" width="880" height="380">
 </picture>
 
 # Pinflow
 
 Add a comment layer to any web page, then hand the export to your coding agent.
 
-[![npm](https://img.shields.io/npm/v/%40brijeshp%2Fpinflow)](https://www.npmjs.com/package/@brijeshp/pinflow)
-[![license](https://img.shields.io/npm/l/%40brijeshp%2Fpinflow)](./LICENSE)
+[![npm](https://img.shields.io/npm/v/pinflowjs)](https://www.npmjs.com/package/pinflowjs)
+[![license](https://img.shields.io/npm/l/pinflowjs)](./LICENSE)
 [![core size](https://img.shields.io/badge/core-27_kB_gzipped-2563eb)](./package.json)
 
 [Try it on pinflow.dev](https://pinflow.dev) · [Guide](./docs/guide.md) · [API](./docs/wiki/api.md) · [Examples](./examples)
@@ -24,7 +24,7 @@ time, next to the comment itself.
 You add one script tag. Reviewers don't install anything or sign in, and it works on a phone.
 
 ```html
-<script src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow" data-project="my-prototype"></script>
+<script src="https://cdn.jsdelivr.net/npm/pinflowjs" data-project="my-prototype"></script>
 ```
 
 Send someone the URL and they can start pinning.
@@ -61,12 +61,12 @@ was rather than making it infer that from "looks weak".
 
 ## Install
 
-| You have                                | Add this                                                                           | Notes                                                                                    |
-| --------------------------------------- | ---------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
-| **Any web page**                        | `<script src="https://cdn.jsdelivr.net/npm/@brijeshp/pinflow" data-project="app">` | Nothing to build. WordPress, Webflow, a static file — anything you can paste a tag into. |
-| **React / Next.js**                     | `npm i @brijeshp/pinflow` → `import { Annotator } from '@brijeshp/pinflow/react'`  | 468 B wrapper. See the [guide](./docs/guide.md#frameworks).                              |
-| **Vue / Nuxt**                          | `npm i @brijeshp/pinflow` → `import { Annotator } from '@brijeshp/pinflow/vue'`    | 604 B wrapper.                                                                           |
-| **A generated app** (Lovable, v0, Bolt) | The script tag, in the generated `index.html`                                      | Paste the export back into the chat so the next generation gets it right.                |
+| You have                                | Add this                                                                   | Notes                                                                                    |
+| --------------------------------------- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| **Any web page**                        | `<script src="https://cdn.jsdelivr.net/npm/pinflowjs" data-project="app">` | Nothing to build. WordPress, Webflow, a static file — anything you can paste a tag into. |
+| **React / Next.js**                     | `npm i pinflowjs` → `import { Annotator } from 'pinflowjs/react'`          | 468 B wrapper. See the [guide](./docs/guide.md#frameworks).                              |
+| **Vue / Nuxt**                          | `npm i pinflowjs` → `import { Annotator } from 'pinflowjs/vue'`            | 604 B wrapper.                                                                           |
+| **A generated app** (Lovable, v0, Bolt) | The script tag, in the generated `index.html`                              | Paste the export back into the chat so the next generation gets it right.                |
 
 ## How it goes
 
