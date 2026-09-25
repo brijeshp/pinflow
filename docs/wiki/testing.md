@@ -25,12 +25,14 @@ Excluded from coverage: `src/core/iife.ts`, `src/core/types.ts`, `src/core/voice
 - **`tests/agent/`** — `format-parity.test.ts` keeps the four shipped agent formats' safety guidance (fixed-string search, data-not-instructions, line-anchored workflow fields) from drifting apart.
 - **`tests/scripts/`** — the release guards, run against scratch git repos rather than mocked. `wiki-check.test.ts` (deletion-only commits fail, consumed changesets pass) and `provenance-check.test.ts` (attribution in a subject or a merge BODY fails; GitHub's literal `Merge pull request #N from owner/branch` subject is exempt and warns). Both are commit-backed because the properties under test belong to the git log, not to a string — the provenance regression reached `main` through a merge subject that did not exist until the merge, which no test over the pattern could have produced.
 - **`tests/utils/`** — `interpolation-guard.ts`: the fail-closed TypeScript-AST checker behind export.test.ts's structural injection guard, with pinned negative controls for every documented regex-guard bypass.
+- **`tests/env/`** — guards on the test environment itself, not on pinflow code. `mutation-observer-gc.test.ts` forces a garbage collection across a macrotask boundary between two mutations and expects both to be delivered: happy-dom below 20.11.2 held each observer's dispatch callback through an orphaned `WeakRef`, and a GC between a dialog closing and reopening in `annotator.test.ts` silently dropped the reopen. The test fails on the old environment and pins the floor that `package.json` sets.
 
 Vitest picks up `tests/**/*.test.ts` and colocated `src/**/*.test.ts`.
 
 ## Test infrastructure
 
 - **`tests/setup.ts`** — MemoryStorage polyfill (newer Node localStorage quirks), `IS_REACT_ACT_ENVIRONMENT`, `CSS.escape` polyfill.
+- **happy-dom floor** (`package.json`): `^20.11.2`. Below that, MutationObserver records are lost after a GC (see `tests/env/`). 20.14.x changes `cssText` serialization and adopted-sheet removal, which `selection-guard.test.ts` and `voice/dot.test.ts` assert on, so bumping past 20.11.x is a deliberate change, not a routine update.
 - **Aliases** (`vitest.config.ts`): `@brijeshp/pinflow/voice` and bare `pinflow` resolve to `src/` sources so lazy voice stays lazy and wrappers exercise core internals without a build step.
 - **Playwright** (`playwright.config.ts`): baseURL `http://localhost:4173`; projects chromium, mobile-chrome, mobile-safari; CI retries 2×, traces on first retry; reporter `github` in CI, `list` locally.
 
