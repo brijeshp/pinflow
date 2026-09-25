@@ -1,10 +1,21 @@
-import { afterEach, expect, it } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { buildAnchor, resolveAnchor } from '../../src/core/anchor';
 import { exportReviewer } from '../../src/core/export';
 import { normalizeComments } from '../../src/core/storage';
 import type { Comment } from '../../src/core/types';
 
+// The owner scan is bounded by wall clock (target.ts: 8 ms at capture, 2 ms
+// per resolve). Pin the clock: every test here asserts what a COMPLETE scan
+// concludes, and under a loaded CI machine a parallel worker can stall a
+// sub-millisecond scan past its budget, at which point the owner degrades to
+// a hint and the ladder resolves onto a lookalike — a failure about
+// scheduling, not binding. The budget's own behaviour is exercised on purpose,
+// with a slowed clock, in target-owner-ordinal.test.ts.
+beforeEach(() => {
+  vi.spyOn(performance, 'now').mockReturnValue(0);
+});
 afterEach(() => {
+  vi.restoreAllMocks();
   document.body.innerHTML = '';
 });
 const comment = (anchor: ReturnType<typeof buildAnchor>): Comment => ({

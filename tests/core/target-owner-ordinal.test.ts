@@ -1,9 +1,20 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { buildAnchor, resolveAnchor } from '../../src/core/anchor';
 import { normalizeComments } from '../../src/core/storage';
 import type { Anchor, Comment, TargetEvidence } from '../../src/core/types';
 
+// The owner scan is bounded by wall clock (target.ts: 8 ms at capture, 2 ms
+// per resolve). Pin the clock: every test here asserts what a COMPLETE scan
+// concludes, and under a loaded CI machine a parallel worker can stall a
+// sub-millisecond scan past its budget, at which point the owner degrades to
+// a hint and the ladder resolves onto a lookalike — a failure about
+// scheduling, not binding. The budget's own behaviour is exercised on purpose,
+// with a slowed clock, in target-owner-ordinal.test.ts.
+beforeEach(() => {
+  vi.spyOn(performance, 'now').mockReturnValue(0);
+});
 afterEach(() => {
+  vi.restoreAllMocks();
   document.body.innerHTML = '';
 });
 
@@ -163,5 +174,36 @@ describe('owners the capture budget cannot classify', () => {
     const anchor = buildAnchor(inner, 0, 0);
     expect(anchor.shadowPath?.[0]?.ambiguous).toBe(true);
     expect(resolveAnchor(anchor)).toBe(inner);
+  });
+});
+
+// The other way a scan cannot finish: not a big DOM but a stalled scheduler.
+// Every clock read advances 20 ms, past the 8 ms capture and 2 ms resolve
+// budgets, which is what a loaded CI worker does to a sub-millisecond scan.
+describe('owners the wall-clock budget cannot classify', () => {
+  const cards = () => {
+    document.body.innerHTML =
+      '<ul>' + '<li>Product name<button>Buy</button></li>'.repeat(3) + '</ul>';
+    return document.querySelectorAll('button');
+  };
+  const stall = () => {
+    let t = 0;
+    vi.spyOn(performance, 'now').mockImplementation(() => (t += 20));
+  };
+
+  it('record no constraint when capture overruns and keep the legacy locator', () => {
+    const buttons = cards();
+    stall();
+    const anchor = buildAnchor(buttons[1]!, 0, 0);
+    expect(anchor.owner).toBeUndefined();
+    expect(resolveAnchor(anchor)).toBe(buttons[1]);
+  });
+
+  it('park rather than guess when a recorded owner cannot be re-scanned in budget', () => {
+    const buttons = cards();
+    const anchor = buildAnchor(buttons[1]!, 0, 0);
+    expect(anchor.owner).toMatchObject({ ordinal: 1, count: 3 });
+    stall();
+    expect(resolveAnchor(anchor)).toBeNull();
   });
 });

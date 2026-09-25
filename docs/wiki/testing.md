@@ -64,8 +64,13 @@ pointer/keyboard actions verify modal interactivity without forced clicks.
 constraints, bounded detached snapshots, sensitive input omission and passive
 export. `target-owner-ordinal.test.ts` covers lookalike owners resolving by
 position and parking on a count change, textless owners, the pinned control's
-label excluded from its row's identity, and the cap/budget fallback that keeps a
-pin from parking at placement; the e2e spec's placeholder-card test proves the
-same across reload. Its transformed-modal and re-render tests cover the confined
+label excluded from its row's identity, and the cap and wall-clock budget
+fallbacks that keep a pin from parking at placement (the budget tests slow
+`performance.now` on purpose); the e2e spec's placeholder-card test proves the
+same across reload. All three `target-*.test.ts` files pin `performance.now` to
+0 in `beforeEach`, as `selector.test.ts` does for its walk-budget tests: a
+loaded worker can otherwise stall a sub-millisecond owner scan past its 8 ms
+capture budget, degrade the owner to a hint and fail the test for a scheduling
+reason. Its transformed-modal and re-render tests cover the confined
 overlay; `anchor-actions.test.ts` covers the action roles a leaf click climbs to. `feedback-evidence.test.ts` also covers intent
 save/reopen/cancel/clear.
