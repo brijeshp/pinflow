@@ -45,6 +45,7 @@ read the figure CI prints, ratchet to that + ~50 B.
 ## Release flow
 
 - `pnpm changeset` for every user-facing change (`.changeset/config.json`: public access, baseBranch `main`).
+- The package publishes **unscoped as `pinflowjs`** from `github.com/pinflowjs/pinflow` (`package.json` `name`, `repository`, `homepage`, `bugs`). The former `@brijeshp/pinflow` name is deprecated on npm and must not be reintroduced anywhere a consumer copies from (README, `docs/guide.md`, `agent/`, `examples/`). The self-reference specifiers in `tsup.config.ts` (`external`), `vitest.config.ts` (`alias`), `tsconfig.json` (`paths`) and the `size-limit` `ignore` lists must all name the same package string.
 - `release.yml` uses `changesets/action@v1` to open a version PR / publish to npm on push to `main` (requires `NPM_TOKEN`).
 - npm publish protections are belt-and-braces: `files` allowlist (`dist`, `agent`, `README.md`, `LICENSE`, `CHANGELOG.md`) **and** a whitelist-style `.npmignore` (`*` then `!` negations). Both must be updated together when adding a shipped directory — `files` alone happens to work with `npm pack`, but the two disagreeing defeats the point of having both. Provenance enabled (`publishConfig.provenance: true`).
 - **`agent/`** ships the artifact reading protocol in four formats (skill, slash command, editor rule, `AGENTS.md` snippet); `agent/README.md` maps each to the tools that read it. Markdown only — it is not part of any bundle and costs consumers zero bytes, but it is published, so it is part of the package's public surface.
