@@ -390,3 +390,47 @@ test('a native modal in an open shadow root supports composer save and Escape', 
   await expect(page.locator(PIN)).toBeHidden();
   await expect(page.locator(ARM)).toBeVisible();
 });
+
+test('identical placeholder cards keep their pin at placement and through reload, and park once a lookalike is filtered', async ({
+  page,
+}) => {
+  // The card count survives reload through sessionStorage so the filtered
+  // list can be hydrated against, not just mutated live.
+  await page.addInitScript(() => {
+    document.addEventListener('DOMContentLoaded', () => {
+      document.querySelector('#app')!.innerHTML =
+        '<ul>' +
+        '<li style="padding:15px"><h3>Product name</h3><button style="padding:12px">Buy</button></li>'.repeat(
+          Number(sessionStorage.getItem('cards') ?? 3),
+        ) +
+        '</ul>';
+    });
+  });
+  await page.goto('/?reviewer=Integrity');
+  await initReview(page);
+  const second = page.locator('li').nth(1).locator('button');
+  await page.locator(ARM).click();
+  await second.click();
+  await page.locator(TEXTAREA).fill('Make this Buy button primary');
+  await page.locator(SAVE).click();
+  // The element under the cursor is the strongest identity there is: a
+  // lookalike row must never park the pin the moment it is placed.
+  await expectPinOver(page, second);
+  expect((await exportedComment(page)).anchor.owner).toMatchObject({ ordinal: 1, count: 3 });
+
+  await page.reload();
+  await initReview(page);
+  await expectPinOver(page, second);
+
+  // Live, the pin stays on the very node the reviewer clicked; once that node
+  // must be re-found from selectors, a changed lookalike count parks it.
+  await page.evaluate(() => {
+    document.querySelector('li')!.remove();
+    sessionStorage.setItem('cards', '2');
+  });
+  await expectPinOver(page, page.locator('li').nth(0).locator('button'));
+  await page.reload();
+  await initReview(page);
+  await expect(page.locator(PIN)).toHaveAttribute('data-orphaned', 'true');
+  await expect(page.locator(PIN)).toBeHidden();
+});

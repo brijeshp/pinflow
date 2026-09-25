@@ -60,4 +60,9 @@ pointer/keyboard actions verify modal interactivity without forced clicks.
 `target-integrity.test.ts`, `target-binding-safety.test.ts` and
 `capture-details.test.ts` cover diagnostics, ambiguous owners, malformed binding
 constraints, bounded detached snapshots, sensitive input omission and passive
-export. `feedback-evidence.test.ts` also covers intent save/reopen/cancel/clear.
+export. `target-owner-ordinal.test.ts` covers lookalike owners resolving by
+position and parking on a count change, textless owners, the pinned control's
+label excluded from its row's identity, and the cap/budget fallback that keeps a
+pin from parking at placement; the e2e spec's placeholder-card test proves the
+same across reload. `feedback-evidence.test.ts` also covers intent
+save/reopen/cancel/clear.

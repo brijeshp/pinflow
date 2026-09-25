@@ -2,6 +2,7 @@ import { normalizeDetails } from './details';
 import { normalizeFeedback } from './feedback';
 import { rememberReviewer } from './identity';
 import { FP_MAX } from './selector';
+import { PATH } from './target';
 import { cleanLabel, CSS_MAX, EXCLUDED_CAP, MEMBER_CAP, TAG_MAX } from './scope-limits';
 import { validateSourcePath } from './source-path';
 import { now } from './time';
@@ -139,6 +140,21 @@ function validEvidence(value: unknown): boolean {
       value['identity'] === 'id' ||
       value['identity'] === 'testid') &&
     (value['ambiguous'] === undefined || value['ambiguous'] === true) &&
+    // Position among lookalikes: only ever paired, and a count of one is
+    // spelled by absence. `ordinal` indexes a scan result on every resolve.
+    (value['count'] === undefined
+      ? value['ordinal'] === undefined
+      : Number.isInteger(value['count']) &&
+        (value['count'] as number) >= 2 &&
+        (value['count'] as number) <= 500 &&
+        Number.isInteger(value['ordinal']) &&
+        (value['ordinal'] as number) >= 0 &&
+        (value['ordinal'] as number) < (value['count'] as number)) &&
+    // Evaluated as XPath against every candidate: positional steps only.
+    (value['path'] === undefined ||
+      (typeof value['path'] === 'string' &&
+        value['path'].length <= 200 &&
+        PATH.test(value['path']))) &&
     validSelectors(value['selectors']) &&
     typeof value['textFingerprint'] === 'string' &&
     value['textFingerprint'].length <= FP_MAX
@@ -381,6 +397,8 @@ export function normalizeComments(input: unknown): Comment[] {
         textFingerprint: v.textFingerprint,
         ...(v.rootDepth !== undefined ? { rootDepth: v.rootDepth } : {}),
         ...(v.identity ? { identity: v.identity } : {}),
+        ...(v.count !== undefined ? { ordinal: v.ordinal, count: v.count } : {}),
+        ...(v.path !== undefined ? { path: v.path } : {}),
         ...(v.ambiguous ? { ambiguous: true } : {}),
       });
       if (out.anchor.owner) out.anchor.owner = evidence(out.anchor.owner);

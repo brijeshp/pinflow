@@ -712,9 +712,11 @@ Pinflow prefers the clicked action over an app/row test ID and preserves the raw
 clicked descendant when it anchors a containing control. Repeated controls carry
 owner evidence. If a row disappears or changes identity, the pin parks; it must
 not move onto the next row. Give repeated entities stable, non-sensitive IDs or
-unique test IDs. Identical unnamed rows cannot be safely distinguished, and
-changed owner text may require re-placing a pin. Existing comments without owner
-evidence keep their older locator behavior.
+unique test IDs. Identical unnamed rows resolve by position and park as soon as
+one is added or filtered away. A row's text identifies it, except the pinned
+control's own label, so fixing that label keeps the pin; other text changes in
+the row, such as a live timestamp, may require re-placing it. Existing comments
+without owner evidence keep their older locator behavior.
 
 The composer’s **Apply to** field declares **This instance**, **This component**,
 or **All matching items**. Leaving it unspecified does not imply all instances.

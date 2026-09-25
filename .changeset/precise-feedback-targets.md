@@ -3,7 +3,9 @@
 ---
 
 Keep repeated-control feedback bound to its captured entity when lists filter,
-reorder or recycle rows. Preserve precise controls and dialog boundaries beneath
+reorder or recycle rows, without parking a pin at placement: lookalike rows and
+shadow hosts resolve by position among equals, and a fix to the pinned control's
+own label keeps its row. Preserve precise controls and dialog boundaries beneath
 app test IDs, support nested open shadow targets, and make native modal composers
 work with ordinary clicks and keyboard input.
 

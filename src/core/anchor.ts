@@ -15,7 +15,6 @@ import {
   captureBinding,
   bindingRoot,
   resolveOwner,
-  targetEvidence,
   parentElement,
   nearestOwner,
 } from './target';
@@ -181,14 +180,15 @@ export function buildAnchor(
   if (details) anchor.details = details;
   if (target !== el)
     anchor.target = {
-      ...targetEvidence(target),
+      selectors: buildSelectors(target),
+      textFingerprint: getTextFingerprint(target),
       context: {
         role: roleOf(target),
         name: accessibleName(target) ?? getTextFingerprint(target),
         styles: visualSnapshot(target) ?? {},
       },
     };
-  Object.assign(anchor, captureBinding(el));
+  Object.assign(anchor, captureBinding(el, anchor.selectors));
   const layer = layerOf(target);
   if (layer) anchor.layer = layer;
   return anchor;
@@ -207,23 +207,23 @@ export function resolveAnchor(
   root: Document = document,
   report?: TargetResolution,
 ): Element | null {
+  // An owner the capture scan could not classify is a hint only (target.ts).
+  const bound = anchor.owner?.ambiguous ? undefined : anchor.owner;
   if (report) {
     report.availability = 'unresolved';
-    report.owner = anchor.owner ? 'unresolved' : 'not-recorded';
+    report.owner = bound ? 'unresolved' : 'not-recorded';
     delete report.rung;
   }
   const base = bindingRoot(anchor, root);
   if (!base) return null;
   const ownerBase =
-    anchor.owner?.rootDepth === undefined
-      ? base
-      : bindingRoot(anchor, root, anchor.owner.rootDepth);
-  const owner = anchor.owner && ownerBase ? resolveOwner(ownerBase, anchor.owner) : null;
-  if (anchor.owner && !owner) return null;
+    bound?.rootDepth === undefined ? base : bindingRoot(anchor, root, bound.rootDepth);
+  const owner = bound && ownerBase ? resolveOwner(ownerBase, bound) : null;
+  if (bound && !owner) return null;
   if (report && owner) report.owner = 'agrees';
   let selectors = anchor.selectors;
-  if (owner && anchor.owner) {
-    const prefix = anchor.owner.selectors.css + ' > ';
+  if (owner && bound) {
+    const prefix = bound.selectors.css + ' > ';
     if (selectors.css.startsWith(prefix))
       selectors = {
         ...selectors,

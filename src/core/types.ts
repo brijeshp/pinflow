@@ -40,6 +40,12 @@ export interface TargetEvidence {
   /** Owner's root depth in the shadow host chain; absent means the target root. */
   rootDepth?: number;
   identity?: 'id' | 'testid';
+  /** Position among same-tag nodes sharing this text at capture, recorded only when there were several; resolution requires the same count. */
+  ordinal?: number;
+  count?: number;
+  /** Relative XPath from the owner to the anchored element, excluded from the owner's text so a fix to the pinned control keeps its entity. */
+  path?: string;
+  /** The lookalike scan hit its cap or budget at capture: a locator hint, never a constraint. */
   ambiguous?: true;
   context?: Anchor['context'];
   selectors: SelectorCandidates;

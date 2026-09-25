@@ -213,11 +213,20 @@ Escaping defends the artifact's **structure**, not its **meaning** — a perfect
 
 `target.ts` captures bounded repeated-owner evidence (`tr`, `li`, `article`, ARIA
 row/listitem), including owners across shadow boundaries, plus up to eight open shadow hosts. `owner.rootDepth` records which root contains an outer owner. A unique owner ID/test ID is
-binding; otherwise exact unique text must identify the owner. Ambiguous owner
-captures abstain. Search is capped at 500 same-tag candidates and a 2 ms text
-budget. Changed identity/text parks the note, including a connected recycled row.
-An empty shadow path explicitly marks excessive nesting and remains unresolved.
-Legacy comments without these fields retain the legacy selector behavior.
+binding; otherwise the owner's entity text identifies it. That text excludes the
+anchored control's own subtree (`owner.path`, a relative positional path queried
+as `:scope >` CSS), so a fix to the pinned control's label keeps its row; a
+control that is the row's only text stands in as its label. Lookalike owners
+sharing that text resolve by position (`ordinal`/`count`, recorded only when
+several exist) and park when the count changes: a filtered or grown set is the
+case a positional locator gets silently wrong. The scan is capped at 500 same-tag
+candidates, 8 ms at capture and 2 ms per resolve; past the cap or budget the
+owner is `ambiguous`, a locator hint that constrains nothing, so a pin never
+parks at placement (owners are then dropped; a shadow host falls back to the
+ladder). Changed identity or entity text parks the note, including a connected
+recycled row and a live timestamp beside the control. An empty shadow path
+explicitly marks excessive nesting and remains unresolved. Legacy comments
+without these fields retain the legacy selector behavior.
 
 `anchorTarget` stops at an action before climbing to an outer test ID, and cannot
 cross a modal/structural boundary. Layer evidence comes from the original target.

@@ -381,7 +381,7 @@ function evidenceLines(comment: Comment): string[] {
     );
   if (comment.anchor.shadowPath)
     lines.push(
-      `**Open shadow hosts:** \`${attr(evidenceText(comment.anchor.shadowPath.map((h) => h.selectors.css).join(' → ')))}\``,
+      `**Open shadow hosts:** \`${inline(evidenceText(comment.anchor.shadowPath.map((h) => h.selectors.css).join(' → ')))}\``,
     );
   if (comment.anchor.capturedSelectors)
     lines.push(

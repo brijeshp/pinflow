@@ -17,7 +17,8 @@ export function captureDetails(el: Element): CaptureDetails | undefined {
     if (value === 'true' || value === 'false') state.push(key + '=' + value);
   }
   if (state.length) details.state = state;
-  const walker = el.ownerDocument.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  // 4 === NodeFilter.SHOW_TEXT (selector.ts: the enum reference costs bytes).
+  const walker = el.ownerDocument.createTreeWalker(el, 4);
   let text = '',
     count = 0,
     node: Node | null;

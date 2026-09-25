@@ -182,8 +182,10 @@ function findByName(
     return out;
   }
   const labels = new Map<string, Element>();
-  const doc = root.ownerDocument ?? (root as Document);
-  const labelRoot = root instanceof ShadowRoot ? root : doc;
+  // The root node of a Document or ShadowRoot is itself; of an element inside
+  // a shadow tree, that tree — so an owner-scoped resolve inside a shadow
+  // root still reads the labels beside it, not the document's.
+  const labelRoot = root.getRootNode() as Document | ShadowRoot;
   for (const l of Array.from(labelRoot.querySelectorAll('label[for]'))) {
     const id = l.getAttribute('for')!;
     if (!labels.has(id)) labels.set(id, l);
@@ -286,12 +288,15 @@ export function getTextFingerprint(el: Element): string {
 // matching. Returns null when the shared deadline expires mid-read; the
 // candidate is then simply not judged. Full-fidelity extraction stays where
 // it belongs: pin creation.
-export function healFingerprint(el: Element, deadline: number): string | null {
+export function healFingerprint(el: Element, deadline: number, skip?: Node | null): string | null {
   // 4 === NodeFilter.SHOW_TEXT (the enum reference costs bundle bytes).
   const walker = el.ownerDocument.createTreeWalker(el, 4);
   let out = '';
   let seen = 0;
   for (let node = walker.nextNode(); node; node = walker.nextNode()) {
+    // `skip` is the anchored control beneath an owner (target.ts): its label
+    // is the thing a note most often changes, so it is not the row's identity.
+    if (skip?.contains(node)) continue;
     const data = node.nodeValue ?? '';
     // Clock discipline mirrors the walk's every-16 sampling: a CHEAP
     // extraction (a handful of single-chunk text nodes) never consults the
