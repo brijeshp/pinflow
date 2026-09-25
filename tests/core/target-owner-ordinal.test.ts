@@ -66,7 +66,11 @@ describe('lookalike owners', () => {
     const anchor = buildAnchor(buttons[1]!, 0, 0);
     const owner = { ...anchor.owner! };
     corrupt(owner);
-    expect(normalizeComments([comment({ ...anchor, owner })])).toEqual([]);
+    // Corrupt binding evidence parks the note rather than dropping it (storage.ts).
+    const [kept] = normalizeComments([comment({ ...anchor, owner })]);
+    expect(kept?.anchor.owner).toBeUndefined();
+    expect(kept?.anchor.shadowPath).toEqual([]);
+    expect(resolveAnchor(kept!.anchor)).toBeNull();
   });
 });
 

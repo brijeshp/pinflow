@@ -18,7 +18,9 @@ export const STYLES =
   // in neutral chrome; the count chip joins it when there is something to
   // export. Children carry pointer-events — the dock itself stays inert.
   // .arm/.chip share the circle; each keeps only its color/size deltas.
-  '.dock{position:fixed;left:16px;bottom:16px;display:flex;align-items:center;gap:8px}' +
+  // The --pf-o* variables are set only while the overlay is confined to a host
+  // dialog's box (dom.ts syncLayer); unset, both resolve to the viewport corner.
+  '.dock{position:fixed;left:calc(var(--pf-ox,0px) + 16px);bottom:calc(100% - var(--pf-oy,0px) - var(--pf-oh,100%) + 16px);display:flex;align-items:center;gap:8px}' +
   '.arm,.chip{pointer-events:auto;height:26px;border:0;padding:0;border-radius:999px;font:inherit;font-weight:600;box-shadow:0 4px 10px rgba(0,0,0,.28),0 0 0 2px var(--pf-surface,light-dark(#fff,#1e222b));cursor:pointer;display:grid;place-items:center}' +
   '.arm{width:26px;background:#0f172a;color:#f8fafc}' +
   // The glyph is DRAWN, not typeset: two crossing bars centered by grid math.

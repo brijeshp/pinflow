@@ -64,5 +64,6 @@ export. `target-owner-ordinal.test.ts` covers lookalike owners resolving by
 position and parking on a count change, textless owners, the pinned control's
 label excluded from its row's identity, and the cap/budget fallback that keeps a
 pin from parking at placement; the e2e spec's placeholder-card test proves the
-same across reload. `feedback-evidence.test.ts` also covers intent
+same across reload. Its transformed-modal and re-render tests cover the confined
+overlay; `anchor-actions.test.ts` covers the action roles a leaf click climbs to. `feedback-evidence.test.ts` also covers intent
 save/reopen/cancel/clear.

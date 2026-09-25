@@ -1,11 +1,20 @@
 import { STYLES } from './styles';
 import { parentElement } from '../target';
 
+export interface Bounds {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
 export interface UIRoot {
   host: HTMLElement;
   shadow: ShadowRoot;
   root: HTMLDivElement;
   syncLayer(): void;
+  /** Where overlay chrome may go: the viewport, or the host dialog's box while confined there. */
+  bounds(): Bounds;
   destroy(): void;
 }
 
@@ -63,11 +72,19 @@ export function createUIRoot(strategy: StyleStrategy = resolveStyleStrategy()): 
   const root = document.createElement('div');
   root.className = 'root';
   shadow.appendChild(root);
+  // A zero-size fixed probe reports where fixed descendants are measured from:
+  // the viewport in <body>, but a host dialog's padding box once that dialog
+  // has any transform/filter/contain. Reading it never moves it, so the
+  // compensation below cannot oscillate the way measuring `root` would.
+  const probe = document.createElement('i');
+  probe.style.cssText = 'position:fixed;left:0;top:0;width:0;height:0';
+  shadow.appendChild(probe);
   // An ESM init() may run before <body> exists (module script in <head>).
   // The shadow tree above is built synchronously either way — only the host
   // APPEND waits for DOM ready (mirroring iife.ts), which keeps init()'s
   // synchronous Handle contract intact.
   let destroyed = false;
+  let confined: Bounds | null = null;
   // Native modal descendants remain interactive; the rest of body is inert.
   const syncLayer = (): void => {
     if (destroyed || !document.body) return;
@@ -87,6 +104,20 @@ export function createUIRoot(strategy: StyleStrategy = resolveStyleStrategy()): 
     }
     const parent = modal ?? document.body;
     if (host.parentElement !== parent) parent.appendChild(host);
+    // Inside a dialog that establishes a containing block, shift `root` back
+    // onto the viewport and size it to the viewport; the transform makes root
+    // the containing block for every fixed pin, dock and panel beneath it, so
+    // pins land where the page geometry says. The dialog's UA `overflow:auto`
+    // still clips everything to its box, so that box is where the dock and
+    // composer must stay: `bounds()` and the `--pf-o*` variables carry it.
+    let dx = 0,
+      dy = 0;
+    if (modal) ({ left: dx, top: dy } = probe.getBoundingClientRect());
+    confined = dx || dy ? host.getBoundingClientRect() : null;
+    root.style.cssText = confined
+      ? `transform:translate(${-dx}px,${-dy}px);width:${innerWidth}px;height:${innerHeight}px;` +
+        `--pf-ox:${confined.left}px;--pf-oy:${confined.top}px;--pf-oh:${confined.height}px`
+      : '';
   };
   if (document.body) {
     document.body.appendChild(host);
@@ -104,6 +135,7 @@ export function createUIRoot(strategy: StyleStrategy = resolveStyleStrategy()): 
     shadow,
     root,
     syncLayer,
+    bounds: () => confined ?? { left: 0, top: 0, width: innerWidth, height: innerHeight },
     destroy() {
       destroyed = true;
       host.remove();
@@ -154,19 +186,23 @@ export function box(node: HTMLElement, l: number, t: number, w: number, h: numbe
 export function flipPosition(
   anchor: { left: number; top: number },
   size: { width: number; height: number },
-  viewport: { width: number; height: number },
+  // The box to stay inside: the viewport, or a confining dialog's box (its
+  // origin defaults to 0 so the two-field callers read unchanged).
+  viewport: { left?: number; top?: number; width: number; height: number },
   offset = 12,
 ): { left: number; top: number } {
+  const ox = viewport.left ?? 0,
+    oy = viewport.top ?? 0;
   let left = anchor.left + offset;
   let top = anchor.top + offset;
-  if (left + size.width > viewport.width - 8) {
+  if (left + size.width > ox + viewport.width - 8) {
     left = anchor.left - size.width - offset;
   }
-  if (top + size.height > viewport.height - 8) {
+  if (top + size.height > oy + viewport.height - 8) {
     top = anchor.top - size.height - offset;
   }
-  if (left < 8) left = 8;
-  if (top < 8) top = 8;
+  if (left < ox + 8) left = ox + 8;
+  if (top < oy + 8) top = oy + 8;
   return { left, top };
 }
 

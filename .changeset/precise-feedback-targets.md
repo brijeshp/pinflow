@@ -5,7 +5,10 @@
 Keep repeated-control feedback bound to its captured entity when lists filter,
 reorder or recycle rows, without parking a pin at placement: lookalike rows and
 shadow hosts resolve by position among equals, and a fix to the pinned control's
-own label keeps its row. Preserve precise controls and dialog boundaries beneath
+own label keeps its row. Corrupt binding evidence parks a note instead of
+dropping it. Leaf clicks climb to link, option, radio, menu-item and summary
+controls. Inside a transformed native modal the overlay stays on target and
+confines its chrome to the dialog's box. Preserve precise controls and dialog boundaries beneath
 app test IDs, support nested open shadow targets, and make native modal composers
 work with ordinary clicks and keyboard input.
 

@@ -6,7 +6,7 @@ import { PATH } from './target';
 import { cleanLabel, CSS_MAX, EXCLUDED_CAP, MEMBER_CAP, TAG_MAX } from './scope-limits';
 import { validateSourcePath } from './source-path';
 import { now } from './time';
-import type { ChangeNode, Comment, ReviewerStore, Scope, ScopeNode } from './types';
+import type { ChangeNode, Comment, ReviewerStore, Scope, ScopeNode, TargetEvidence } from './types';
 
 // Exported: exportJSON's `pinflowExport` field shares this version namespace —
 // "v4" means one thing everywhere (storage blob, JSON export, sync protocol).
@@ -172,11 +172,6 @@ function hasValidAnchor(c: Record<string, unknown>): boolean {
   // produce "NaN%" artifacts (review #20).
   return (
     validSelectors(selectors) &&
-    (anchor['owner'] === undefined || validEvidence(anchor['owner'])) &&
-    (anchor['shadowPath'] === undefined ||
-      (Array.isArray(anchor['shadowPath']) &&
-        anchor['shadowPath'].length <= 8 &&
-        anchor['shadowPath'].every(validEvidence))) &&
     isObject(pos) &&
     pct(pos['x']) &&
     pct(pos['y']) &&
@@ -392,7 +387,7 @@ export function normalizeComments(input: unknown): Comment[] {
       const details = normalizeDetails(out.anchor.details);
       if (details) out.anchor.details = details;
       else delete out.anchor.details;
-      const evidence = (v: import('./types').TargetEvidence): import('./types').TargetEvidence => ({
+      const evidence = (v: TargetEvidence): TargetEvidence => ({
         selectors: { ...v.selectors },
         textFingerprint: v.textFingerprint,
         ...(v.rootDepth !== undefined ? { rootDepth: v.rootDepth } : {}),
@@ -401,8 +396,24 @@ export function normalizeComments(input: unknown): Comment[] {
         ...(v.path !== undefined ? { path: v.path } : {}),
         ...(v.ambiguous ? { ambiguous: true } : {}),
       });
-      if (out.anchor.owner) out.anchor.owner = evidence(out.anchor.owner);
-      if (out.anchor.shadowPath) out.anchor.shadowPath = out.anchor.shadowPath.map(evidence);
+      // Binding constraints are the one kind of evidence that must not be
+      // soft: dropping a corrupt owner or host would WIDEN the target. Dropping
+      // the record would cost the reviewer their words. So the note survives
+      // with an unresolvable binding (an empty shadow path) and parks until
+      // it is re-placed; the orphan export still carries everything it said.
+      const { owner, shadowPath } = out.anchor as unknown as Record<string, unknown>;
+      const hosts =
+        shadowPath === undefined ||
+        (Array.isArray(shadowPath) && shadowPath.length <= 8 && shadowPath.every(validEvidence))
+          ? (shadowPath as TargetEvidence[] | undefined)
+          : [];
+      if (owner === undefined || validEvidence(owner)) {
+        if (owner) out.anchor.owner = evidence(owner as TargetEvidence);
+        if (hosts) out.anchor.shadowPath = hosts.map(evidence);
+      } else {
+        delete out.anchor.owner;
+        out.anchor.shadowPath = [];
+      }
       if (!validSelectors(out.anchor.capturedSelectors)) delete out.anchor.capturedSelectors;
       const target = out.anchor.target;
       if (

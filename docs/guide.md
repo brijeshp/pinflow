@@ -782,6 +782,11 @@ const review = init({
 expected outcomes are labeled unverified; Pinflow does not observe the behavior
 merely because the host describes it. Supply only facts available at the gesture.
 
+Inside a native `showModal()` dialog the overlay moves into the dialog so it
+stays interactive. If that dialog has a transform, filter or containment, pins
+still land on the page, but the dock and composer are confined to the dialog's
+box until it closes.
+
 Open shadow roots use composed event targets, root-local labels and a host/inner
 locator path, with a maximum depth of eight. Give hosts stable IDs when there are
 multiple similar widgets. Excessive depth remains unresolved. Canvas, frames and

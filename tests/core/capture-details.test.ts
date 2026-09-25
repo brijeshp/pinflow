@@ -74,6 +74,22 @@ describe('capture-time DOM details', () => {
     expect(anchor.details?.layout).toMatchObject({ display: 'block', lineHeight: '32px' });
   });
 
+  it('flags a closed-looking custom host only when it shows no light DOM of its own', () => {
+    document.body.innerHTML =
+      '<x-empty></x-empty>' +
+      '<x-light><button>Inner</button></x-light>' +
+      '<x-text>Plain label</x-text>';
+    expect(buildAnchor(document.querySelector('x-empty')!, 0, 0).details?.limitation).toBe(
+      'shadow-host',
+    );
+    expect(
+      buildAnchor(document.querySelector('x-light')!, 0, 0).details?.limitation,
+    ).toBeUndefined();
+    expect(
+      buildAnchor(document.querySelector('x-text')!, 0, 0).details?.limitation,
+    ).toBeUndefined();
+  });
+
   it('marks a canvas as a capture limitation rather than inventing an inner DOM target', () => {
     document.body.innerHTML = '<canvas aria-label="Revenue chart"></canvas>';
     const anchor = buildAnchor(document.querySelector('canvas')!, 42, 80);

@@ -379,7 +379,7 @@ function evidenceLines(comment: Comment): string[] {
     lines.push(
       `**Entity at capture:** \`${attr(evidenceText(comment.anchor.owner.textFingerprint))}\``,
     );
-  if (comment.anchor.shadowPath)
+  if (comment.anchor.shadowPath?.length)
     lines.push(
       `**Open shadow hosts:** \`${inline(evidenceText(comment.anchor.shadowPath.map((h) => h.selectors.css).join(' → ')))}\``,
     );

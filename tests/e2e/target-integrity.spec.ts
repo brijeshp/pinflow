@@ -434,3 +434,69 @@ test('identical placeholder cards keep their pin at placement and through reload
   await expect(page.locator(PIN)).toHaveAttribute('data-orphaned', 'true');
   await expect(page.locator(PIN)).toBeHidden();
 });
+
+test('a transformed native modal keeps pins on target and its chrome inside the dialog box', async ({
+  page,
+}) => {
+  await page.goto('/?reviewer=Integrity');
+  await initReview(page);
+  await page.evaluate(() => {
+    const dialog = document.createElement('dialog');
+    dialog.id = 'moved-native';
+    dialog.setAttribute('aria-label', 'Patient notes');
+    // Any transform makes the dialog the containing block for fixed
+    // descendants, which is where the overlay has to live to stay interactive.
+    dialog.style.cssText =
+      'transform:translate(60px,90px);margin:0;padding:24px;border:4px solid;width:520px;height:360px';
+    dialog.innerHTML = '<button id="moved-native-save" style="padding:14px">Save notes</button>';
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+  await page.locator(ARM).click();
+  await page.locator('#moved-native-save').click({ force: true });
+  await page.locator(TEXTAREA).fill('Keep these notes');
+  await page.locator(SAVE).click();
+  await expectPinOver(page, page.locator('#moved-native-save'));
+  // The dialog's UA overflow clips its fixed descendants to its box, so the
+  // dock and the composer live inside that box while the pin stays on target.
+  const box = (await page.locator('#moved-native').boundingBox())!;
+  const inside = (r: { x: number; y: number; width: number; height: number }) =>
+    r.x >= box.x - 1 &&
+    r.y >= box.y - 1 &&
+    r.x + r.width <= box.x + box.width + 1 &&
+    r.y + r.height <= box.y + box.height + 1;
+  expect(inside((await page.locator(ARM).boundingBox())!)).toBe(true);
+  await page.locator(PIN).click();
+  await expect(page.locator(TEXTAREA)).toHaveValue('Keep these notes');
+  expect(inside((await page.locator(TEXTAREA).boundingBox())!)).toBe(true);
+  await page.locator(TEXTAREA).press('Escape');
+  await page.evaluate(() => (document.querySelector('#moved-native') as HTMLDialogElement).close());
+  await expect(page.locator(PIN)).toBeHidden();
+  await expect(page.locator(ARM)).toBeVisible();
+});
+
+test('the overlay survives its host dialog re-rendering its children', async ({ page }) => {
+  await page.goto('/?reviewer=Integrity');
+  await initReview(page);
+  await page.evaluate(() => {
+    const dialog = document.createElement('dialog');
+    dialog.id = 'rerender-native';
+    dialog.innerHTML = '<button id="rerender-save" style="padding:14px">Save</button>';
+    document.body.append(dialog);
+    dialog.showModal();
+  });
+  await page.locator(ARM).click();
+  await page.locator('#rerender-save').click({ force: true });
+  await page.locator(TEXTAREA).fill('Survive a re-render');
+  await page.locator(SAVE).click();
+  await expectPinOver(page, page.locator('#rerender-save'));
+  // A framework that owns the dialog's children may replace them wholesale,
+  // taking the foreign overlay host with them.
+  await page.evaluate(() => {
+    const dialog = document.querySelector('#rerender-native')!;
+    dialog.innerHTML = '<button id="rerender-save" style="padding:14px">Save</button>';
+  });
+  await expectPinOver(page, page.locator('#rerender-save'));
+  await page.locator(PIN).click();
+  await expect(page.locator(TEXTAREA)).toHaveValue('Survive a re-render');
+});

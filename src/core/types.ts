@@ -85,7 +85,7 @@ export interface Anchor {
   details?: CaptureDetails;
   /** Semantic repeated owner: a resolution constraint, never just a source hint. */
   owner?: TargetEvidence;
-  /** Outer-to-inner open shadow hosts. A missing host parks the target. */
+  /** Outer-to-inner open shadow hosts. A missing host parks the target; an empty path is a binding that cannot be resolved (excessive nesting, or corrupt binding evidence on hydration). */
   shadowPath?: TargetEvidence[];
 
   /** Original locators, retained on the first repair. Current selectors remain the live locator. */

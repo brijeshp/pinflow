@@ -51,36 +51,44 @@ describe('ambiguous repeated owners', () => {
   });
 });
 
-describe('persisted owner and shadow constraints fail closed', () => {
+describe('persisted owner and shadow constraints fail closed without dropping words', () => {
+  // Corrupt binding evidence must neither widen the target (drop the
+  // constraint) nor cost the reviewer their note (drop the record): the
+  // comment survives with an unresolvable binding, parked until re-placed.
   it.each([null, 'owner', {}, { selectors: {}, textFingerprint: 'Alex' }])(
-    'rejects a comment with malformed owner evidence %j instead of widening its target',
+    'keeps a comment with malformed owner evidence %j but parks its target',
     (owner) => {
       document.body.innerHTML = '<button id="save">Save</button>';
       const anchor = buildAnchor(document.querySelector('button')!, 0, 0);
-      expect(normalizeComments([{ ...comment(anchor), anchor: { ...anchor, owner } }])).toEqual([]);
+      const [kept] = normalizeComments([{ ...comment(anchor), anchor: { ...anchor, owner } }]);
+      expect(kept?.text).toBe('Keep attached to this row');
+      expect(kept?.anchor.owner).toBeUndefined();
+      expect(kept?.anchor.shadowPath).toEqual([]);
+      expect(resolveAnchor(kept!.anchor)).toBeNull();
     },
   );
 
   it.each([null, 'host', [{}], [{ selectors: {}, textFingerprint: 'Host' }]])(
-    'rejects a comment with malformed shadow host evidence %j',
+    'keeps a comment with malformed shadow host evidence %j but parks its target',
     (shadowPath) => {
       document.body.innerHTML = '<button id="save">Save</button>';
       const anchor = buildAnchor(document.querySelector('button')!, 0, 0);
-      expect(
-        normalizeComments([{ ...comment(anchor), anchor: { ...anchor, shadowPath } }]),
-      ).toEqual([]);
+      const [kept] = normalizeComments([{ ...comment(anchor), anchor: { ...anchor, shadowPath } }]);
+      expect(kept?.text).toBe('Keep attached to this row');
+      expect(kept?.anchor.shadowPath).toEqual([]);
+      expect(resolveAnchor(kept!.anchor)).toBeNull();
     },
   );
 
-  it('rejects a shadow path beyond the supported depth rather than truncating away a constraint', () => {
+  it('parks a shadow path beyond the supported depth rather than truncating away a constraint', () => {
     document.body.innerHTML = '<button id="save">Save</button>';
     const anchor = buildAnchor(document.querySelector('button')!, 0, 0);
     const host = { selectors: anchor.selectors, textFingerprint: 'Host' };
-    expect(
-      normalizeComments([
-        { ...comment(anchor), anchor: { ...anchor, shadowPath: Array(9).fill(host) } },
-      ]),
-    ).toEqual([]);
+    const [kept] = normalizeComments([
+      { ...comment(anchor), anchor: { ...anchor, shadowPath: Array(9).fill(host) } },
+    ]);
+    expect(kept?.anchor.shadowPath).toEqual([]);
+    expect(resolveAnchor(kept!.anchor)).toBeNull();
   });
 });
 

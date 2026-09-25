@@ -228,8 +228,9 @@ recycled row and a live timestamp beside the control. An empty shadow path
 explicitly marks excessive nesting and remains unresolved. Legacy comments
 without these fields retain the legacy selector behavior.
 
-`anchorTarget` stops at an action before climbing to an outer test ID, and cannot
-cross a modal/structural boundary. Layer evidence comes from the original target.
+`anchorTarget` stops at an action (`ACTION` in `target.ts`: native controls,
+`summary`, and button/link/tab/checkbox/radio/switch/option/menu-item roles)
+before climbing to an outer test ID, and cannot cross a modal/structural boundary. Layer evidence comes from the original target.
 `resolveAnchor` resolves host and owner constraints before the control ladder;
 optional `TargetResolution` reports availability, matched rung and owner agreement.
 It does not claim that a positional/fuzzy locator proves identity.
@@ -237,13 +238,22 @@ It does not claim that a positional/fuzzy locator proves identity.
 `capture.ts` captures at most 512 text characters, 64 text nodes and 12 fragment
 rectangles, element/parent bounds, six layout values, and boolean control/ARIA
 state. It reads no input values. `details.ts` normalizes/detaches these optional
-facts for storage and export; malformed owner/host binding evidence rejects the
-record so hydration cannot silently widen the target. Canvas/iframe/custom hosts
-without an open root carry a surface limitation. A closed root on a generic
-built-in element cannot be detected from outside.
+facts for storage and export; malformed owner/host binding evidence keeps the
+record but replaces its binding with an empty shadow path, which parks the note
+until it is re-placed, so hydration neither widens the target nor drops words. Canvas/iframe/custom hosts
+without an open root and without light-DOM children or text carry a surface
+limitation; a custom element with its own children is an ordinary light-DOM
+component. A closed root on a generic built-in element cannot be detected from
+outside.
 
 `ui/dom.ts` moves the overlay into the active native modal and restores it after
-close. Composer Escape consumes native cancellation. The mutation observer also
+close, re-appending it on the next reflow if the host re-renders the dialog's
+children. A dialog with a transform, filter or containment becomes the containing
+block for the overlay's fixed boxes; a zero-size probe measures that offset and
+`root` is translated back onto the viewport so pins land on page geometry. The
+dialog's UA `overflow:auto` still clips to its box, so `bounds()` (and the
+`--pf-ox/oy/oh` variables the dock reads) confine the dock, composer and export
+panel to that box while it is open. Composer Escape consumes native cancellation. The mutation observer also
 observes the open shadow roots of resolved targets, and caches recheck owner
 agreement before reuse. All selector repair paths call `_persistHeal`.
 

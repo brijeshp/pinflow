@@ -45,6 +45,10 @@ export function captureDetails(el: Element): CaptureDetails | undefined {
   }
   if (el.tagName === 'CANVAS') details.limitation = 'canvas';
   else if (el.tagName === 'IFRAME') details.limitation = 'frame';
-  else if (el.localName.includes('-') && !el.shadowRoot) details.limitation = 'shadow-host';
+  // A custom element with no open root AND nothing of its own in the light
+  // DOM is where a closed root hides its content; one with children or text is
+  // an ordinary light-DOM component and its evidence is already captured.
+  else if (el.localName.includes('-') && !el.shadowRoot && !el.childElementCount && !text)
+    details.limitation = 'shadow-host';
   return normalizeDetails(details);
 }

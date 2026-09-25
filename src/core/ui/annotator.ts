@@ -718,14 +718,18 @@ export class Annotator {
       width: this._panelEl.offsetWidth || 280,
       height: this._panelEl.offsetHeight || 180,
     };
-    const vp = { width: window.innerWidth, height: window.innerHeight };
+    const vp = this._ui.bounds();
     if (!anchor) {
-      place(this._panelEl, { left: 16, top: Math.max(16, vp.height - size.height - 16) });
+      place(this._panelEl, {
+        left: vp.left + 16,
+        top: Math.max(vp.top + 16, vp.top + vp.height - size.height - 16),
+      });
       return;
     }
     const rect = anchor.getBoundingClientRect();
     // Chip sits left, control sits right: align the panel toward the wider side.
-    const left = rect.left + size.width / 2 > vp.width / 2 ? rect.right - size.width : rect.left;
+    const left =
+      rect.left + size.width / 2 > vp.left + vp.width / 2 ? rect.right - size.width : rect.left;
     place(this._panelEl, flipPosition({ left, top: rect.top - size.height - 8 }, size, vp, 0));
   }
 
@@ -1772,11 +1776,7 @@ export class Annotator {
     mount.style.cssText = 'position:fixed;';
     place(
       mount,
-      flipPosition(
-        { left: clientX, top: clientY },
-        { width: 280, height: 140 },
-        { width: window.innerWidth, height: window.innerHeight },
-      ),
+      flipPosition({ left: clientX, top: clientY }, { width: 280, height: 140 }, this._ui.bounds()),
     );
     this._ui.root.appendChild(mount);
 
@@ -2354,7 +2354,7 @@ export class Annotator {
       flipPosition(
         { left: pr.right, top: pr.top },
         { width: wrap.offsetWidth || 280, height: wrap.offsetHeight || 120 },
-        { width: window.innerWidth, height: window.innerHeight },
+        this._ui.bounds(),
       ),
     );
   }

@@ -8,7 +8,7 @@ import {
 import type { Anchor, SelectorCandidates, TargetEvidence } from './types';
 
 export const ACTION =
-  'button,a[href],input,select,textarea,[role="button"],[role="tab"],[role="checkbox"],[role="switch"],[role="menuitem"]';
+  'button,a[href],input,select,textarea,summary,[role="button"],[role="link"],[role="tab"],[role="checkbox"],[role="radio"],[role="switch"],[role="option"],[role="menuitem"],[role="menuitemcheckbox"],[role="menuitemradio"]';
 export const LAYER = '[role="dialog"],[role="alertdialog"],[aria-modal="true"],dialog[open]';
 /** A persisted relative XPath is untrusted: positional steps only, never a document-wide axis. */
 export const PATH = /^([a-z][a-z0-9-]*\[\d+\]\/)*[a-z][a-z0-9-]*\[\d+\]$/i;
