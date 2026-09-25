@@ -32,6 +32,9 @@ export const Annotator = defineComponent({
      * `submitHandler`: `on*` props collide with Vue's `v-on` convention.
      */
     changeHandler: Function as unknown as () => PinflowConfig['onChange'],
+    urlQueryParams: Array as () => string[],
+    expectedOutcome: Boolean,
+    captureContext: Function as unknown as () => PinflowConfig['captureContext'],
     source: Function as unknown as () => PinflowConfig['source'],
     theme: Object as () => NonNullable<PinflowConfig['theme']>,
     routeKey: Function as unknown as () => PinflowConfig['routeKey'],
@@ -57,6 +60,11 @@ export const Annotator = defineComponent({
         onSubmit: props.submitHandler,
         onChange: props.changeHandler,
         source: props.source,
+        expectedOutcome: props.expectedOutcome,
+        urlQueryParams: props.urlQueryParams?.slice(),
+        captureContext: props.captureContext
+          ? (target) => props.captureContext?.(target)
+          : undefined,
         theme: props.theme && { ...props.theme },
         routeKey: props.routeKey,
         describeRoute: props.describeRoute,
@@ -80,6 +88,8 @@ export const Annotator = defineComponent({
           props.activation?.mode,
           props.voice?.tokenEndpoint,
           props.exportUi,
+          props.expectedOutcome,
+          !!props.captureContext,
         ] as const,
       start,
     );

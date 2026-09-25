@@ -170,7 +170,7 @@ function findByName(
   role: string,
   name: string,
   deadline: number,
-): Element[] {
+): Element[] | null {
   const out: Element[] = [];
   // The fallback alternative is a bare tag name: a stored role that is not
   // one (hydrated, hostile) must not be spliced into the selector unescaped.
@@ -189,7 +189,8 @@ function findByName(
   }
   for (let i = 0; i < list.length; i++) {
     // Sampled every four, not sixteen: a candidate's name read is not free.
-    if ((i & 3) === 3 && performance.now() > deadline) break;
+    // A partial scan cannot prove uniqueness, even if it found one match.
+    if ((i & 3) === 3 && performance.now() > deadline) return null;
     const el = list[i]!;
     if (roleOf(el) === role && accessibleName(el, labels) === name) {
       out.push(el);
@@ -360,12 +361,12 @@ export function findByCandidates(
   // budget (0.4.1 review #7).
   const deadline = performance.now() + FINGERPRINT_WALK_MS;
   if (selectors.testid) {
-    const hit = root.querySelector(`[data-testid="${CSS.escape(selectors.testid)}"]`);
-    if (hit) return hit;
+    const hits = root.querySelectorAll(`[data-testid="${CSS.escape(selectors.testid)}"]`);
+    if (hits.length === 1) return hits[0]!;
   }
   if (selectors.id) {
-    const hit = root.querySelector(`#${CSS.escape(selectors.id)}`);
-    if (hit) return hit;
+    const hits = root.querySelectorAll(`#${CSS.escape(selectors.id)}`);
+    if (hits.length === 1) return hits[0]!;
   }
   // Role + accessible name: the rung a CSS-modules rebuild cannot kill. Only a
   // UNIQUE match resolves. An ambiguous name contributes nothing — it must not
@@ -375,7 +376,7 @@ export function findByCandidates(
   // reorder, where the walk below would have found the true target (review #1).
   if (selectors.role && selectors.name) {
     const named = findByName(root, selectors.role, selectors.name, deadline);
-    if (named.length === 1) return named[0]!;
+    if (named?.length === 1) return named[0]!;
   }
   // A positional hit that contradicts a strong stored fingerprint is demoted,
   // not discarded: it still beats a merely-fuzzy candidate at the bottom of
@@ -437,15 +438,10 @@ export function findByCandidates(
     let exact: Element | null = null;
     let best: Element | null = null;
     let bestScore = 0;
+    let ambiguousExact = false;
+    let ambiguousBest = false;
     while (node) {
       const el = node as Element;
-      // Once an exact match exists, only its own descendants can replace it
-      // (the deepest-wins rule below). Pre-order traversal makes that subtree
-      // contiguous, so the first non-descendant marks its end and nothing after
-      // it can win — BREAK, not continue. Skipping instead walked the rest of
-      // the document for nothing: 16,002 of 16,005 elements on a large page,
-      // slower than doing no optimisation at all.
-      if (exact && !exact.contains(el)) break;
       // Every node charges the visit budget and the clock, so no run of skipped
       // tags can outrun either. Sampling the clock here rather than below also
       // means a long skip run cannot escape the deadline.
@@ -472,6 +468,7 @@ export function findByCandidates(
         // which is rare by construction.
         if (el.getClientRects().length > 0) {
           if (!exact || exact.contains(el)) exact = el;
+          else ambiguousExact = true;
         } else if (exact && exact.contains(el)) {
           // textContent flows UP, so the current exact may be a visible
           // wrapper mirroring THIS hidden descendant — the chain's true text
@@ -492,7 +489,8 @@ export function findByCandidates(
           if (score > bestScore || (score === bestScore && best !== null && best.contains(el))) {
             bestScore = score;
             best = el;
-          }
+            ambiguousBest = false;
+          } else if (score === bestScore) ambiguousBest = true;
         }
       }
       node = walker.nextNode();
@@ -506,7 +504,16 @@ export function findByCandidates(
     //
     // Only an EXACT fingerprint match displaces a positional hit — and exact
     // is laid-out by construction (acceptance above requires a client rect).
-    return exact ?? positional ?? best;
+    // A tied exact match abstains to structural evidence, and a tied fuzzy
+    // guess never picks the first stranger. A walk cut short by its budget
+    // (`node` still set) keeps an untied exact hit — most real pages exceed
+    // the budget, and abstaining there disabled this rung wherever it
+    // mattered — but drops the fuzzy guess, which an unscanned node could beat.
+    return (
+      (!ambiguousExact ? exact : null) ??
+      positional ??
+      (!node && !exact && !ambiguousBest ? best : null)
+    );
   }
   return positional;
 }

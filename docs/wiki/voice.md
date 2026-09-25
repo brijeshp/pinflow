@@ -67,7 +67,7 @@ The session orchestrator in `src/voice/session.ts` `startSession()` chains provi
 - **finalizing:** interims ignored; provider-tail finals still land (finalize blocks until ack or timeout).
 - **closed:** all input dropped.
 
-`session.stop()` and `dispose()` run a three-phase machine (recording → finalizing → settled): persistence happens exactly once on the transition into settled, and a dispose() during an in-flight stop() releases hardware while leaving persistence to the stop that owns it. On the core side, the Annotator's generation guards prevent late resolutions from touching storage or DOM post-destroy, and the **route frozen at dot creation** is the one the comment persists to.
+`session.stop()` and `dispose()` run a three-phase machine (recording → finalizing → settled): persistence happens exactly once on the transition into settled, and a dispose() during an in-flight stop() releases hardware while leaving persistence to the stop that owns it. On the core side, generation guards prevent late loads from resurrecting the UI. A finalized nonempty transcript arriving after destroy persists storage-only through shared comment construction. Route, full URL, scope and feedback are all frozen at dot creation; text fallback retains the same evidence. No core-to-voice runtime import was added.
 
 ## What an agent must NOT do here
 

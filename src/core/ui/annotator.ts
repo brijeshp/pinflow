@@ -1,4 +1,6 @@
-import { anchorTarget, anchorToScreen, buildAnchor, resolveAnchor } from '../anchor';
+import { normalizeFeedback, captureFeedback, captureUrl } from '../feedback';
+import type { FeedbackContext } from '../types';
+import { anchorTarget, anchorToScreen, buildAnchor, inAnchorLayer, resolveAnchor } from '../anchor';
 import { demoteScope, resolveScope } from '../scope';
 import type { ScopeRect } from '../scope';
 import { ScopeOutline } from './outline';
@@ -27,6 +29,7 @@ import {
   upsertComment,
 } from '../storage';
 import { rememberedReviewer } from '../identity';
+import { authoredRevision, reconcileSnapshots } from '../persistence';
 import type {
   Scope,
   ActivationConfig,
@@ -132,6 +135,9 @@ interface ActiveVoice {
 interface ActiveInput {
   wrap: HTMLDivElement;
   commentId: string;
+  /** Opened by the gesture that created the comment: nothing in it is the
+   *  reviewer's until they save, however much host context prefilled. */
+  fresh: boolean;
   /** Detach the popup's document-level dismiss listeners. */
   cleanup(): void;
   /** Persist the draft's current text and close (frozen popups just close).
@@ -149,6 +155,8 @@ export class Annotator {
   private readonly _routeKey: () => string;
   private _reviewer: string | null;
   private _store: ReviewerStore;
+  private _baseline: ReviewerStore;
+  private _healsPending = false;
   private _annotating = false;
   private _pins = new Map<string, HTMLButtonElement>();
   // Marching-ants footprints for area comments (one per visible area comment,
@@ -258,7 +266,9 @@ export class Annotator {
 
   constructor(deps: AnnotatorDeps) {
     this._deps = deps;
-    this._routeKey = deps.config.routeKey ?? routeKey;
+    this._routeKey =
+      deps.config.routeKey ??
+      (() => routeKey(captureUrl(window.location.href, deps.config.urlQueryParams)));
     this._ui = createUIRoot();
     this._applyTheme();
     this._reviewer = deps.reviewer;
@@ -269,6 +279,7 @@ export class Annotator {
         ? (loadStore(deps.storage, deps.config.project, deps.reviewer) ??
           emptyStore(deps.config.project, deps.reviewer))
         : emptyStore(deps.config.project, '');
+    this._baseline = { ...this._store, comments: this._store.comments.slice() };
     this._renderDock();
     this._renderPins();
     this._startGesture();
@@ -290,7 +301,12 @@ export class Annotator {
     this._mutations = new MutationObserver(this._onReflow);
     const observe = (): void => {
       if (!this._destroyed && document.body)
-        this._mutations?.observe(document.body, { childList: true, subtree: true });
+        this._mutations?.observe(document.body, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ['open', 'hidden', 'aria-hidden', 'class', 'style'],
+        });
     };
     if (document.body) observe();
     else document.addEventListener('DOMContentLoaded', observe, { once: true });
@@ -538,7 +554,24 @@ export class Annotator {
   private _persist(): void {
     this._invalidateViewCaches();
     this._reconcileIdentity();
-    saveStore(this._deps.storage, this._store);
+    if (this._writeStore()) this._renderPins();
+  }
+
+  private _writeStore(): boolean {
+    const before = JSON.stringify(this._store.comments);
+    const disk = loadStore(this._deps.storage, this._store.project, this._store.reviewer);
+    this._trackTies(disk?.comments ?? [], this._store.comments);
+    this._store = {
+      ...this._store,
+      comments: reconcileSnapshots(
+        this._baseline.comments,
+        this._store.comments,
+        disk?.comments ?? [],
+      ),
+    };
+    if (saveStore(this._deps.storage, this._store))
+      this._baseline = { ...this._store, comments: this._store.comments.slice() };
+    return before !== JSON.stringify(this._store.comments);
   }
 
   /**
@@ -594,13 +627,21 @@ export class Annotator {
     this._store = {
       ...this._store,
       reviewer: remembered,
-      comments: this._unionTracked(landed?.comments ?? [], this._store.comments),
+      comments: reconcileSnapshots(
+        this._baseline.comments,
+        this._store.comments,
+        landed?.comments ?? [],
+      ),
     };
+    this._baseline = landed ?? emptyStore(config.project, remembered);
   }
 
   // A2: notify the host after a persisted mutation. Host exceptions must never
   // break the annotator, and a torn-down world must never call out.
   private _emitChange(type: 'add' | 'update' | 'delete', comment: Comment): void {
+    const current = this._store.comments.find((c) => c.id === comment.id);
+    if (type === 'delete' ? current : !current) return;
+    if (current) comment = current;
     // Tombstone BEFORE the callback gate: the hydration race exists whether
     // or not the host listens to onChange.
     if (type === 'delete') this._pendingDeletes?.add(comment.id);
@@ -721,14 +762,7 @@ export class Annotator {
    * selector data whose feedback is fully present in the artifact, so
    * neither makes a comment "unexported" (0.11.0 review #7). */
   private _rev(c: Comment): string {
-    return JSON.stringify([
-      c.updatedAt,
-      c.status ?? 'open',
-      c.resolution ?? '',
-      c.text,
-      c.route,
-      c.createdAt,
-    ]);
+    return authoredRevision(c);
   }
 
   // Ids whose two copies tie on updatedAt but differ in revision, mapped to
@@ -796,7 +830,13 @@ export class Annotator {
   // doctrine, one layer up. The boundary survives: it is the one claim a heal
   // does not invalidate.
   private _healScope(comment: Comment): Comment {
-    return comment.scope ? { ...comment, scope: demoteScope(comment.scope) } : comment;
+    return comment.scope
+      ? {
+          ...comment,
+          capturedScope: comment.capturedScope ?? comment.scope,
+          scope: demoteScope(comment.scope),
+        }
+      : comment;
   }
 
   private _persistHeal(commentId: string, target: Element): void {
@@ -817,7 +857,14 @@ export class Annotator {
       ...this._store,
       comments: this._store.comments.map((x) =>
         x.id === commentId
-          ? this._healScope({ ...x, anchor: { ...x.anchor, selectors: fresh } })
+          ? this._healScope({
+              ...x,
+              anchor: {
+                ...x.anchor,
+                capturedSelectors: x.anchor.capturedSelectors ?? x.anchor.selectors,
+                selectors: fresh,
+              },
+            })
           : x,
       ),
     };
@@ -827,7 +874,7 @@ export class Annotator {
     // cache, however, still holds pre-heal comment objects and must go, or
     // later re-resolves would use the stale selectors (0.3.0 review #6).
     this._visibleCache = null;
-    saveStore(this._deps.storage, this._store);
+    this._healsPending = true;
   }
 
   private _syncChip(): void {
@@ -945,11 +992,17 @@ export class Annotator {
     this._reconcileIdentity();
     if (this._reviewer !== null) {
       const disk = loadStore(this._deps.storage, this._deps.config.project, this._reviewer);
-      if (disk)
+      if (disk) {
+        this._trackTies(disk.comments, this._store.comments);
         this._store = {
           ...this._store,
-          comments: this._unionTracked(disk.comments, this._store.comments),
+          comments: unionByRecency(
+            disk.comments,
+            reconcileSnapshots(this._baseline.comments, this._store.comments, disk.comments),
+          ),
         };
+        this._baseline = disk;
+      }
     }
     const cur = this._store.comments;
     const changed =
@@ -1577,6 +1630,7 @@ export class Annotator {
     this._store =
       loadStore(this._deps.storage, this._deps.config.project, name) ??
       emptyStore(this._deps.config.project, name);
+    this._baseline = { ...this._store, comments: this._store.comments.slice() };
     this._renderPins();
     this._hydrateFromSource(); // the store just became real — sync it (L2.1)
     return true;
@@ -1638,12 +1692,13 @@ export class Annotator {
     // neither box makes the resolve blink.
     if (scoped) this._outline.show(this._ui.root, scoped, region);
     const scope = scoped?.scope;
+    const feedback = captureFeedback(this._deps.config.captureContext, target);
     if (this._deps.config.voice) {
       if (this._activeVoice) return; // one recording at a time
-      this._startVoiceDot(anchor, clientX, clientY, scope);
+      this._startVoiceDot(anchor, clientX, clientY, scope, feedback);
       return;
     }
-    this._commitTextComment(anchor, '', true, undefined, undefined, scope);
+    this._commitTextComment(anchor, '', true, undefined, undefined, scope, feedback);
   }
 
   // `route`/`fullUrl` default to the current location; the voice degrade path
@@ -1656,6 +1711,7 @@ export class Annotator {
     route?: string,
     fullUrl?: string,
     scope?: Scope,
+    feedback?: FeedbackContext,
   ): void {
     const t = now();
     const comment: Comment = {
@@ -1663,7 +1719,7 @@ export class Annotator {
       createdAt: t,
       updatedAt: t,
       route: route ?? this._routeKey(),
-      fullUrl: fullUrl ?? window.location.href,
+      fullUrl: fullUrl ?? captureUrl(window.location.href, this._deps.config.urlQueryParams),
       text,
       modality: 'text',
       anchor,
@@ -1671,12 +1727,13 @@ export class Annotator {
       // note commits long after the gesture, and re-deriving at commit would
       // attribute a boundary to a DOM the reviewer never saw.
       ...(scope ? { scope } : {}),
+      ...(feedback ? { feedback } : {}),
     };
     this._store = upsertComment(this._store, comment);
     this._persist();
     this._emitChange('add', comment);
     this._renderPins();
-    if (openForEdit) this._openInput(comment.id);
+    if (openForEdit) this._openInput(comment.id, true);
   }
 
   private _loadVoiceModule(): Promise<VoiceModule> {
@@ -1686,7 +1743,13 @@ export class Annotator {
   // Drop a voice dot, lazily load the voice module, and start a session — with
   // generation guards so an import/start resolving after teardown self-cancels
   // and releases whatever it produced.
-  private _startVoiceDot(anchor: Anchor, clientX: number, clientY: number, scope?: Scope): void {
+  private _startVoiceDot(
+    anchor: Anchor,
+    clientX: number,
+    clientY: number,
+    scope?: Scope,
+    feedback?: FeedbackContext,
+  ): void {
     const mount = el('div');
     mount.style.cssText = 'position:fixed;';
     place(
@@ -1709,10 +1772,11 @@ export class Annotator {
       mount,
       anchor,
       route,
-      window.location.href,
+      captureUrl(window.location.href, this._deps.config.urlQueryParams),
       active,
       myGen,
       scope,
+      feedback,
     );
 
     this._loadVoiceModule()
@@ -1747,11 +1811,11 @@ export class Annotator {
     // reason: a recording commits long after the gesture, and all three
     // describe one moment that must never split across a navigation.
     scope?: Scope,
+    feedback?: FeedbackContext,
   ): VoiceHost {
-    const commitVoice = (text: string, voice: VoiceMeta): void => {
-      if (this._activeVoice === active) this._activeVoice = null;
+    const voiceComment = (text: string, voice: VoiceMeta): Comment => {
       const t = now();
-      const comment: Comment = {
+      return {
         id: createId(),
         createdAt: t,
         updatedAt: t,
@@ -1764,7 +1828,12 @@ export class Annotator {
         // An area + voice comment carries both: the scope is a property of the
         // gesture, not of the modality.
         ...(scope ? { scope } : {}),
+        ...(feedback ? { feedback } : {}),
       };
+    };
+    const commitVoice = (text: string, voice: VoiceMeta): void => {
+      if (this._activeVoice === active) this._activeVoice = null;
+      const comment = voiceComment(text, voice);
       this._store = upsertComment(this._store, comment);
       this._persist();
       this._emitChange('add', comment);
@@ -1786,24 +1855,10 @@ export class Annotator {
       commit: ({ text, voice }) => {
         if (this._destroyed) {
           if (text.trim().length === 0 || this._reviewer === null) return;
-          const t = now();
           const stored =
             loadStore(this._deps.storage, this._deps.config.project, this._reviewer) ??
             emptyStore(this._deps.config.project, this._reviewer);
-          saveStore(
-            this._deps.storage,
-            upsertComment(stored, {
-              id: createId(),
-              createdAt: t,
-              updatedAt: t,
-              route,
-              fullUrl,
-              text,
-              modality: 'voice',
-              voice,
-              anchor,
-            }),
-          );
+          saveStore(this._deps.storage, upsertComment(stored, voiceComment(text, voice)));
           return;
         }
         commitVoice(text, voice);
@@ -1826,7 +1881,7 @@ export class Annotator {
         const live = gen === this._generation;
         const text = prefill ?? '';
         if (!live && text.length === 0) return;
-        this._commitTextComment(anchor, text, live, route, fullUrl, scope);
+        this._commitTextComment(anchor, text, live, route, fullUrl, scope, feedback);
       },
       logger: this._voiceLogger,
       signal: active.abort.signal,
@@ -1899,6 +1954,13 @@ export class Annotator {
       this._ui.root.appendChild(pin);
       this._pins.set(c.id, pin);
     });
+    this._flushHeals();
+  }
+
+  private _flushHeals(): void {
+    if (!this._healsPending) return;
+    this._healsPending = false;
+    if (this._writeStore()) this._renderPins();
   }
 
   // The footprint is the anchored element's live rect × the stored
@@ -2012,6 +2074,7 @@ export class Annotator {
       const area = this._areas.get(id);
       if (area) this._placeArea(area, c, target, rect);
     }
+    this._flushHeals();
     // A pass that skipped its parked pins because of the gate still owes them
     // one retry once it expires: the pass was triggered by a change (a
     // mutation, a scroll), and a dialog reopening 100 ms after it closed is
@@ -2038,7 +2101,8 @@ export class Annotator {
   // _repositionPins) — its position can't change per frame.
   private _cachedAnchor(c: Comment): Element | null {
     const hit = this._anchorCache.get(c.id);
-    if (hit === null || (hit !== undefined && hit.isConnected)) return hit;
+    if (hit === null || (hit !== undefined && hit.isConnected && inAnchorLayer(c.anchor, hit)))
+      return hit;
     const el = resolveAnchor(c.anchor);
     this._anchorCache.set(c.id, el);
     return el;
@@ -2048,7 +2112,7 @@ export class Annotator {
   // anywhere outside dismisses, dropping unsaved edits. Dismissing a comment
   // whose saved text is still empty deletes it — no orphan pins littering the
   // page from an accidental gesture.
-  private _openInput(commentId: string): void {
+  private _openInput(commentId: string, fresh = false): void {
     this._closeActiveInput();
     const comment = this._store.comments.find((c) => c.id === commentId);
     if (!comment) return;
@@ -2063,6 +2127,18 @@ export class Annotator {
     ta.rows = 3;
     ta.readOnly = frozen;
     wrap.appendChild(ta);
+    const outcome =
+      this._deps.config.expectedOutcome || comment.feedback?.expected ? el('textarea') : null;
+    if (outcome) {
+      outcome.setAttribute('aria-label', 'Expected outcome');
+      outcome.placeholder = 'What should happen? (optional)';
+      outcome.rows = 2;
+      outcome.maxLength = 1000;
+      outcome.value = comment.feedback?.expected ?? '';
+      outcome.readOnly = frozen;
+      wrap.appendChild(el('div', 'res', 'Expected outcome (optional)'));
+      wrap.appendChild(outcome);
+    }
     if (frozen) {
       const mark = comment.status === 'done' ? '✓ Done' : '✕ Declined';
       const note = comment.resolution ? ` — ${comment.resolution}` : '';
@@ -2080,7 +2156,11 @@ export class Annotator {
         this._closeActiveInput(false);
         return;
       }
-      if (persisted && ta.value !== persisted.text) {
+      if (
+        persisted &&
+        (ta.value !== persisted.text ||
+          (outcome && outcome.value !== (persisted.feedback?.expected ?? '')))
+      ) {
         // Hand-correcting a voice transcript flags the meta as edited (immutably).
         const voicePatch = persisted.voice ? { voice: { ...persisted.voice, edited: true } } : {};
         const updated: Comment = {
@@ -2089,11 +2169,16 @@ export class Annotator {
           updatedAt: now(),
           ...voicePatch,
         };
+        if (outcome) {
+          const feedback = normalizeFeedback({ ...persisted.feedback, expected: outcome.value });
+          if (feedback) updated.feedback = feedback;
+          else delete updated.feedback;
+        }
         this._store = upsertComment(this._store, updated);
         this._persist();
         this._emitChange('update', updated);
       }
-      this._closeActiveInput();
+      this._closeActiveInput(true, true);
     };
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
@@ -2104,6 +2189,7 @@ export class Annotator {
       }
     };
     ta.addEventListener('keydown', onKey);
+    outcome?.addEventListener('keydown', onKey);
     // The chip is exempt so a tap on it reaches _toggleSheet, which saves this
     // draft losslessly instead of the outside-tap discarding it (review #3).
     const disarm = this._armOutsideDismiss(
@@ -2143,6 +2229,7 @@ export class Annotator {
     this._activeInput = {
       wrap,
       commentId,
+      fresh,
       cleanup: disarm,
       save: () => (frozen ? this._closeActiveInput() : save()),
     };
@@ -2223,8 +2310,10 @@ export class Annotator {
 
   // Closing never saves — Save is explicit. A dismissed comment whose SAVED
   // text is still empty gets deleted (`cleanupEmpty=false` for delete/destroy:
-  // delete already removed it; destroy must not write during teardown).
-  private _closeActiveInput(cleanupEmpty = true): void {
+  // delete already removed it; destroy must not write during teardown). A
+  // saved expected outcome counts as content; host context on a fresh pin the
+  // reviewer never saved does not, or every dismissed gesture would persist.
+  private _closeActiveInput(cleanupEmpty = true, saved = false): void {
     const input = this._activeInput;
     // AFTER the guard, not before it. _openInput closes any previous composer
     // on its way in, so an unconditional clear here wiped the outline that the
@@ -2239,7 +2328,12 @@ export class Annotator {
     const c = this._store.comments.find((x) => x.id === input.commentId);
     // Resolved comments are exempt: they can't be empty in practice (the team
     // dispositioned real feedback) but a shared record must never self-delete.
-    if (c && c.text === '' && !isResolved(c)) {
+    if (
+      c &&
+      c.text === '' &&
+      ((input.fresh && !saved) || !c.feedback?.expected) &&
+      !isResolved(c)
+    ) {
       this._store = deleteCommentFromStore(this._store, input.commentId);
       this._persist();
       this._emitChange('delete', c);
@@ -2261,6 +2355,7 @@ export class Annotator {
    * Public — exposed on the init() handle for host-owned pipelines.
    */
   exportJSON(): string {
+    if (this._deps.mode === 'reviewer') this._foldDurable();
     return exportStoresJSON(this._deps.mode === 'builder' ? this._allStores() : this._store);
   }
 
@@ -2301,6 +2396,7 @@ export class Annotator {
    * reviewer who deliberately cleared the field (0.7.0 review #5).
    */
   private _buildArtifact(attributeTo?: string): [md: string, filename: string] {
+    if (this._deps.mode === 'reviewer') this._foldDurable();
     const { project, describeRoute } = this._deps.config;
     const meta = { generatedAt: now(), project };
     const builder = this._deps.mode === 'builder';
@@ -2359,6 +2455,7 @@ export class Annotator {
       ...landed,
       comments: this._unionTracked(landed.comments, this._store.comments),
     };
+    this._baseline = landed;
     // Folding into an existing corpus changes what belongs on screen; without
     // this the pins and the chip disagree with the artifact (review #6).
     this._renderPins();

@@ -46,11 +46,12 @@ function reviewerKey(project: string): string {
 
 // Best-effort, mirroring storage.ts's never-throw discipline: private modes /
 // full quotas may reject the write; identity then just isn't remembered.
-export function rememberReviewer(storage: Storage, project: string, name: string): void {
+export function rememberReviewer(storage: Storage, project: string, name: string): boolean {
   try {
     storage.setItem(reviewerKey(project), name);
+    return storage.getItem(reviewerKey(project)) === name;
   } catch {
-    /* non-persistent session */
+    return false;
   }
 }
 

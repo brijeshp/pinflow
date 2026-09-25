@@ -111,6 +111,19 @@ function layerOf(el: Element): Anchor['layer'] {
   return name ? { role: 'dialog', name } : { role: 'dialog' };
 }
 
+/** Connectivity alone does not make a cached target's modal layer available. */
+export function inAnchorLayer(anchor: Anchor, el: Element): boolean {
+  const layer = anchor.layer;
+  if (!layer) return true;
+  const dialog = el.closest(LAYER);
+  return (
+    !!dialog &&
+    !el.closest('dialog:not([open]),[hidden],[aria-hidden="true"]') &&
+    getComputedStyle(dialog).display !== 'none' &&
+    (layer.name === undefined || layerName(dialog) === layer.name)
+  );
+}
+
 export function buildAnchor(
   target: Element,
   clientX: number,
@@ -149,6 +162,11 @@ export function buildAnchor(
     viewport: currentViewport(),
     context,
   };
+  if (target !== el)
+    anchor.target = {
+      selectors: buildSelectors(target),
+      textFingerprint: getTextFingerprint(target),
+    };
   const layer = layerOf(el);
   if (layer) anchor.layer = layer;
   return anchor;
@@ -166,7 +184,7 @@ export function resolveAnchor(anchor: Anchor, root: Document = document): Elemen
   const layer = anchor.layer;
   if (!layer) return findByCandidates(root, anchor.selectors, anchor.textFingerprint);
   for (const dialog of Array.from(root.querySelectorAll(LAYER))) {
-    if (layer.name !== undefined && layerName(dialog) !== layer.name) continue;
+    if (!inAnchorLayer(anchor, dialog)) continue;
     const hit = findByCandidates(dialog, anchor.selectors, anchor.textFingerprint);
     if (hit && dialog.contains(hit)) return hit;
   }

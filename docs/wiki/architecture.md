@@ -15,6 +15,8 @@ src/
     ui/outline.ts     the scope outline: one container, N boxes, one idempotent remove()
     gesture/          stealth activation (Alt+click / long-press)
     storage.ts        schema-versioned localStorage persistence (v1→v2→v3→v4)
+    persistence.ts   three-way baseline/desired/disk reconciliation for same-reviewer tabs
+    feedback.ts      bounded capture context, hydration normalization, opt-in URL policy
     safe-storage.ts   in-memory fallback when localStorage is blocked
     anchor.ts         element anchoring: build/resolve/screen-project anchors
     selector.ts       selector-candidate generation + resolution ladder
@@ -28,6 +30,8 @@ src/
     voice-loader.ts   the ONLY place voice is imported — dynamic import('@brijeshp/pinflow/voice')
     iife.ts           CDN/script-tag auto-init shim
   voice/              optional module: mic capture, Deepgram streaming, dot UI
+  verification/       optional DOM-free revision-bound verification sidecars
+  instrumentation/    optional Node-only development JSX/TSX source hints
   react/index.ts      thin wrapper (<Annotator> component)
   vue/index.ts        thin wrapper (props mirror config; onSubmit → submitHandler)
 ```
@@ -44,7 +48,7 @@ Voice must cost text-only users **0 bytes**. `@brijeshp/pinflow/voice` is marked
 2. **Pin**: click an element → `buildAnchor()` (`src/core/anchor.ts`) resolves the nearest `data-testid` ancestor of the click target, then captures selector candidates (`src/core/selector.ts`), a text fingerprint, and percentage offsets from it.
 3. **Comment**: text via the explicit-save editor popup, or voice via the lazily-loaded module streaming Deepgram transcripts back through `VoiceHost.commit`.
    3b. **Scope**: `resolveScope()` (`src/core/scope.ts`) derives the edit boundary ONCE at placement — never on a reflow frame — and `ScopeOutline` paints it before the composer opens.
-4. **Persist**: `upsertComment()` → `saveStore()` (`src/core/storage.ts`) under `pinflow:c:<project>:<reviewer>`; `onChange` fires after each persisted mutation.
+4. **Persist**: `upsertComment()` → baseline/desired/disk reconciliation (`persistence.ts`) → `saveStore()` (`src/core/storage.ts`) under `pinflow:c:<project>:<reviewer>`; `onChange` fires after each persisted mutation.
 5. **Hydrate** (hosts with a backend): `config.source()` fetched once at identity resolution, merged by comment id (`mergeComments()`); server wins disposition, local-only/newer comments re-announce through `onChange` so sync losses self-heal.
 6. **Re-render**: route changes (`src/core/router.ts` or host-driven `Handle.refreshRoute()`) close any open draft popup and re-scope pins to the current logical screen (`src/core/route-key.ts`, or host-supplied `config.routeKey`).
 7. **Export**: `src/core/export.ts` renders reviewer/builder markdown and versioned JSON (also reachable via `Handle.exportMarkdown()/exportJSON()/downloadExport()` and the package-entry toolkit re-exports); comment text is untrusted input — blockquote escaping guards prompt injection when users paste exports into coding agents.
@@ -60,3 +64,7 @@ Voice must cost text-only users **0 bytes**. `@brijeshp/pinflow/voice` is marked
 
 - **reviewer** (default): one person's pins, scoped to their name.
 - **builder**: the handle's exports aggregate every reviewer store in the browser. Renders no chrome and no foreign pins — the drawer, reviewer filter and read-only pin view were removed in 0.9.0 (tag `builder-mode-final`); the aggregation they wrapped is untouched.
+
+## Optional feedback tooling
+
+`captureContext` runs once with the actual clicked element and carries explicit reproduction facts through text/voice storage and export. Original selectors/scope survive repair, and repairs flush once per render/reposition pass. The verification entry hashes the original evidence and authored request; it validates reports without executing checks or changing status. The development instrumentation entry accepts the host compiler and emits relative source hints plus source maps for JSX/TSX. Both are separate package exports, never core imports, and add no mandatory runtime dependencies.

@@ -20,6 +20,8 @@ export default defineConfig([
     entry: {
       index: 'src/core/index.ts',
       voice: 'src/voice/index.ts',
+      verification: 'src/verification/index.ts',
+      instrumentation: 'src/instrumentation/index.ts',
     },
     format: ['esm', 'cjs'],
     dts: true,

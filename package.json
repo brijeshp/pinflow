@@ -1,7 +1,7 @@
 {
   "name": "@brijeshp/pinflow",
   "version": "0.12.1",
-  "description": "Add a comment layer to any web page, then hand the export to your coding agent. One script tag, 17 kB, and reviewers don't install anything.",
+  "description": "Add a comment layer to any web page, then hand the export to your coding agent. One script tag, zero dependencies, and reviewers don't install anything.",
   "keywords": [
     "annotation",
     "feedback",
@@ -52,7 +52,17 @@
       "import": "./dist/voice.js",
       "require": "./dist/voice.cjs"
     },
-    "./package.json": "./package.json"
+    "./package.json": "./package.json",
+    "./verification": {
+      "types": "./dist/verification.d.ts",
+      "import": "./dist/verification.js",
+      "require": "./dist/verification.cjs"
+    },
+    "./instrumentation": {
+      "types": "./dist/instrumentation.d.ts",
+      "import": "./dist/instrumentation.js",
+      "require": "./dist/instrumentation.cjs"
+    }
   },
   "files": [
     "dist",
@@ -117,7 +127,7 @@
     {
       "name": "core (IIFE, gz)",
       "path": "dist/pinflow.iife.js",
-      "limit": "25.04 KB",
+      "limit": "26.71 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow/voice"
@@ -126,7 +136,7 @@
     {
       "name": "core (ESM, gz)",
       "path": "dist/index.js",
-      "limit": "24.91 KB",
+      "limit": "26.57 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow/voice"
@@ -141,7 +151,7 @@
     {
       "name": "react wrapper (ESM, gz)",
       "path": "dist/react.js",
-      "limit": "0.47 KB",
+      "limit": "0.51 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow",
@@ -151,7 +161,7 @@
     {
       "name": "vue wrapper (ESM, gz)",
       "path": "dist/vue.js",
-      "limit": "0.61 KB",
+      "limit": "0.69 KB",
       "gzip": true,
       "ignore": [
         "@brijeshp/pinflow",

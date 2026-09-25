@@ -21,6 +21,10 @@ describe('bundle isolation', () => {
     for (const file of built) {
       const contents = readFileSync(file, 'utf8');
       expect(contents, `${file} must not contain voice symbols`).not.toMatch(VOICE_SYMBOLS);
+      expect(
+        contents,
+        `${file} must not contain optional verification or build tooling`,
+      ).not.toMatch(/transpileModule|node:path|SHA-256/);
       expect(contents, `${file} should keep the external voice import`).toContain(
         '@brijeshp/pinflow/voice',
       );
