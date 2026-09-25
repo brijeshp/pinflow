@@ -164,3 +164,16 @@ describe('shadow UI is unselectable chrome (0.5.x touch fix)', () => {
     expect(STYLES).toMatch(/\.input textarea\{[^}]*user-select:text/);
   });
 });
+
+// Chromium on touch paints its default tap highlight — a translucent blue
+// SQUARE, rgba(51,181,229,.4) — over any tapped control that does not opt out:
+// the round count chip flashed a box for ~5 frames (seen recording the
+// pinflow.dev hero clip under mobile emulation). The host's inline all:initial
+// resets the property, so a host page's own opt-out never reaches the shadow
+// tree. It inherits, so the root covers every control beneath it — pins, arm,
+// chip, panel and popup buttons, the voice dot — like the callout rule above.
+describe('tapped controls paint no highlight (touch)', () => {
+  it('the root sets a transparent tap highlight for the whole tree', () => {
+    expect(STYLES).toMatch(/\.root\{[^}]*-webkit-tap-highlight-color:transparent/);
+  });
+});

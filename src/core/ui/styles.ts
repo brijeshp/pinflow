@@ -13,7 +13,10 @@ export const STYLES =
   // The var fallback repeats the static stack (not `inherit`) so .root never
   // depends on :host's font surviving `all:initial` — some Chromium builds
   // drop it (audit 2026-07-23: untokened embeds computed Times).
-  '.root{position:fixed;inset:0;pointer-events:none;z-index:2147483646;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;font-family:var(--pf-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif)}' +
+  // Touch: Chromium flashes a translucent blue tap-highlight square over any
+  // tapped control. It inherits, so this one declaration covers every control;
+  // the host's all:initial stops a page's own opt-out from reaching the tree.
+  '.root{position:fixed;inset:0;pointer-events:none;z-index:2147483646;-webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;font-family:var(--pf-font-family,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif)}' +
   // Bottom-left dock (0.5.0): the ONE standing affordance. Arm segment (+/×)
   // in neutral chrome; the count chip joins it when there is something to
   // export. Children carry pointer-events — the dock itself stays inert.
